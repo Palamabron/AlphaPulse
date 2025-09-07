@@ -1,0 +1,149 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alphapulse"
+dynamic = ["version"]
+description = ""
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = []
+authors = [
+  { name = "jakub.szulc", email = "szulcak05@gmail.com" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = []
+
+[project.urls]
+Documentation = "https://github.com/jakub.szulc/alphapulse#readme"
+Issues = "https://github.com/jakub.szulc/alphapulse/issues"
+Source = "https://github.com/jakub.szulc/alphapulse"
+
+[tool.hatch.version]
+path = "src/alphapulse/__about__.py"
+
+[tool.hatch.envs.default]
+installer = "uv"
+features = ["dev"]
+dependencies = [
+  "pre-commit>=3.7.0",
+  "ruff>=0.5.0",
+  "black>=24.4.0",
+  "mypy>=1.10.0",
+  "types-requests>=2.32.0.20240521",
+  "types-PyYAML>=6.0.12.20240808",
+]
+
+[tool.hatch.envs.default.scripts]
+lint = [
+  "ruff check src tests",
+  "black --check --quiet .",
+]
+format = [
+  "ruff check --select I --fix src tests",
+  "ruff format .",
+]
+types = "mypy --install-types --non-interactive src/alphapulse tests"
+all = [
+  "ruff check src tests",
+  "ruff format --check .",
+  "mypy src/alphapulse tests",
+]
+
+[tool.hatch.envs.types]
+extra-dependencies = [
+  "mypy>=1.0.0",
+]
+
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/alphapulse tests}"
+
+[tool.coverage.run]
+source_pkgs = ["alphapulse", "tests"]
+branch = true
+parallel = true
+omit = [
+  "src/alphapulse/__about__.py",
+]
+
+[tool.coverage.paths]
+alphapulse = ["src/alphapulse", "*/alphapulse/src/alphapulse"]
+tests = ["tests", "*/alphapulse/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["build", "dist", ".venv", ".eggs"]
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E","F","W",
+  "I",
+  "UP",
+  "B",
+  "ASYNC",
+  "S",
+  "C4",
+  "PIE",
+  "T20",
+  "PLE",
+  "PLW",
+]
+ignore = [
+  "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "T20"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+pretty = true
+exclude = [
+  '^build/.*',
+  '^dist/.*',
+  '^\.venv/.*',
+]
+
+[[tool.mypy.overrides]]
+module = [
+  "requests.*",
+  "yaml.*",
+]
+ignore_missing_imports = true
