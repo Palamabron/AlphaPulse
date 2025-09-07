@@ -22,6 +22,15 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = []
+optional-dependencies = { dev = [
+  "pre-commit>=3.7.0",
+  "ruff>=0.12",
+  "black>=24",
+  "mypy>=1.10",
+  "types-requests>=2.32",
+  "types-PyYAML>=6.0",
+  "nbqa>=1.9.1",
+] }
 
 [project.urls]
 Documentation = "https://github.com/jakub.szulc/alphapulse#readme"
@@ -34,14 +43,6 @@ path = "src/alphapulse/__about__.py"
 [tool.hatch.envs.default]
 installer = "uv"
 features = ["dev"]
-dependencies = [
-  "pre-commit>=3.7.0",
-  "ruff>=0.5.0",
-  "black>=24.4.0",
-  "mypy>=1.10.0",
-  "types-requests>=2.32.0.20240521",
-  "types-PyYAML>=6.0.12.20240808",
-]
 
 [tool.hatch.envs.default.scripts]
 lint = [
