@@ -93,7 +93,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [
-  "E","F","W",
+  "E", "F", "W",
   "I",
   "UP",
   "B",
