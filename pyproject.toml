@@ -36,9 +36,9 @@ dev = [
 
 
 [project.urls]
-Documentation = "https://github.com/jakub.szulc/alphapulse#readme"
-Issues = "https://github.com/jakub.szulc/alphapulse/issues"
-Source = "https://github.com/jakub.szulc/alphapulse"
+Documentation = "https://github.com/Palamabron/AlphaPulse/blob/main/README.md"
+Issues = "https://github.com/Palamabron/AlphaPulse/issues"
+Source = "https://github.com/Palamabron/AlphaPulse"
 
 [tool.hatch.version]
 path = "src/alphapulse/__about__.py"
