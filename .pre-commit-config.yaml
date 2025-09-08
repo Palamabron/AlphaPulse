@@ -1,0 +1,50 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.17.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-requests>=2.32
+          - types-PyYAML>=6.0
+
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+        additional_dependencies:
+          - "ruff>=0.12"
+        args: [--fix]
+        files: \.ipynb$
+      - id: nbqa-black
+        additional_dependencies:
+          - "black>=24"
+        args: [--nbqa-mutate]
+        files: \.ipynb$
+      - id: nbqa-mypy
+        additional_dependencies:
+          - "mypy>=1.10"
+          - "types-requests>=2.32"
+          - "types-PyYAML>=6.0"
+        files: \.ipynb$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+        exclude: \.ipynb$
+      - id: trailing-whitespace
+        exclude: \.ipynb$
