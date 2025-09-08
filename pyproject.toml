@@ -22,7 +22,9 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dependencies = []
-optional-dependencies = { dev = [
+
+[project.optional-dependencies]
+dev = [
   "pre-commit>=3.7.0",
   "ruff>=0.12",
   "black>=24",
@@ -30,7 +32,8 @@ optional-dependencies = { dev = [
   "types-requests>=2.32",
   "types-PyYAML>=6.0",
   "nbqa>=1.9.1",
-] }
+]
+
 
 [project.urls]
 Documentation = "https://github.com/jakub.szulc/alphapulse#readme"
