@@ -61,9 +61,7 @@ all = [
 ]
 
 [tool.hatch.envs.types]
-extra-dependencies = [
-  "mypy>=1.0.0",
-]
+extra-dependencies = []
 
 [tool.hatch.envs.types.scripts]
 check = "mypy --install-types --non-interactive {args:src/alphapulse tests}"
