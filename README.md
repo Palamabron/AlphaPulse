@@ -42,6 +42,36 @@ hatch run types
 hatch run all
 ```
 
+## Rebuild dev environment
+
+When dependencies change in pyproject.toml, use uv to resync the environment quickly.
+
+```bash
+# Fast sync (recommended)
+uv sync
+
+# Via Hatch (uses the configured env/installer)
+hatch run -e default -- uv sync
+```
+
+For a clean rebuild:
+
+```bash
+# Remove and recreate the Hatch environment
+hatch env remove default
+hatch run -e default -- uv sync
+```
+
+To add/remove packages and update pyproject.toml automatically:
+
+```bash
+# Add dependencies
+uv add tenacity loguru requests
+
+# Remove dependencies
+uv remove tenacity
+```
+
 ## License
 
 `alphapulse` is distributed under the terms of the MIT license.
