@@ -50,7 +50,7 @@ features = ["dev"]
 [tool.hatch.envs.default.scripts]
 lint = [
   "ruff check src tests",
-  "black --check --quiet .",
+  "ruff format --check .",
 ]
 format = [
   "ruff check --select I --fix src tests",
