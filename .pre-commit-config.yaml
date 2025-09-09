@@ -88,7 +88,6 @@ repos:
     hooks:
       - id: vulture-warn-only
         name: vulture (warn-only)
-        # Force zero exit code to avoid blocking commits; prints findings as warnings
-        entry: bash -c 'vulture src tests --min-confidence 80 || true'
+        entry: bash -c 'dirs=""; [ -d src ] && dirs="$dirs src"; [ -d tests ] && dirs="$dirs tests"; if [ -n "$dirs" ]; then vulture $dirs --min-confidence 80 || true; else echo "No src/ or tests/ directory to check."; fi'
         language: system
         pass_filenames: false
