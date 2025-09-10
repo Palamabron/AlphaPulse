@@ -21,7 +21,15 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+  "python-dotenv",
+  "polygon-api-client>=1.14",
+  "requests>=2.31",
+  "loguru>=0.7",
+  "tenacity>=8.2",
+  "pydantic>=2,<3",
+  "pandas"
+]
 
 [project.optional-dependencies]
 dev = [
@@ -127,6 +135,7 @@ target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
+plugins = ["pydantic.mypy"]
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
