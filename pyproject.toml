@@ -21,7 +21,11 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-dependencies = []
+dependencies = [
+  "psycopg2-binary>=2.9",
+  "pgvector>=0.3",
+  "pydantic>=2,<3"
+]
 
 [project.optional-dependencies]
 dev = [
