@@ -22,6 +22,7 @@ repos:
         additional_dependencies:
           - types-requests>=2.32
           - types-PyYAML>=6.0
+          - pydantic
 
   # nbQA: apply linters/type-checkers to Jupyter notebooks
   - repo: https://github.com/nbQA-dev/nbQA
@@ -38,6 +39,7 @@ repos:
           - "mypy>=1.10"
           - "types-requests>=2.32"
           - "types-PyYAML>=6.0"
+          - pydantic
         files: \.ipynb$
 
   # Generic sanity checks for common file issues
