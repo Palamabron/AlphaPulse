@@ -1,93 +1,28 @@
 repos:
-  # Ruff: unified linter + formatter (replaces Black, isort, Flake8)
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.12
-    hooks:
-      # Run the linter first, with autofix enabled
-      - id: ruff-check
-        name: ruff (lint, autofix)
-        args: [--fix]
-        # Avoid running on notebooks; nbQA handles them below
-        types_or: [python, pyi]
-      # Then run the formatter to normalize layout after fixes
-      - id: ruff-format
-        name: ruff (format)
-        types_or: [python, pyi]
-
-  # MyPy: static type checking (Ruff enforces annotations but is not a type checker)
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1
-    hooks:
-      - id: mypy
-        additional_dependencies:
-          - types-requests>=2.32
-          - types-PyYAML>=6.0
-
-  # nbQA: apply linters/type-checkers to Jupyter notebooks
-  - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.9.1
-    hooks:
-      - id: nbqa-ruff
-        name: nbqa (ruff)
-        additional_dependencies: ["ruff>=0.12"]
-        args: [--fix]
-        files: \.ipynb$
-      - id: nbqa-mypy
-        name: nbqa (mypy)
-        additional_dependencies:
-          - "mypy>=1.10"
-          - "types-requests>=2.32"
-          - "types-PyYAML>=6.0"
-        files: \.ipynb$
-
-  # Generic sanity checks for common file issues
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: check-yaml
       - id: check-toml
       - id: check-json
-      - id: check-added-large-files
-        args: [--maxkb=2500]   # Prevent committing very large files
       - id: check-merge-conflict
-      - id: debug-statements  # Disallow accidental debug code (e.g., pdb)
       - id: detect-private-key
       - id: end-of-file-fixer
         exclude: \.ipynb$
       - id: trailing-whitespace
         exclude: \.ipynb$
-      - id: mixed-line-ending
-      - id: check-case-conflict
 
-  # uv: keep uv.lock in sync and auto-sync environments after VCS events
-  - repo: https://github.com/astral-sh/uv-pre-commit
-    # Pin to a version compatible with your uv installation
-    rev: 0.8.15
-    hooks:
-      # Ensure uv.lock is up-to-date whenever pyproject.toml changes
-      - id: uv-lock
-        name: uv lock (ensure uv.lock is up-to-date)
-        files: ^pyproject\.toml$
-      # Auto-sync environment after switching branches, pulling, or history rewrites
-      # These hooks don't operate on files, so mark them as always_run
-      - id: uv-sync
-        name: uv sync (post-checkout)
-        stages: [post-checkout]
-        always_run: true
-      - id: uv-sync
-        name: uv sync (post-merge)
-        stages: [post-merge]
-        always_run: true
-      - id: uv-sync
-        name: uv sync (post-rewrite)
-        stages: [post-rewrite]
-        always_run: true
-
-  # Vulture: warn-only (reports dead code across the repo but never blocks commits)
   - repo: local
     hooks:
-      - id: vulture-warn-only
-        name: vulture (warn-only)
-        entry: bash -c 'dirs=""; [ -d src ] && dirs="$dirs src"; [ -d tests ] && dirs="$dirs tests"; if [ -n "$dirs" ]; then vulture $dirs --min-confidence 80 || true; else echo "No src/ or tests/ directory to check."; fi'
+      - id: make-precommit
+        name: make precommit (lint + nb-lint + types + deadcode)
+        entry: make precommit
         language: system
         pass_filenames: false
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.15
+    hooks:
+      - id: uv-lock
+        name: uv lock (update uv.lock)
+        files: ^pyproject\.toml$
