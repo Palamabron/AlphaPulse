@@ -1,7 +1,10 @@
-.PHONY: sync format lint types test all nb-format nb-lint nb-types deadcode precommit
+.PHONY: sync-core sync-dev format lint types test all nb-format nb-lint nb-types deadcode precommit
 
-sync:
-	uv sync --dev
+sync-core:
+	uv sync
+
+sync-dev:
+	uv sync --extra dev
 
 format:
 	uv run ruff check --select I --fix src tests

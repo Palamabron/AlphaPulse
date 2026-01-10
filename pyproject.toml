@@ -26,8 +26,10 @@ dependencies = [
   "requests>=2.31",
   "loguru>=0.7",
   "tenacity>=8.2",
-  "pydantic>=2,<3",
-  "pandas"
+  "pydantic>=2",
+  "pandas",
+  "numerapi",
+  "tyro",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +41,7 @@ dev = [
   "types-PyYAML>=6.0",
   "nbqa>=1.9.1",
   "vulture>=2.3",
+  "pytest>=8",
 ]
 
 
