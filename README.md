@@ -99,5 +99,3 @@ More information here: https://www.conventionalcommits.org/en/v1.0.0/
 ## License
 
 `alphapulse` is distributed under the terms of the MIT license.
-
-[1](https://img.shields.io/p)
