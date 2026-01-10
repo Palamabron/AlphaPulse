@@ -1,7 +1,7 @@
 .PHONY: sync format lint types test all nb-format nb-lint nb-types deadcode precommit
 
 sync:
-	uv sync
+	uv sync --dev
 
 format:
 	uv run ruff check --select I --fix src tests
@@ -18,24 +18,25 @@ test:
 	uv run pytest
 
 # --- Notebooks (.ipynb) via nbQA ---
-# nbQA runs tools over notebooks while preserving notebook structure.
+# nbQA expects: nbqa <tool> <notebook(s)/dir(s)> -- <tool args>. [web:95]
+# Ruff formatter is a subcommand: ruff format ... [web:32]
 NB := $(shell find notebooks -type f -name "*.ipynb" 2>/dev/null)
 
 nb-format:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to format."; exit 0; else \
-		uv run nbqa ruff --fix $(NB); \
-		uv run nbqa ruff-format $(NB); \
+		uv run nbqa ruff $(NB) -- check --fix; \
+		uv run nbqa ruff $(NB) -- format; \
 	fi
 
 nb-lint:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to lint."; exit 0; else \
-		uv run nbqa ruff $(NB); \
-		uv run nbqa ruff-format --check $(NB); \
+		uv run nbqa ruff $(NB) -- check; \
+		uv run nbqa ruff $(NB) -- format --check; \
 	fi
 
 nb-types:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to type-check."; exit 0; else \
-		uv run nbqa mypy --install-types --non-interactive $(NB); \
+		uv run nbqa mypy $(NB) -- --install-types --non-interactive; \
 	fi
 
 # --- Dead code ---

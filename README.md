@@ -62,12 +62,12 @@ What each target does:
 - `make sync`: Syncs the local virtual environment from `uv.lock` (reproducible dev env).
 - `make format`: Auto-fixes lint issues where safe (e.g., imports) and formats Python code in-place.
 - `make lint`: Runs lint checks and verifies formatting (no file modifications).
-- `make types`: Runs static type checking via MyPy.
+- `make types`: Runs static type checking via mypy.
 - `make test`: Runs the test suite via pytest.
 - `make deadcode`: Runs dead-code detection (Vulture) on `src/` and `tests/`.
 - `make nb-format`: Formats Jupyter notebooks (`.ipynb`) via nbQA + Ruff (in-place).
 - `make nb-lint`: Lints Jupyter notebooks via nbQA + Ruff and checks notebook formatting.
-- `make nb-types`: Runs MyPy checks on notebooks via nbQA.
+- `make nb-types`: Runs mypy checks on notebooks via nbQA.
 - `make all`: Runs the typical “CI-style” set of checks (lint + notebooks + types + tests + deadcode).
 
 ## Rebuild / update environment
