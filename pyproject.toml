@@ -23,7 +23,6 @@ classifiers = [
 ]
 dependencies = [
   "python-dotenv",
-  "polygon-api-client>=1.14",
   "requests>=2.31",
   "loguru>=0.7",
   "tenacity>=8.2",
@@ -35,11 +34,11 @@ dependencies = [
 dev = [
   "pre-commit>=3.7.0",
   "ruff>=0.12",
-  "black>=24",
   "mypy>=1.10",
   "types-requests>=2.32",
   "types-PyYAML>=6.0",
   "nbqa>=1.9.1",
+  "vulture>=2.3",
 ]
 
 
