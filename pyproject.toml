@@ -21,6 +21,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
 dependencies = [
   "python-dotenv",
   "requests>=2.31",
@@ -30,6 +31,7 @@ dependencies = [
   "pandas",
   "numerapi",
   "tyro",
+  "ruff>=0.12.12",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +45,21 @@ dev = [
   "vulture>=2.3",
   "pytest>=8",
 ]
+
+eda = [
+  "streamlit",
+  "plotly",
+  "plotly-stubs",
+  "scipy",
+  "scipy-stubs",
+  "networkx",
+  "types-networkx",
+  "pandas",
+  "pandas-stubs",
+  "numpy",
+  "matplotlib",
+]
+
 
 
 [project.urls]
@@ -137,7 +154,7 @@ target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
-plugins = ["pydantic.mypy"]
+plugins = []
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
@@ -156,7 +173,16 @@ exclude = [
 
 [[tool.mypy.overrides]]
 module = [
+  "matplotlib.*",
+  "streamlit.*",
+  "plotly.*",
+  "utils.*",
   "requests.*",
   "yaml.*",
 ]
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.3.0",
+]

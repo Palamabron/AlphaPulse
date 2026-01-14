@@ -1,0 +1,76 @@
+# Core crawl4ai dependencies (avoiding problematic packages)
+aiofiles>=24.1.0
+aiohttp>=3.11.0
+aiosqlite>=0.20.0
+anyio>=4.0.0
+beautifulsoup4>=4.12.0
+brotli>=1.1.0
+chardet>=5.2.0
+click>=8.1.7
+fake-useragent>=2.0.3
+httpx>=0.27.2
+humanize>=4.10.0
+lxml>=5.3.0
+nltk>=3.9.1
+numpy>=1.26.0,<3.0.0
+pillow>=10.4.0
+playwright>=1.49.0
+patchright>=1.49.0
+psutil>=6.1.1
+pydantic>=2.10.0
+pyopenssl>=24.3.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
+requests>=2.26.0
+rich>=13.9.4
+shapely>=2.0.0
+xxhash>=3.4.0
+
+# LLM and AI dependencies
+litellm>=1.53.1
+openai>=1.99.5
+
+# Text processing
+rank-bm25>=0.2.0
+snowballstemmer>=2.2.0
+
+# Geometric processing
+alphashape>=1.3.1
+scipy>=1.0.0
+trimesh>=4.8.0
+networkx>=2.5.0
+rtree>=0.9.7
+
+# Stealth browsing
+tf-playwright-stealth>=1.1.0
+
+# Supporting dependencies
+aiohappyeyeballs>=2.5.0
+aiosignal>=1.4.0
+attrs>=17.3.0
+certifi>=2017.4.17
+charset-normalizer>=3.0.0,<4.0.0
+click-log>=0.3.2
+colorama
+frozenlist>=1.1.1
+h11>=0.16.0
+h2>=3.0.0,<5.0.0
+hpack>=4.1.0,<5.0.0
+httpcore>=1.0.0
+hyperframe>=6.1.0,<7.0.0
+idna>=2.5,<4.0.0
+importlib-metadata>=6.8.0
+jinja2>=3.1.2,<4.0.0
+jsonschema>=4.22.0,<5.0.0
+lark>=1.2.2
+multidict>=4.5.0,<7.0.0
+propcache>=0.2.0
+sniffio>=1.1.0
+soupsieve>1.2
+typing-extensions>=4.0.0
+urllib3>=1.21.1,<3.0.0
+yarl>=1.17.0,<2.0.0
+fastuuid>=0.12.0
+
+# Alternative bloom filter (instead of madoka)
+pybloom-live
