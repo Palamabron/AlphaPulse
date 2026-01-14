@@ -50,20 +50,17 @@ def load_numerai_data(
             if feature_set_name in feature_sets:
                 feature_set = feature_sets[feature_set_name]
                 st.info(
-                    f"✅ Ładuję zestaw cech:\
-                         {feature_set_name} ({len(feature_set)} cech)"
+                    f"✅ Ładuję zestaw cech: {feature_set_name} ({len(feature_set)} cech)"
                 )
             else:
                 st.warning(
-                    f"⚠️ Zestaw '{feature_set_name}'\
-                            nie znaleziony. Dostępne: {list(feature_sets.keys())}"
+                    f"⚠️ Zestaw '{feature_set_name}' nie znaleziony. Dostępne: {list(feature_sets.keys())}"
                 )
                 # Use fallback
                 feature_set = None
         else:
             st.warning(
-                "⚠️ features.json nie zawiera \
-                       'feature_sets'. Fallback do auto-detect."
+                "⚠️ features.json nie zawiera 'feature_sets'. Fallback do auto-detect."
             )
             feature_set = None
 

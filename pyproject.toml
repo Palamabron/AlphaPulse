@@ -154,7 +154,7 @@ target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
-plugins = []
+plugins = ["pydantic.mypy"]
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
