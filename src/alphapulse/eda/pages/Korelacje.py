@@ -79,6 +79,20 @@ st.divider()
 # ============================================================================
 # FEATURES VS TARGET
 # ============================================================================
+
+
+def _normalize_col_name(col: str | int | float | list | tuple) -> str:
+    """
+    Ensure that a column identifier is a single, hashable value.
+    Some widgets or upstream logic may provide column names wrapped
+    in a list/tuple, which are unhashable when used directly as
+    DataFrame column labels.
+    """
+    if isinstance(col, list | tuple):
+        return str(col[0]) if col else "unknown"
+    return str(col)
+
+
 if corr_type == "Cechy vs Target":
     st.header(f"📊 Korelacja Cech z {selected_target.upper()}")
     st.info(f"Analizuję **{len(feature_set)}** cech względem **{selected_target}**...")
@@ -87,15 +101,12 @@ if corr_type == "Cechy vs Target":
     with st.spinner("Obliczanie korelacji..."):
         correlations = []
         # Ensure selected_target is a single, hashable column name
-        target_col = (
-            selected_target[0]
-            if isinstance(selected_target, list | tuple)
-            else selected_target
-        )
+        target_col = _normalize_col_name(selected_target)
         for feat in feature_set:
-            corr = train[[feat, target_col]].corr().iloc[0, 1]
+            feat_col = _normalize_col_name(feat)
+            corr = train[[feat_col, target_col]].corr().iloc[0, 1]
             correlations.append(
-                {"Cecha": feat, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
+                {"Cecha": feat_col, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
             )
         corr_df = pd.DataFrame(correlations).sort_values(
             "Abs_Korelacja", ascending=False
@@ -223,8 +234,8 @@ if corr_type == "Cechy vs Target":
 elif corr_type == "Korelacje między cechami":
     st.header("🔄 Korelacje Między Cechami")
     st.info(
-        f"Analiza {num_features} cech - \
-            obliczanie macierzy {num_features}x{num_features}"
+        f"Analiza {num_features} cech - "
+        f"obliczanie macierzy {num_features}x{num_features}"
     )
 
     # Compute correlation matrix
@@ -379,7 +390,12 @@ elif corr_type == "Macierz korelacji":
             if isinstance(selected_target, list | tuple)
             else selected_target
         )
-        corr_with_target = train[sample_features + [target_col]].corr()
+        if isinstance(target_col, list):
+            target_col = target_col[0]
+
+        # Teraz to zadziała
+        columns_to_analyze = sample_features + [target_col]
+        corr_with_target = train[columns_to_analyze].corr()
 
     # Full heatmap
     st.subheader("Pełna Macierz Korelacji")

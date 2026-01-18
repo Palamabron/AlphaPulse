@@ -1,14 +1,11 @@
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
-
 
 import numerapi
 import tyro
 from dotenv import load_dotenv
 from loguru import logger
-
 
 load_dotenv()
 
@@ -32,11 +29,11 @@ class DownloadConfig:
 
     dataset_version: str = "v5.2"
     output_dir: Path = Path("data")
-    files: Optional[List[str]] = None
-    public_id: Optional[str] = field(
+    files: list[str] | None = None
+    public_id: str | None = field(
         default_factory=lambda: os.getenv("NUMERAI_PUBLIC_API_KEY")
     )
-    secret_key: Optional[str] = field(
+    secret_key: str | None = field(
         default_factory=lambda: os.getenv("NUMERAI_PRIVATE_API_KEY")
     )
 

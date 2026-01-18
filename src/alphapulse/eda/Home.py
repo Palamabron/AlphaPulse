@@ -125,14 +125,14 @@ feature_set_choice = st.sidebar.selectbox(
     ["small", "medium", "all"],
     index=1,
     help=t(
-        f"Small: {n_small} features, \
-            Medium: {n_medium} features, All: {n_big} features",
+        f"Small: {n_small} features,"
+        "Medium: {n_medium} features, All: {n_big} features",
         f"Mały: {n_small} cech, Średni: {n_medium} cech, Wszystkie: {n_big} cech",
     ),
 )
 
 # TARGET SELECTION - SINGLE SELECT
-st.sidebar.subheader("🎯 Wybór Actywnego Targetu")
+st.sidebar.subheader("🎯 Wybór Aktywnego Targetu")
 
 selected_target = st.sidebar.selectbox(
     t("Select target to analyze:", "Wybierz target do analizy:"),
@@ -410,10 +410,10 @@ with col2:
 if continuous_features:
     st.warning(
         t(
-            f"⚠️ Warning: {len(continuous_features)} continuous \
-            features detected (expected discrete: 0, 0.25, 0.5, 0.75, 1.0)",
-            f"⚠️ Uwaga: Wykryto {len(continuous_features)} \
-            cech ciągłych (oczekiwane dyskretne: 0, 0.25, 0.5, 0.75, 1.0)",
+            f"⚠️ Warning: {len(continuous_features)} continuous "
+            "features detected (expected discrete: 0, 0.25, 0.5, 0.75, 1.0)",
+            f"⚠️ Uwaga: Wykryto {len(continuous_features)} "
+            "cech ciągłych (oczekiwane dyskretne: 0, 0.25, 0.5, 0.75, 1.0)",
         )
     )
 

@@ -82,7 +82,14 @@ if analysis_mode == "Pojedyncza cecha":
         st.metric("Brakujące", f"{feature_data.isnull().sum()}")
     with col_correlation:
         selected_target = st.session_state.get("selected_target", "target")
-        corr = train[[selected_feature, selected_target]].corr().iloc[0, 1]
+
+        # Upewnij się, że selected_target jest stringiem, nie listą
+        if isinstance(selected_target, list | tuple):
+            target_col = selected_target[0]
+        else:
+            target_col = selected_target
+
+        corr = train[[selected_feature, target_col]].corr().iloc[0, 1]
         st.metric("Korelacja z Target", f"{corr:.6f}")
 
     st.divider()
@@ -112,8 +119,8 @@ if analysis_mode == "Pojedyncza cecha":
                         "showscale": True,
                         "colorbar": {"title": "Liczba"},
                     },
-                    hovertemplate="Wartość cechy: \
-                    %{x}<br>Liczba wystąpień: %{y:,}<extra></extra>",
+                    hovertemplate="Wartość cechy:"
+                    "%{x}<br>Liczba wystąpień: %{y:,}<extra></extra>",
                 )
             )
 
@@ -273,8 +280,8 @@ if analysis_mode == "Pojedyncza cecha":
     else:
         # For continuous features: only show Violin Plot and stats
         st.info(
-            "Dla cech ciągłych pokazano \
-            tylko Violin Plot i statystyki (boxplot pominięty)"
+            "Dla cech ciągłych pokazano "
+            "tylko Violin Plot i statystyki (boxplot pominięty)"
         )
 
         tab1, tab2 = st.tabs(["Violin Plot", "Statystyki per binowany zakres"])
@@ -449,25 +456,27 @@ elif analysis_mode == "Porównanie cech":
 
     # Check which features are discrete vs continuous
     feature_types = {}
-    for feat in compare_features:
-        feature_types[feat] = (
-            "Dyskretna" if is_discrete_feature(train[feat]) else "Ciągła"
-        )
+    normalized_features = []
 
+    for feat in compare_features:
+        feature_name = feat[0] if isinstance(feat, list) else feat
+        normalized_features.append(feature_name)
+        feature_types[feature_name] = (
+            "Dyskretna" if is_discrete_feature(train[feature_name]) else "Ciągła"
+        )
     # Comparison statistics
     st.subheader("Statystyki porównawcze")
-
     comparison_stats = []
-    for feature in compare_features:
-        feature_name = feature[0] if isinstance(feature, list) else feature
+
+    for feature_name in normalized_features:
         corr = train[[feature_name, "target"]].corr().iloc[0, 1]
         comparison_stats.append(
             {
-                "Cecha": feature,
-                "Typ": feature_types[feature],
-                "Mean": train[feature].mean(),
-                "Std": train[feature].std(),
-                "Missing": train[feature].isnull().sum(),
+                "Cecha": feature_name,
+                "Typ": feature_types[feature_name],
+                "Mean": train[feature_name].mean(),
+                "Std": train[feature_name].std(),
+                "Missing": train[feature_name].isnull().sum(),
                 "Korelacja": corr,
                 "Abs_Korelacja": abs(corr),
             }
@@ -663,6 +672,12 @@ else:
         batch_stats = []
 
         selected_target = st.session_state.get("selected_target", "target")
+        # Ensure selected_target is a single, hashable column name
+        if isinstance(selected_target, list | tuple | np.ndarray | pd.Index):
+            if len(selected_target) > 0:
+                selected_target = selected_target[0]
+            else:
+                selected_target = "target"
         for feature in batch_features:
             feature_data = train[feature]
             corr = train[[feature, selected_target]].corr().iloc[0, 1]

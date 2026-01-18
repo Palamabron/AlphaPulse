@@ -236,8 +236,8 @@ with tab1:
         st.metric(
             "Stabilność (σ średnich)",
             f"{mean_stability:.6f}",
-            help="Odchylenie standardowe średnich między\
-                  erami - im niższe, tym stabilniejszy target",
+            help="Odchylenie standardowe średnich między"
+            "erami - im niższe, tym stabilniejszy target",
         )
 
     with col2:
@@ -455,11 +455,13 @@ if len(selected_features_time) > 0:
         corr_values = corr_time_df[feature]
 
         # Ensure selected_target is a single, hashable column name
-        target_col = (
-            selected_target[0]
-            if isinstance(selected_target, list | tuple)
-            else selected_target
-        )
+        if isinstance(selected_target, list | tuple):
+            # If no target is selected, skip this feature to avoid invalid indexing
+            if not selected_target:
+                continue
+            target_col = selected_target[0]
+        else:
+            target_col = selected_target
         global_corr = train[[feature, target_col]].corr().iloc[0, 1]
 
         stability_metrics.append(
@@ -585,10 +587,10 @@ st.divider()
 # ============================================================================
 # FOOTER
 # ============================================================================
-st.markdown(f"""
----
-**📊 Aktualnie Analizuję:** {selected_target}
-
-**💡 Wskazówka:** Zmień target w sidebaru aby \
-    zobaczyć jak zmieniają się wszystkie wykresy
-""")
+st.markdown(
+    f"---\n"
+    f"**📊 Aktualnie Analizuję:** {selected_target}\n"
+    f"\n"
+    f"**💡 Wskazówka:** Zmień target w sidebaru aby "
+    f"zobaczyć jak zmieniają się wszystkie wykresy"
+)

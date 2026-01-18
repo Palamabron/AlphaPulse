@@ -56,8 +56,8 @@ def load_numerai_data(
             if feature_set_name in feature_sets:
                 feature_set = feature_sets[feature_set_name]
                 messages["info"].append(
-                    f"✅ Loading feature set: {feature_set_name} \
-                          ({len(feature_set)} features)"
+                    f"✅ Loading feature set: {feature_set_name} "
+                    f"({len(feature_set)} features)"
                 )
             else:
                 messages["warning"].append(

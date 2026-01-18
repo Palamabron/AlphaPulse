@@ -32,9 +32,7 @@ feature_set = st.session_state["feature_set"]
 
 st.title("🔬 Analiza Klasteryzacji Cech")
 st.markdown("""
-Grupowanie podobnych cech na podstawie \
-    korelacji - identyfikacja grup redundantnych cech.
-
+Grupowanie podobnych cech na podstawie korelacji - identyfikacja grup redundantnych cech
 **Cel:** Wykryć cechy, które są silnie skorelowane ze sobą i mogą być redundantne.
 """)
 
@@ -370,8 +368,8 @@ if show_numbers:
     st.success(f"✅ Wartości korelacji wyświetlane (liczba cech: {num_features} ≤ 30)")
 else:
     st.info(
-        f"💡 Wartości ukryte (zbyt wiele cech: {num_features}).\
-        Zmniejsz do ≤30 aby zobaczyć liczby."
+        f"💡 Wartości ukryte (zbyt wiele cech: {num_features}). "
+        "Zmniejsz do ≤30 aby zobaczyć liczby."
     )
 
 st.divider()
