@@ -419,7 +419,7 @@ if redundant_pairs:
         st.subheader("Redundantne Pary Cech")
 
         def highlight_same_group(row: pd.Series) -> list[str]:  # Zmień na list[str]
-            if row["Grupa1"] == row["Grupa2"]:
+            if row["Grupa_1"] == row["Grupa_2"]:
                 return ["background-color: #ffcccc"] * len(row)
             return [""] * len(row)
 

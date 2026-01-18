@@ -8,6 +8,7 @@ import os
 import sys
 
 import pandas as pd
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import streamlit as st
 from utils.config import (
     APP_ICON,
@@ -98,16 +99,16 @@ n_big = len(feature_sets_data.get("all", feature_sets_data.get("big", [])))
 # ============================================================================
 @st.cache_data
 def get_available_targets(data_path: str) -> list[str]:
-    """Load sample and detect all target columns"""
+    """Load sample and detect all target columns using PyArrow metadata"""
     try:
-        # Read just the columns
-        all_cols = pd.read_parquet(data_path).columns.tolist()
-
+        # Read just the schema (no data loaded)
+        pf = pq.ParquetFile(data_path)
+        all_cols = pf.schema.names
         # Find all target columns
         target_cols = sorted([col for col in all_cols if col.startswith("target")])
         return target_cols
     except Exception as e:
-        st.warning(f"Błąd podczas ładowania targetów: {e}")
+        st.warning(f"Error loading targets: {e}")
         return ["target"]
 
 
@@ -159,10 +160,20 @@ if (
     ):
         try:
             # Load data - UWAGA: to załaduje WSZYSTKIE targety + cechy
-            train, feature_set = load_numerai_data(
+            train, feature_set, messages = load_numerai_data(
                 str(TRAIN_DATA_PATH),
                 feature_set_name=feature_set_choice,
+                subsample_eras=True,
+                selected_target=selected_target,
             )
+
+            # Display messages
+            for msg in messages["info"]:
+                st.info(msg)
+            for msg in messages["warning"]:
+                st.warning(msg)
+            for msg in messages["error"]:
+                st.error(msg)
 
             # Sprawdzenie czy wybrany target istnieje
             if selected_target not in train.columns:

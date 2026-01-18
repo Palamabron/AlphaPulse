@@ -453,7 +453,14 @@ if len(selected_features_time) > 0:
 
     for feature in selected_features_time:
         corr_values = corr_time_df[feature]
-        global_corr = train[[feature, selected_target]].corr().iloc[0, 1]
+
+        # Ensure selected_target is a single, hashable column name
+        target_col = (
+            selected_target[0]
+            if isinstance(selected_target, list | tuple)
+            else selected_target
+        )
+        global_corr = train[[feature, target_col]].corr().iloc[0, 1]
 
         stability_metrics.append(
             {

@@ -70,26 +70,27 @@ if analysis_mode == "Pojedyncza cecha":
     else:
         st.warning("⚠️ Cecha ciągła (wykryto wartości spoza zestawu dyskretnego)")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col_mean, col_median, col_std_dev, col_missing, col_correlation = st.columns(5)
 
-    with col1:
+    with col_mean:
         st.metric("Średnia", f"{feature_data.mean():.4f}")
-    with col2:
+    with col_median:
         st.metric("Mediana", f"{feature_data.median():.4f}")
-    with col3:
+    with col_std_dev:
         st.metric("Std Dev", f"{feature_data.std():.4f}")
-    with col4:
+    with col_missing:
         st.metric("Brakujące", f"{feature_data.isnull().sum()}")
-    with col5:
-        corr = train[[selected_feature, "target"]].corr().iloc[0, 1]
+    with col_correlation:
+        selected_target = st.session_state.get("selected_target", "target")
+        corr = train[[selected_feature, selected_target]].corr().iloc[0, 1]
         st.metric("Korelacja z Target", f"{corr:.6f}")
 
     st.divider()
 
     # Value distribution
-    col1, col2 = st.columns([2, 1])
+    col_mean, col_median = st.columns([2, 1])
 
-    with col1:
+    with col_mean:
         st.subheader("Rozkład wartości cechy")
 
         if is_discrete:
@@ -136,7 +137,7 @@ if analysis_mode == "Pojedyncza cecha":
 
         st.plotly_chart(fig, width="stretch")
 
-    with col2:
+    with col_median:
         st.subheader("Statystyki")
 
         if is_discrete:
@@ -417,13 +418,13 @@ if analysis_mode == "Pojedyncza cecha":
 
     st.plotly_chart(fig, width="stretch")
 
-    col1, col2, col3 = st.columns(3)
+    col_mean, col_median, col_std_dev = st.columns(3)
 
-    with col1:
+    with col_mean:
         st.metric("Średnia Korelacja", f"{era_corr_df['correlation'].mean():.6f}")
-    with col2:
+    with col_median:
         st.metric("Std Korelacji", f"{era_corr_df['correlation'].std():.6f}")
-    with col3:
+    with col_std_dev:
         stability = (era_corr_df["correlation"] > 0).sum() / len(era_corr_df) * 100
         st.metric("% Er z dodatnią korelacją", f"{stability:.1f}%")
 
@@ -458,7 +459,8 @@ elif analysis_mode == "Porównanie cech":
 
     comparison_stats = []
     for feature in compare_features:
-        corr = train[[feature, "target"]].corr().iloc[0, 1]
+        feature_name = feature[0] if isinstance(feature, list) else feature
+        corr = train[[feature_name, "target"]].corr().iloc[0, 1]
         comparison_stats.append(
             {
                 "Cecha": feature,
@@ -563,9 +565,9 @@ elif analysis_mode == "Porównanie cech":
 
     for feature in compare_features:
         with st.expander(f"📊 {feature} ({feature_types[feature]})"):
-            col1, col2 = st.columns(2)
+            col_mean, col_median = st.columns(2)
 
-            with col1:
+            with col_mean:
                 # Show boxplot only for discrete features
                 if feature_types[feature] == "Dyskretna":
                     fig = px.box(
@@ -582,7 +584,7 @@ elif analysis_mode == "Porównanie cech":
                 else:
                     st.info("Boxplot pominięty dla cechy ciągłej")
 
-            with col2:
+            with col_median:
                 if feature_types[feature] == "Dyskretna":
                     target_by_feat = (
                         train.groupby(feature)["target"].mean().reset_index()
@@ -660,9 +662,10 @@ else:
     with st.spinner("Obliczanie statystyk..."):
         batch_stats = []
 
+        selected_target = st.session_state.get("selected_target", "target")
         for feature in batch_features:
             feature_data = train[feature]
-            corr = train[[feature, "target"]].corr().iloc[0, 1]
+            corr = train[[feature, selected_target]].corr().iloc[0, 1]
 
             value_counts = feature_data.value_counts(normalize=True)
             entropy = -(value_counts * np.log2(value_counts + 1e-10)).sum()
@@ -689,9 +692,9 @@ else:
     discrete_count = (batch_df["Typ"] == "Dyskretna").sum()
     continuous_count = (batch_df["Typ"] == "Ciągła").sum()
 
-    col1, col2 = st.columns(2)
-    col1.metric("Cechy Dyskretne", discrete_count)
-    col2.metric("Cechy Ciągłe", continuous_count)
+    col_mean, col_median = st.columns(2)
+    col_mean.metric("Cechy Dyskretne", discrete_count)
+    col_median.metric("Cechy Ciągłe", continuous_count)
 
     st.dataframe(
         batch_df.style.background_gradient(
@@ -772,9 +775,9 @@ else:
     # Top features by correlation
     st.subheader("Top 20 cech według korelacji z Target")
 
-    col1, col2 = st.columns(2)
+    col_mean, col_median = st.columns(2)
 
-    with col1:
+    with col_mean:
         st.markdown("**Najsilniejsze dodatnie**")
         top_pos = batch_df.nlargest(20, "Korelacja")
 
@@ -793,7 +796,7 @@ else:
         fig.update_xaxes(title_text="Wartość korelacji")
         st.plotly_chart(fig, width="stretch")
 
-    with col2:
+    with col_median:
         st.markdown("**Najsilniejsze ujemne**")
         top_neg = batch_df.nsmallest(20, "Korelacja")
 

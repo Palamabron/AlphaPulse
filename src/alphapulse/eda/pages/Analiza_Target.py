@@ -70,25 +70,25 @@ target_stats = train[selected_target].describe()
 skewness = train[selected_target].skew()
 kurtosis = train[selected_target].kurtosis()
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col_mean_std, col_median_iqr, col_min_max, col_q1_q3, col_skew_kurtosis = st.columns(5)
 
-with col1:
+with col_mean_std:
     st.metric("Średnia", f"{target_stats['mean']:.6f}")
     st.metric("Std Dev", f"{target_stats['std']:.6f}")
 
-with col2:
+with col_median_iqr:
     st.metric("Mediana", f"{target_stats['50%']:.6f}")
     st.metric("IQR", f"{(target_stats['75%'] - target_stats['25%']):.6f}")
 
-with col3:
+with col_min_max:
     st.metric("Min", f"{target_stats['min']:.6f}")
     st.metric("Max", f"{target_stats['max']:.6f}")
 
-with col4:
+with col_q1_q3:
     st.metric("25% Percentyl", f"{target_stats['25%']:.6f}")
     st.metric("75% Percentyl", f"{target_stats['75%']:.6f}")
 
-with col5:
+with col_skew_kurtosis:
     st.metric("Skewness", f"{skewness:.6f}")
     st.metric("Kurtosis", f"{kurtosis:.6f}")
 
@@ -243,9 +243,9 @@ except Exception as e:
     st.stop()
 
 # Metrics per era over time
-col1, col2 = st.columns(2)
+col_mean_std, col_median_iqr = st.columns(2)
 
-with col1:
+with col_mean_std:
     st.subheader(f"Średnia {selected_target} per Era")
     fig = go.Figure()
 
@@ -299,7 +299,7 @@ with col1:
     fig.update_xaxes(tickangle=45)
     st.plotly_chart(fig, width="stretch")
 
-with col2:
+with col_median_iqr:
     st.subheader(f"Zmienność {selected_target} per Era")
     fig = px.line(
         era_stats_full,
@@ -391,9 +391,9 @@ st.divider()
 # ============================================================================
 st.header("🎲 Metryki Stabilności Target")
 
-col1, col2, col3 = st.columns(3)
+col_mean_std, col_median_iqr, col_min_max = st.columns(3)
 
-with col1:
+with col_mean_std:
     cv = (
         era_stats_full["target_mean"].std() / era_stats_full["target_mean"].mean()
     ) * 100
@@ -403,7 +403,7 @@ with col1:
         help="Zmienność średniej target między erami",
     )
 
-with col2:
+with col_median_iqr:
     mean_std = era_stats_full["target_std"].mean()
     st.metric(
         "Średnia Zmienność per Era",
@@ -411,7 +411,7 @@ with col2:
         help="Średnie odchylenie standardowe w erach",
     )
 
-with col3:
+with col_min_max:
     range_variability = era_stats_full["range"].std()
     st.metric(
         "Zmienność Zakresu",

@@ -13,6 +13,7 @@ dependencies = [
     { name = "loguru" },
     { name = "numerapi" },
     { name = "pandas" },
+    { name = "pyarrow" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -40,6 +41,7 @@ eda = [
     { name = "pandas-stubs" },
     { name = "plotly" },
     { name = "plotly-stubs" },
+    { name = "pyarrow" },
     { name = "scipy" },
     { name = "scipy-stubs" },
     { name = "streamlit" },
@@ -49,6 +51,7 @@ eda = [
 [package.dev-dependencies]
 dev = [
     { name = "pre-commit" },
+    { name = "vulture" },
 ]
 
 [package.metadata]
@@ -66,6 +69,8 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'eda'" },
     { name = "plotly-stubs", marker = "extra == 'eda'" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7.0" },
+    { name = "pyarrow", specifier = ">=14.0.0" },
+    { name = "pyarrow", marker = "extra == 'eda'" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "python-dotenv" },
@@ -85,7 +90,10 @@ requires-dist = [
 provides-extras = ["dev", "eda"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pre-commit", specifier = ">=4.3.0" }]
+dev = [
+    { name = "pre-commit", specifier = ">=4.3.0" },
+    { name = "vulture", specifier = ">=2.14" },
+]
 
 [[package]]
 name = "altair"

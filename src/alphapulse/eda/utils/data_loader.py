@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import pandas as pd
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import streamlit as st
 from utils.config import FEATURES_JSON_PATH
 
@@ -27,9 +28,9 @@ def load_numerai_data(
     feature_set_name: str = "medium",
     subsample_eras: bool = True,
     selected_target: str = "target",
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, list[str], dict[str, list[str]]]:
     """
-    Load Numerai training data with specified feature set and target
+    Load Numerai training data efficiently using PyArrow metadata
 
     Args:
         data_path: Path to the parquet file
@@ -38,68 +39,65 @@ def load_numerai_data(
         selected_target: Target column name to load
 
     Returns:
-        tuple: (dataframe, feature_list)
+        tuple: (dataframe, feature_list, messages_dict)
     """
+    messages: dict[str, list[str]] = {"info": [], "warning": [], "error": []}
+
     try:
+        # Use PyArrow to read metadata only (no data loaded)
+        pf = pq.ParquetFile(data_path)
+        all_columns = pf.schema.names  # Just column names, no data
+
         # Load feature metadata
         metadata = load_feature_metadata()
 
-        # Extract feature_sets from nested JSON structure
         if metadata and "feature_sets" in metadata:
             feature_sets = metadata["feature_sets"]
             if feature_set_name in feature_sets:
                 feature_set = feature_sets[feature_set_name]
-                st.info(
-                    f"✅ Ładuję zestaw cech:\
-                         {feature_set_name} ({len(feature_set)} cech)"
+                messages["info"].append(
+                    f"✅ Loading feature set: {feature_set_name} \
+                          ({len(feature_set)} features)"
                 )
             else:
-                st.warning(
-                    f"⚠️ Zestaw '{feature_set_name}'\
-                            nie znaleziony. Dostępne: {list(feature_sets.keys())}"
+                messages["warning"].append(
+                    f"⚠️ Feature set '{feature_set_name}' not found. Using all features."
                 )
-                # Use fallback
-                feature_set = None
+                feature_set = [
+                    col
+                    for col in all_columns
+                    if col not in ["era", "id"] and col.startswith("feature_")
+                ]
         else:
-            st.warning(
-                "⚠️ features.json nie zawiera \
-                       'feature_sets'. Fallback do auto-detect."
-            )
-            feature_set = None
-
-        # Fallback if feature_set is still None
-        if feature_set is None:
-            st.warning("Używam wszystkich dostępnych cech (fallback)")
-            temp_df = pd.read_parquet(data_path)
+            messages["warning"].append("⚠️ features.json not found. Using all features.")
             feature_set = [
                 col
-                for col in temp_df.columns
+                for col in all_columns
                 if col not in ["era", "id"] and col.startswith("feature_")
             ]
-            del temp_df
 
-        # Load ALL target columns + era + selected features
-        # First get all available targets
-        all_cols = pd.read_parquet(data_path).columns.tolist()
-        all_targets = [col for col in all_cols if col.startswith("target")]
+        # Get all target columns
+        all_targets = [col for col in all_columns if col.startswith("target")]
 
         # Build columns to load
         columns_to_load = ["era"] + all_targets + feature_set
 
-        # Load data
-        train = pd.read_parquet(data_path, columns=columns_to_load)
+        # Single data load using PyArrow
+        train = pf.read(columns=columns_to_load).to_pandas()
 
         # Subsample eras if requested
         if subsample_eras:
             unique_eras = train["era"].unique()
             sampled_eras = unique_eras[::4]
             train = train[train["era"].isin(sampled_eras)]
-            st.info(f"📅 Subsampling: {len(sampled_eras)} z {len(unique_eras)} er")
+            messages["info"].append(
+                f"📅 Subsampling: {len(sampled_eras)} of {len(unique_eras)} eras"
+            )
 
-        return train, feature_set
+        return train, feature_set, messages
 
     except Exception as e:
-        st.error(f"Błąd podczas ładowania danych: {e}")
+        messages["error"].append(f"Error loading data: {e}")
         raise
 
 
@@ -128,12 +126,12 @@ def get_feature_correlations(
     correlations = []
     for feature in features:
         corr = df[feature].corr(df[target])
-        if pd.notna(corr):  # Sprawdź czy nie NaN
+        if pd.notna(corr):
             correlations.append(
                 {
-                    "Cecha": feature,
-                    "Korelacja": float(corr),
-                    "Abs_Korelacja": abs(float(corr)),
+                    "Feature": feature,
+                    "Correlation": float(corr),
+                    "Abs_Correlation": abs(float(corr)),
                 }
             )
-    return pd.DataFrame(correlations).sort_values("Abs_Korelacja", ascending=False)
+    return pd.DataFrame(correlations).sort_values("Abs_Correlation", ascending=False)

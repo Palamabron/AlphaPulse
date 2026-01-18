@@ -86,8 +86,14 @@ if corr_type == "Cechy vs Target":
     # Calculate correlations
     with st.spinner("Obliczanie korelacji..."):
         correlations = []
+        # Ensure selected_target is a single, hashable column name
+        target_col = (
+            selected_target[0]
+            if isinstance(selected_target, list | tuple)
+            else selected_target
+        )
         for feat in feature_set:
-            corr = train[[feat, selected_target]].corr().iloc[0, 1]
+            corr = train[[feat, target_col]].corr().iloc[0, 1]
             correlations.append(
                 {"Cecha": feat, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
             )
@@ -366,9 +372,14 @@ elif corr_type == "Macierz korelacji":
     st.header(f"🎯 Macierz Korelacji z {selected_target.upper()}")
     st.info(f"Analiza {num_features} cech + {selected_target}")
 
-    # Include target
     with st.spinner("Obliczanie macierzy korelacji..."):
-        corr_with_target = train[sample_features + [selected_target]].corr()
+        # Ensure selected_target is string before concatenating
+        target_col = (
+            selected_target[0]
+            if isinstance(selected_target, list | tuple)
+            else selected_target
+        )
+        corr_with_target = train[sample_features + [target_col]].corr()
 
     # Full heatmap
     st.subheader("Pełna Macierz Korelacji")

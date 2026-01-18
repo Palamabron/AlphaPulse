@@ -32,6 +32,7 @@ dependencies = [
   "numerapi",
   "tyro",
   "ruff>=0.12.12",
+  "pyarrow>=14.0.0"
 ]
 
 [project.optional-dependencies]
@@ -58,6 +59,7 @@ eda = [
   "pandas-stubs",
   "numpy",
   "matplotlib",
+  "pyarrow"
 ]
 
 
@@ -185,4 +187,5 @@ ignore_missing_imports = true
 [dependency-groups]
 dev = [
     "pre-commit>=4.3.0",
+    "vulture>=2.14",
 ]
