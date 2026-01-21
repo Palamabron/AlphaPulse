@@ -32,12 +32,8 @@ st.markdown(
     "Badaj korelacje cech z targetem oraz między cechami identyfikując zależności."
 )
 
-# ============================================================================
-# SIDEBAR: TARGET SELECTION + CORRELATION TYPE
-# ============================================================================
 st.sidebar.header("⚙️ Ustawienia Korelacji")
 
-# TARGET SELECTION DROPDOWN
 target_columns = [
     col for col in train.columns if col == "target" or col.startswith("target")
 ]
@@ -53,7 +49,6 @@ selected_target = st.sidebar.selectbox(
 
 st.sidebar.info(f"📊 Analizowany Target: **{selected_target}**")
 
-# Correlation type
 corr_type = st.sidebar.selectbox(
     "Typ analizy:",
     [
@@ -76,10 +71,6 @@ sample_features = feature_set[:num_features]
 
 st.divider()
 
-# ============================================================================
-# FEATURES VS TARGET
-# ============================================================================
-
 
 def _normalize_col_name(col: str | int | float | list | tuple) -> str:
     """
@@ -97,10 +88,8 @@ if corr_type == "Cechy vs Target":
     st.header(f"📊 Korelacja Cech z {selected_target.upper()}")
     st.info(f"Analizuję **{len(feature_set)}** cech względem **{selected_target}**...")
 
-    # Calculate correlations
     with st.spinner("Obliczanie korelacji..."):
         correlations = []
-        # Ensure selected_target is a single, hashable column name
         target_col = _normalize_col_name(selected_target)
         for feat in feature_set:
             feat_col = _normalize_col_name(feat)
@@ -112,27 +101,27 @@ if corr_type == "Cechy vs Target":
             "Abs_Korelacja", ascending=False
         )
 
-    # Summary statistics
-    col1, col2, col3, col4 = st.columns(4)
+    avg_corr_col, max_positive_col, max_negative_col, threshold_count_col = st.columns(
+        4
+    )
 
-    with col1:
+    with avg_corr_col:
         st.metric("Średnia |Korelacja|", f"{corr_df['Abs_Korelacja'].mean():.6f}")
-    with col2:
+    with max_positive_col:
         st.metric("Max Dodatnia", f"{corr_df['Korelacja'].max():.6f}")
-    with col3:
+    with max_negative_col:
         st.metric("Max Ujemna", f"{corr_df['Korelacja'].min():.6f}")
-    with col4:
+    with threshold_count_col:
         above_threshold = (corr_df["Abs_Korelacja"] > 0.01).sum()
         st.metric("Cechy z |r| > 0.01", above_threshold)
 
     st.divider()
 
-    # Distribution of correlations
     st.subheader("Rozkład korelacji")
 
-    col1, col2 = st.columns(2)
+    avg_corr_col, max_positive_col = st.columns(2)
 
-    with col1:
+    with avg_corr_col:
         fig = px.histogram(
             corr_df,
             x="Korelacja",
@@ -151,7 +140,7 @@ if corr_type == "Cechy vs Target":
         )
         st.plotly_chart(fig, width="stretch")
 
-    with col2:
+    with max_positive_col:
         fig = px.histogram(
             corr_df,
             x="Abs_Korelacja",
@@ -165,14 +154,13 @@ if corr_type == "Cechy vs Target":
 
     st.divider()
 
-    # Top correlations
     st.subheader("Top Korelacje")
 
     top_n = st.slider("Liczba top cech do wyświetlenia:", 10, 50, 20)
 
-    col1, col2 = st.columns(2)
+    avg_corr_col, max_positive_col = st.columns(2)
 
-    with col1:
+    with avg_corr_col:
         st.markdown("**🔵 Top Dodatnie Korelacje**")
         top_pos = corr_df.nlargest(top_n, "Korelacja")
 
@@ -194,7 +182,7 @@ if corr_type == "Cechy vs Target":
             top_pos[["Cecha", "Korelacja"]].reset_index(drop=True), width="stretch"
         )
 
-    with col2:
+    with max_positive_col:
         st.markdown("**🔴 Top Ujemne Korelacje**")
         top_neg = corr_df.nsmallest(top_n, "Korelacja")
 
@@ -216,9 +204,6 @@ if corr_type == "Cechy vs Target":
             top_neg[["Cecha", "Korelacja"]].reset_index(drop=True), width="stretch"
         )
 
-    # REMOVED: "Wszystkie Korelacje" section completely
-
-    # Download only top correlations
     st.divider()
     csv = corr_df.to_csv(index=False).encode("utf-8")
     st.download_button(
@@ -228,9 +213,7 @@ if corr_type == "Cechy vs Target":
         mime="text/csv",
     )
 
-# ============================================================================
-# INTER-FEATURE CORRELATIONS
-# ============================================================================
+
 elif corr_type == "Korelacje między cechami":
     st.header("🔄 Korelacje Między Cechami")
     st.info(
@@ -238,28 +221,27 @@ elif corr_type == "Korelacje między cechami":
         f"obliczanie macierzy {num_features}x{num_features}"
     )
 
-    # Compute correlation matrix
     with st.spinner("Obliczanie macierzy korelacji..."):
         corr_matrix = train[sample_features].corr()
 
-    # Summary statistics
-    col1, col2, col3, col4 = st.columns(4)
+    avg_corr_col, max_positive_col, max_negative_col, threshold_count_col = st.columns(
+        4
+    )
 
     upper_triangle = np.triu(corr_matrix, k=1)
     upper_values = upper_triangle[upper_triangle != 0]
 
-    with col1:
+    with avg_corr_col:
         st.metric("Średnia Korelacja", f"{upper_values.mean():.6f}")
-    with col2:
+    with max_positive_col:
         st.metric("Max Korelacja", f"{upper_values.max():.6f}")
-    with col3:
+    with max_negative_col:
         st.metric("Min Korelacja", f"{upper_values.min():.6f}")
-    with col4:
+    with threshold_count_col:
         st.metric("Std Korelacji", f"{upper_values.std():.6f}")
 
     st.divider()
 
-    # Heatmap
     st.subheader("Mapa Cieplna Korelacji")
 
     show_values = st.checkbox("Pokaż wartości na mapie", value=False)
@@ -285,12 +267,10 @@ elif corr_type == "Korelacje między cechami":
 
     st.divider()
 
-    # Highly correlated pairs
     st.subheader("Silnie Skorelowane Pary Cech")
 
     threshold = st.slider("Próg korelacji (wartość bezwzględna):", 0.0, 1.0, 0.5, 0.05)
 
-    # Find correlated pairs
     corr_pairs = []
     for i in range(len(sample_features)):
         for j in range(i + 1, len(sample_features)):
@@ -314,9 +294,9 @@ elif corr_type == "Korelacje między cechami":
             f"✅ Znaleziono **{len(pairs_df)}** par z |korelacją| >= {threshold}"
         )
 
-        col1, col2 = st.columns([2, 1])
+        avg_corr_col, max_positive_col = st.columns([2, 1])
 
-        with col1:
+        with avg_corr_col:
             top_pairs = pairs_df.head(30)
             fig = px.bar(
                 top_pairs,
@@ -336,7 +316,7 @@ elif corr_type == "Korelacje między cechami":
             fig.update_layout(height=max(500, len(top_pairs) * 20))
             st.plotly_chart(fig, width="stretch")
 
-        with col2:
+        with max_positive_col:
             st.markdown("**Statystyki Par:**")
             st.metric("Liczba Par", len(pairs_df))
             st.metric("Średnia |Korelacja|", f"{pairs_df['Abs_Korelacja'].mean():.4f}")
@@ -363,7 +343,6 @@ elif corr_type == "Korelacje między cechami":
 
     st.divider()
 
-    # Distribution
     st.subheader("Rozkład Wszystkich Korelacji Między Cechami")
 
     fig = px.histogram(
@@ -376,15 +355,11 @@ elif corr_type == "Korelacje między cechami":
     fig.add_vline(x=0, line_dash="dash", line_color="red")
     st.plotly_chart(fig, width="stretch")
 
-# ============================================================================
-# CORRELATION MATRIX WITH TARGET
-# ============================================================================
 elif corr_type == "Macierz korelacji":
     st.header(f"🎯 Macierz Korelacji z {selected_target.upper()}")
     st.info(f"Analiza {num_features} cech + {selected_target}")
 
     with st.spinner("Obliczanie macierzy korelacji..."):
-        # Ensure selected_target is string before concatenating
         target_col = (
             selected_target[0]
             if isinstance(selected_target, list | tuple)
@@ -393,11 +368,9 @@ elif corr_type == "Macierz korelacji":
         if isinstance(target_col, list):
             target_col = target_col[0]
 
-        # Teraz to zadziała
         columns_to_analyze = sample_features + [target_col]
         corr_with_target = train[columns_to_analyze].corr()
 
-    # Full heatmap
     st.subheader("Pełna Macierz Korelacji")
 
     fig = px.imshow(
@@ -418,7 +391,6 @@ elif corr_type == "Macierz korelacji":
 
     st.divider()
 
-    # Target correlation specifically
     st.subheader(f"Korelacje z {selected_target.upper()}")
 
     target_corr = (
@@ -461,10 +433,8 @@ elif corr_type == "Macierz korelacji":
 
     st.plotly_chart(fig, width="stretch")
 
-# ============================================================================
-# NETWORK GRAPH
-# ============================================================================
-else:  # Network Graph
+
+else:
     st.header("🕸️ Network Graph - Zależności Między Cechami")
     st.markdown("""
 Wizualizacja sieci zależności gdzie:
@@ -472,7 +442,6 @@ Wizualizacja sieci zależności gdzie:
 - **Krawędzie** = Silne korelacje (powyżej progu)
     """)
 
-    # Settings
     network_features = st.slider(
         "Liczba cech w grafie:", 10, min(60, len(feature_set)), 30
     )
@@ -484,7 +453,6 @@ Wizualizacja sieci zależności gdzie:
     with st.spinner("Tworzenie grafu sieci..."):
         corr_matrix = train[network_sample].corr()
 
-    # Build edge list
     edges = []
     for i in range(len(network_sample)):
         for j in range(i + 1, len(network_sample)):
@@ -506,19 +474,17 @@ Wizualizacja sieci zależności gdzie:
             f"Graf zawiera {len(edges_df)} krawędzi między {network_features} węzłami"
         )
 
-        col1, col2, col3 = st.columns(3)
+        avg_corr_col, max_positive_col, max_negative_col = st.columns(3)
 
-        with col1:
+        with avg_corr_col:
             st.metric("Węzły (Cechy)", network_features)
-        with col2:
+        with max_positive_col:
             st.metric("Krawędzie", len(edges_df))
-        with col3:
+        with max_negative_col:
             density = (
                 len(edges_df) / (network_features * (network_features - 1) / 2) * 100
             )
             st.metric("Gęstość Grafu", f"{density:.1f}%")
-
-        # Network visualization
 
         G: nx.Graph = nx.Graph()
         for _, row in edges_df.iterrows():
@@ -588,7 +554,6 @@ Wizualizacja sieci zależności gdzie:
 
         st.plotly_chart(fig, width="stretch")
 
-        # Top connected features
         st.divider()
         st.subheader("Najbardziej Połączone Cechy")
 
@@ -599,9 +564,9 @@ Wizualizacja sieci zależności gdzie:
             }
         ).sort_values("Liczba_Połączeń", ascending=False)
 
-        col1, col2 = st.columns([2, 1])
+        avg_corr_col, max_positive_col = st.columns([2, 1])
 
-        with col1:
+        with avg_corr_col:
             fig = px.bar(
                 degree_df.head(20),
                 y="Cecha",
@@ -614,10 +579,9 @@ Wizualizacja sieci zależności gdzie:
             fig.update_layout(height=500)
             st.plotly_chart(fig, width="stretch")
 
-        with col2:
+        with max_positive_col:
             st.dataframe(degree_df, width="stretch", height=500)
     else:
         st.warning(f"⚠️ Brak krawędzi dla progu {edge_threshold}. Zmniejsz próg.")
 
-# Footer
 st.divider()

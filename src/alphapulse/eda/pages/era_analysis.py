@@ -37,12 +37,8 @@ Analizuj charakterystyki danych i stabilność w czasie.
 
 """)
 
-# ============================================================================
-# TARGET SELECTION (DROPDOWN) - WITH ALL TARGETS
-# ============================================================================
 st.sidebar.header("⚙️ Ustawienia Analizy")
 
-# Get all target columns from data
 if len(all_targets) == 0:
     all_targets = [col for col in train.columns if col.startswith("target")]
 
@@ -60,9 +56,6 @@ st.info(f"📊 Analizowany Target: **{selected_target}** (znormalizowany zwrot z
 
 st.divider()
 
-# ============================================================================
-# ERA OVERVIEW
-# ============================================================================
 st.header("📊 Przegląd Er")
 
 era_stats = (
@@ -79,25 +72,22 @@ era_stats.columns = [
     "count",
 ]
 
-col1, col2, col3, col4 = st.columns(4)
+era_count_col, avg_obs_col, min_obs_col, max_obs_col = st.columns(4)
 
-with col1:
+with era_count_col:
     st.metric("Liczba Er", train["era"].nunique())
 
-with col2:
+with avg_obs_col:
     st.metric("Średnia Obs. per Era", f"{era_stats['count'].mean():.0f}")
 
-with col3:
+with min_obs_col:
     st.metric("Min Obs. per Era", f"{era_stats['count'].min()}")
 
-with col4:
+with max_obs_col:
     st.metric("Max Obs. per Era", f"{era_stats['count'].max()}")
 
 st.divider()
 
-# ============================================================================
-# OBSERVATIONS PER ERA
-# ============================================================================
 st.header("📈 Obserwacje per Era")
 
 fig = go.Figure()
@@ -129,26 +119,22 @@ fig.update_layout(
 fig.update_xaxes(tickangle=45)
 st.plotly_chart(fig, width="stretch")
 
-# Statistics about era sizes
-col1, col2, col3 = st.columns(3)
+era_count_col, avg_obs_col, min_obs_col = st.columns(3)
 
-with col1:
+with era_count_col:
     cv = (era_stats["count"].std() / era_stats["count"].mean()) * 100
     st.metric("CV Rozmiaru Er", f"{cv:.2f}%", help="Współczynnik zmienności rozmiaru")
 
-with col2:
+with avg_obs_col:
     st.metric(
         "Zakres Rozmiaru", f"{era_stats['count'].max() - era_stats['count'].min()}"
     )
 
-with col3:
+with min_obs_col:
     st.metric("Mediana Obs.", f"{era_stats['count'].median():.0f}")
 
 st.divider()
 
-# ============================================================================
-# TARGET ANALYSIS OVER TIME
-# ============================================================================
 st.header(f"🎯 Zachowanie {selected_target.upper()} w Czasie")
 
 tab1, tab2, tab3 = st.tabs(["Średnia", "Zmienność", "Zakres"])
@@ -158,7 +144,6 @@ with tab1:
 
     fig = go.Figure()
 
-    # Main line
     fig.add_trace(
         go.Scatter(
             x=era_stats["era"],
@@ -171,7 +156,6 @@ with tab1:
         )
     )
 
-    # Confidence band (mean ± std)
     fig.add_trace(
         go.Scatter(
             x=era_stats["era"],
@@ -196,7 +180,6 @@ with tab1:
         )
     )
 
-    # Global mean
     fig.add_hline(
         y=train[selected_target].mean(),
         line_dash="dash",
@@ -215,7 +198,6 @@ with tab1:
     fig.update_xaxes(tickangle=45)
     st.plotly_chart(fig, width="stretch")
 
-    # Statistics with formula
     st.markdown("### 📐 Wzór Matematyczny - Stabilność:")
 
     st.latex(r"""
@@ -229,9 +211,9 @@ with tab1:
     - \\(\\sigma\\) = odchylenie standardowe średnich między erami
     """)
 
-    col1, col2, col3 = st.columns(3)
+    era_count_col, avg_obs_col, min_obs_col = st.columns(3)
 
-    with col1:
+    with era_count_col:
         mean_stability = era_stats["target_mean"].std()
         st.metric(
             "Stabilność (σ średnich)",
@@ -240,11 +222,11 @@ with tab1:
             "erami - im niższe, tym stabilniejszy target",
         )
 
-    with col2:
+    with avg_obs_col:
         trend = np.polyfit(range(len(era_stats)), era_stats["target_mean"], 1)[0]
         st.metric("Trend", f"{trend:.8f}", help="Nachylenie trendu liniowego")
 
-    with col3:
+    with min_obs_col:
         range_mean = era_stats["target_mean"].max() - era_stats["target_mean"].min()
         st.metric("Zakres Średnich", f"{range_mean:.6f}")
 
@@ -280,7 +262,6 @@ with tab2:
     fig.update_xaxes(tickangle=45)
     st.plotly_chart(fig, width="stretch")
 
-    # Volatility periods
     st.markdown("**Okresy Wysokiej Zmienności:**")
 
     high_vol_threshold = era_stats["target_std"].quantile(0.75)
@@ -324,12 +305,8 @@ with tab3:
 
 st.divider()
 
-# ============================================================================
-# FEATURE BEHAVIOR OVER TIME
-# ============================================================================
 st.header("🔍 Zachowanie Cech w Czasie")
 
-# Feature selection
 selected_features_time = st.multiselect(
     "Wybierz cechy do analizy temporalnej (max 5):",
     feature_set,
@@ -341,12 +318,10 @@ if len(selected_features_time) > 5:
     selected_features_time = selected_features_time[:5]
 
 if len(selected_features_time) > 0:
-    # Calculate feature stats per era
     feature_era_stats = (
         train.groupby("era")[selected_features_time].agg(["mean", "std"]).reset_index()
     )
 
-    # Mean values over time
     st.subheader("Średnie Wartości Cech per Era")
 
     fig = go.Figure()
@@ -382,10 +357,8 @@ if len(selected_features_time) > 0:
 
     st.divider()
 
-    # Correlation stability
     st.subheader(f"Stabilność Korelacji z {selected_target.upper()}")
 
-    # Calculate correlation per era for each feature
     correlation_over_time = []
 
     for era in sorted(train["era"].unique()):
@@ -433,7 +406,6 @@ if len(selected_features_time) > 0:
     fig.update_xaxes(tickangle=45)
     st.plotly_chart(fig, width="stretch")
 
-    # Correlation stability metrics
     st.markdown("### 📐 Wzór Matematyczny - Stabilność Korelacji:")
 
     st.latex(r"""
@@ -454,9 +426,7 @@ if len(selected_features_time) > 0:
     for feature in selected_features_time:
         corr_values = corr_time_df[feature]
 
-        # Ensure selected_target is a single, hashable column name
         if isinstance(selected_target, list | tuple):
-            # If no target is selected, skip this feature to avoid invalid indexing
             if not selected_target:
                 continue
             target_col = selected_target[0]
@@ -495,14 +465,10 @@ if len(selected_features_time) > 0:
 
 st.divider()
 
-# ============================================================================
-# ROLLING STATISTICS
-# ============================================================================
 st.header("📉 Statystyki Kroczące (Rolling)")
 
 window_size = st.slider("Rozmiar okna:", 3, 20, 5)
 
-# Calculate rolling statistics
 era_stats["rolling_mean"] = (
     era_stats["target_mean"].rolling(window=window_size, center=True).mean()
 )
@@ -521,7 +487,6 @@ fig = make_subplots(
     vertical_spacing=0.12,
 )
 
-# Mean
 fig.add_trace(
     go.Scatter(
         x=era_stats["era"],
@@ -548,7 +513,6 @@ fig.add_trace(
     col=1,
 )
 
-# Std
 fig.add_trace(
     go.Scatter(
         x=era_stats["era"],
@@ -584,9 +548,6 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-# ============================================================================
-# FOOTER
-# ============================================================================
 st.markdown(
     f"---\n"
     f"**📊 Aktualnie Analizuję:** {selected_target}\n"

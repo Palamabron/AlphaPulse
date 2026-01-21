@@ -32,9 +32,6 @@ st.markdown("""
 Szczegółowa analiza rozkładów pomaga zrozumieć dystrybucję wartości.
 """)
 
-# ============================================================================
-# DISTRIBUTION SUMMARY
-# ============================================================================
 st.header("📈 Podsumowanie Rozkładów Cech")
 
 num_features_display = st.slider(
@@ -47,7 +44,6 @@ num_features_display = st.slider(
 
 sample_features = feature_set[:num_features_display]
 
-# Calculate distribution statistics
 with st.spinner("Obliczanie statystyk rozkładów..."):
     dist_stats = []
 
@@ -55,10 +51,8 @@ with st.spinner("Obliczanie statystyk rozkładów..."):
         feature_data = train[feature]
         value_counts = feature_data.value_counts(normalize=True).sort_index()
 
-        # Calculate entropy
         entropy = -(value_counts * np.log2(value_counts + 1e-10)).sum()
 
-        # Mode
         mode_val = feature_data.mode()[0] if len(feature_data.mode()) > 0 else np.nan
 
         dist_stats.append(
@@ -83,7 +77,6 @@ st.dataframe(
     height=400,
 )
 
-# Download option
 csv = dist_df.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="📥 Pobierz statystyki jako CSV",
@@ -94,9 +87,6 @@ st.download_button(
 
 st.divider()
 
-# ============================================================================
-# COMPARATIVE DISTRIBUTIONS
-# ============================================================================
 st.header("🔄 Porównanie Rozkładów Cech")
 
 compare_features = st.multiselect(
@@ -110,7 +100,6 @@ if len(compare_features) > 5:
     compare_features = compare_features[:5]
 
 if len(compare_features) > 0:
-    # Grouped bar chart
     st.subheader("Porównanie rozkładów wartości")
 
     comparison_data = []
@@ -137,7 +126,6 @@ if len(compare_features) > 0:
 
     st.plotly_chart(fig, width="stretch")
 
-    # Detailed comparison table
     st.subheader("Szczegółowe porównanie statystyk")
 
     compare_stats = dist_df[dist_df["Cecha"].isin(compare_features)].copy()
@@ -153,16 +141,12 @@ else:
 
 st.divider()
 
-# ============================================================================
-# CHI-SQUARE GOODNESS OF FIT
-# ============================================================================
 st.header("📐 Test Chi-Kwadrat (Równomierność)")
 
 st.markdown("""
 Test hipotezy: Czy rozkład wartości cech jest równomierny (20% dla każdej wartości)?
 """)
 
-# Test for sample features
 chi_square_results: list[dict[str, Any]] = []
 for feature in sample_features[:20]:
     observed = train[feature].value_counts().sort_index().values
@@ -188,9 +172,9 @@ st.dataframe(
     chi_df.style.background_gradient(subset=["P-Value"], cmap="RdYlGn"), width="stretch"
 )
 
-col1, col2 = st.columns(2)
+uniform_count_col, avg_p_value_col = st.columns(2)
 
-with col1:
+with uniform_count_col:
     uniform_count = (chi_df["P-Value"] > 0.05).sum()
     st.metric(
         "Cechy z Równomiernym Rozkładem",
@@ -198,9 +182,8 @@ with col1:
         f"{uniform_count / len(chi_df) * 100:.1f}%",
     )
 
-with col2:
+with avg_p_value_col:
     avg_p_value = chi_df["P-Value"].mean()
     st.metric("Średnia P-Value", f"{avg_p_value:.4f}")
 
-# Footer
 st.divider()

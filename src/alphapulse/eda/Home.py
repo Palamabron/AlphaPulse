@@ -19,13 +19,10 @@ from utils.config import (
 )
 from utils.data_loader import load_numerai_data
 
-# Add current directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-# ============================================================================
-# LANGUAGE SELECTION
-# ============================================================================
+
 lang = st.sidebar.radio("🌐 Language / Język", ["English", "Polski"], index=1)
 
 
@@ -34,9 +31,6 @@ def t(en: str, pl: str) -> str:
     return en if lang == "English" else pl
 
 
-# ============================================================================
-# PAGE CONFIGURATION
-# ============================================================================
 st.set_page_config(
     page_title=APP_TITLE,
     page_icon=APP_ICON,
@@ -44,7 +38,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
 st.markdown(
     """
     <style>
@@ -64,20 +57,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ============================================================================
-# LOAD FEATURE SETS FROM features.json
-# ============================================================================
-
 
 @st.cache_data
-def load_feature_sets() -> dict[str, list[str]]:  # Zamiast dict[str, Any]
+def load_feature_sets() -> dict[str, list[str]]:
     """Load feature sets with sizes"""
     try:
         with open(FEATURES_JSON_PATH, encoding="utf-8") as f:
             features_json = json.load(f)
             if not features_json:
                 return {}
-            # Cast explicite
             feature_sets: dict[str, list[str]] = features_json.get("feature_sets", {})
             return feature_sets
     except Exception:
@@ -94,17 +82,12 @@ n_medium = len(feature_sets_data.get("medium", []))
 n_big = len(feature_sets_data.get("all", feature_sets_data.get("big", [])))
 
 
-# ============================================================================
-# HELPER: Get available targets
-# ============================================================================
 @st.cache_data
 def get_available_targets(data_path: str) -> list[str]:
     """Load sample and detect all target columns using PyArrow metadata"""
     try:
-        # Read just the schema (no data loaded)
         pf = pq.ParquetFile(data_path)
         all_cols = pf.schema.names
-        # Find all target columns
         target_cols = sorted([col for col in all_cols if col.startswith("target")])
         return target_cols
     except Exception as e:
@@ -114,12 +97,8 @@ def get_available_targets(data_path: str) -> list[str]:
 
 available_targets = get_available_targets(str(TRAIN_DATA_PATH))
 
-# ============================================================================
-# SIDEBAR CONFIGURATION
-# ============================================================================
 st.sidebar.header("⚙️ Konfiguracja Datasetu")
 
-# Feature set selection
 feature_set_choice = st.sidebar.selectbox(
     t("Select feature set:", "Wybierz zestaw cech:"),
     ["small", "medium", "all"],
@@ -131,7 +110,6 @@ feature_set_choice = st.sidebar.selectbox(
     ),
 )
 
-# TARGET SELECTION - SINGLE SELECT
 st.sidebar.subheader("🎯 Wybór Aktywnego Targetu")
 
 selected_target = st.sidebar.selectbox(
@@ -146,9 +124,6 @@ selected_target = st.sidebar.selectbox(
 
 st.sidebar.success(f"📊 Aktywny target: **{selected_target}**")
 
-# ============================================================================
-# LOAD DATA INTO SESSION STATE
-# ============================================================================
 cache_key = f"{feature_set_choice}_{selected_target}"
 
 if (
@@ -159,7 +134,6 @@ if (
         t("Loading Numerai v5.0 data...", "Ładowanie danych Numerai v5.0...")
     ):
         try:
-            # Load data - UWAGA: to załaduje WSZYSTKIE targety + cechy
             train, feature_set, messages = load_numerai_data(
                 str(TRAIN_DATA_PATH),
                 feature_set_name=feature_set_choice,
@@ -167,7 +141,6 @@ if (
                 selected_target=selected_target,
             )
 
-            # Display messages
             for msg in messages["info"]:
                 st.info(msg)
             for msg in messages["warning"]:
@@ -175,7 +148,6 @@ if (
             for msg in messages["error"]:
                 st.error(msg)
 
-            # Sprawdzenie czy wybrany target istnieje
             if selected_target not in train.columns:
                 st.error(f"❌ Target '{selected_target}' nie istnieje w danych!")
                 available_in_data = [
@@ -184,7 +156,6 @@ if (
                 st.warning(f"Dostępne targety: {', '.join(available_in_data)}")
                 st.stop()
 
-            # Utwórz kolumnę 'target' która zawiera dane wybranego targetu
             train["target"] = train[selected_target].copy()
 
             st.session_state["train"] = train
@@ -193,7 +164,6 @@ if (
             st.session_state["data_loaded"] = True
             st.session_state["selected_target"] = selected_target
 
-            # Załaduj WSZYSTKIE dostępne targety
             all_targets_in_data = sorted(
                 [col for col in train.columns if col.startswith("target")]
             )
@@ -223,16 +193,12 @@ if (
             )
             st.stop()
 
-# Get data from session state
 train = st.session_state["train"]
 feature_set = st.session_state["feature_set"]
 selected_target = st.session_state.get("selected_target", "target")
 all_targets = st.session_state.get("all_targets", available_targets)
 
 
-# ============================================================================
-# SANITY CHECK - CHECK IF FEATURES ARE CONTINUOUS
-# ============================================================================
 def sanity_check_features(df: pd.DataFrame, features: list[str]) -> list[str]:
     """Check if features are discrete (only values 0, 0.25, 0.5, 0.75, 1.0)"""
     continuous = []
@@ -247,9 +213,6 @@ def sanity_check_features(df: pd.DataFrame, features: list[str]) -> list[str]:
 continuous_features = sanity_check_features(train, feature_set)
 
 
-# ============================================================================
-# CALCULATE DATA SIZE
-# ============================================================================
 def get_data_size_mb(path: str) -> float:
     """Get file size in MB"""
     return os.path.getsize(path) / (1024**2)
@@ -257,9 +220,6 @@ def get_data_size_mb(path: str) -> float:
 
 data_size = get_data_size_mb(str(TRAIN_DATA_PATH))
 
-# ============================================================================
-# HEADER
-# ============================================================================
 st.title(f"{APP_ICON} {APP_TITLE}")
 
 st.markdown(
@@ -285,39 +245,33 @@ z turnieju Numerai wykorzystując **zaszyfrowane dane giełdowe**.
     )
 )
 
-# ============================================================================
-# KEY METRICS
-# ============================================================================
 st.subheader(t("📊 Dataset Overview", "📊 Przegląd Datasetu"))
 
-col1, col2, col3 = st.columns(3)
+rows_col, features_col, missing_data_col = st.columns(3)
 
-with col1:
+with rows_col:
     st.metric(t("📝 Rows", "📝 Liczba Wierszy"), f"{len(train):,}")
 
-with col2:
+with features_col:
     st.metric(
         t("🔢 Features (Current Set)", "🔢 Liczba Cech (Bieżący Zestaw)"),
         len(feature_set),
     )
 
-with col3:
+with missing_data_col:
     missing_pct = (train.isnull().sum().sum() / (len(train) * len(train.columns))) * 100
     st.metric(t("❓ Missing Data", "❓ Brakujące Dane"), f"{missing_pct:.2f}%")
 
 st.divider()
 
-# ============================================================================
-# TARGET INFORMATION
-# ============================================================================
 st.subheader("🎯 Informacja o Target")
 
-col1, col2, col3 = st.columns(3)
+rows_col, features_col, missing_data_col = st.columns(3)
 
-with col1:
+with rows_col:
     st.metric(t("Active Target", "Aktywny Target"), selected_target)
 
-with col2:
+with features_col:
     st.metric(
         t("Available Targets", "Dostępne Targety"),
         len(all_targets),
@@ -327,10 +281,9 @@ with col2:
         ),
     )
 
-with col3:
+with missing_data_col:
     st.metric(t("Target Mean", "Średnia Target"), f"{train['target'].mean():.6f}")
 
-# Show all available targets
 with st.expander(
     t("📋 Show all available targets", "📋 Pokaż wszystkie dostępne targety")
 ):
@@ -350,43 +303,32 @@ with st.expander(
 
 st.divider()
 
-# ============================================================================
-# FEATURE SET SIZES
-# ============================================================================
 st.subheader(t("📦 Feature Set Sizes", "📦 Rozmiary Zestawów Cech"))
 
-col1, col2, col3 = st.columns(3)
+rows_col, features_col, missing_data_col = st.columns(3)
 
-with col1:
+with rows_col:
     st.metric(t("Small Set (20%)", "Zestaw Mały (20%)"), f"{n_small:,}")
 
-with col2:
+with features_col:
     st.metric(t("Medium Set (50%)", "Zestaw Średni (50%)"), f"{n_medium:,}")
 
-with col3:
+with missing_data_col:
     st.metric(t("Big/All Set (100%)", "Zestaw Duży/Wszystkie (100%)"), f"{n_big:,}")
 
 st.divider()
 
-# ============================================================================
-# DATA SIZE
-# ============================================================================
 st.metric(t("💾 Data Size (MB)", "💾 Rozmiar Danych (MB)"), f"{data_size:.2f}")
 
 st.divider()
 
-# ============================================================================
-# SANITY CHECK RESULTS
-# ============================================================================
 st.subheader(t("🔍 Sanity Check", "🔍 Sanity Check"))
 
-# Separate discrete and continuous features
 discrete_features = [f for f in feature_set if f not in continuous_features]
 
-# Display statistics
-col1, col2 = st.columns(2)
+rows_col, features_col = st.columns(2)
 
-with col1:
+with rows_col:
     st.metric(
         t("✅ Discrete Features", "✅ Cechy Dyskretne"),
         len(discrete_features),
@@ -396,7 +338,7 @@ with col1:
         ),
     )
 
-with col2:
+with features_col:
     st.metric(
         t("⚠️ Continuous Features", "⚠️ Cechy Ciągłe"),
         len(continuous_features),
@@ -406,7 +348,6 @@ with col2:
         ),
     )
 
-# Show messages based on results
 if continuous_features:
     st.warning(
         t(
@@ -417,7 +358,6 @@ if continuous_features:
         )
     )
 
-    # Expander for continuous features
     with st.expander(t("Show continuous features", "Pokaż cechy ciągłe")):
         for feat in continuous_features[:20]:
             st.write(f"- {feat}")
@@ -438,7 +378,6 @@ else:
         )
     )
 
-# Expander for discrete features (always shown)
 with st.expander(t("Show discrete features", "Pokaż cechy dyskretne")):
     if discrete_features:
         st.info(
@@ -466,9 +405,6 @@ with st.expander(t("Show discrete features", "Pokaż cechy dyskretne")):
 
 st.divider()
 
-# ============================================================================
-# NAVIGATION GUIDE
-# ============================================================================
 st.subheader(t("🧭 Navigation", "🧭 Nawigacja"))
 
 st.markdown(
@@ -510,9 +446,6 @@ Wybierz stronę z menu bocznego, aby rozpocząć analizę.
 
 st.divider()
 
-# ============================================================================
-# DATA PREVIEW
-# ============================================================================
 with st.expander(
     t("🔍 Data preview (first 10 rows)", "🔍 Podgląd danych (pierwsze 10 wierszy)")
 ):
@@ -521,9 +454,6 @@ with st.expander(
 with st.expander(t("📊 Quick statistics", "📊 Szybkie statystyki")):
     st.dataframe(train.describe(), width="stretch")
 
-# ============================================================================
-# FOOTER
-# ============================================================================
 st.markdown(
     t(
         f"""

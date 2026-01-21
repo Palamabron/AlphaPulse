@@ -12,7 +12,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
@@ -27,9 +26,6 @@ train = st.session_state["train"]
 feature_set = st.session_state["feature_set"]
 
 
-# ============================================================================
-# HELPER FUNCTION: Check if feature is discrete
-# ============================================================================
 def is_discrete_feature(series: pd.Series) -> bool:
     """Check if feature has only discrete values (0, 0.25, 0.5, 0.75, 1.0)"""
     unique_vals = series.dropna().unique()
@@ -42,9 +38,6 @@ Szczegółowa analiza indywidualnych cech i ich relacji z target.
 **Target** = Znormalizowany zwrot z akcji (wartość do przewidzenia w turnieju Numerai).
 """)
 
-# ============================================================================
-# FEATURE SELECTION
-# ============================================================================
 st.sidebar.header("⚙️ Wybór Cech")
 
 analysis_mode = st.sidebar.radio(
@@ -52,19 +45,13 @@ analysis_mode = st.sidebar.radio(
 )
 
 if analysis_mode == "Pojedyncza cecha":
-    # ========================================================================
-    # SINGLE FEATURE ANALYSIS
-    # ========================================================================
-
     selected_feature = st.sidebar.selectbox("Wybierz cechę:", feature_set, index=0)
 
     st.header(f"📊 Analiza cechy: `{selected_feature}`")
 
-    # Feature statistics
     feature_data = train[selected_feature]
     is_discrete = is_discrete_feature(feature_data)
 
-    # Display feature type
     if is_discrete:
         st.success("✅ Cecha dyskretna (wartości: 0, 0.25, 0.5, 0.75, 1.0)")
     else:
@@ -83,7 +70,6 @@ if analysis_mode == "Pojedyncza cecha":
     with col_correlation:
         selected_target = st.session_state.get("selected_target", "target")
 
-        # Upewnij się, że selected_target jest stringiem, nie listą
         if isinstance(selected_target, list | tuple):
             target_col = selected_target[0]
         else:
@@ -94,14 +80,12 @@ if analysis_mode == "Pojedyncza cecha":
 
     st.divider()
 
-    # Value distribution
     col_mean, col_median = st.columns([2, 1])
 
     with col_mean:
         st.subheader("Rozkład wartości cechy")
 
         if is_discrete:
-            # Discrete: bar chart
             value_counts = feature_data.value_counts().sort_index()
 
             fig = go.Figure()
@@ -131,7 +115,6 @@ if analysis_mode == "Pojedyncza cecha":
                 height=400,
             )
         else:
-            # Continuous: histogram
             fig = px.histogram(
                 feature_data,
                 nbins=50,
@@ -161,7 +144,6 @@ if analysis_mode == "Pojedyncza cecha":
 
             st.dataframe(stats_df, width="stretch", height=400)
 
-            # Entropy
             entropy = -(value_pct / 100 * np.log2(value_pct / 100 + 1e-10)).sum()
             st.metric(
                 "Entropia",
@@ -169,7 +151,6 @@ if analysis_mode == "Pojedyncza cecha":
                 help="Miara niepewności rozkładu (max=2.32 dla 5 wartości)",
             )
         else:
-            # For continuous features
             percentiles_df = pd.DataFrame(
                 {
                     "Percentyl": ["Min", "25%", "50%", "75%", "Max"],
@@ -187,11 +168,9 @@ if analysis_mode == "Pojedyncza cecha":
 
     st.divider()
 
-    # Feature vs Target - Show boxplot only for discrete features
     st.subheader("Relacja z Target (znormalizowany zwrot z akcji)")
 
     if is_discrete:
-        # For discrete features: show Boxplot and Violin Plot
         tab1, tab2, tab3 = st.tabs(["Boxplot", "Violin Plot", "Statystyki per wartość"])
 
         with tab1:
@@ -252,7 +231,6 @@ if analysis_mode == "Pojedyncza cecha":
                 width="stretch",
             )
 
-            # Visualization
             fig = px.bar(
                 target_by_feature,
                 x="Wartość",
@@ -278,7 +256,6 @@ if analysis_mode == "Pojedyncza cecha":
             )
             st.plotly_chart(fig, width="stretch")
     else:
-        # For continuous features: only show Violin Plot and stats
         st.info(
             "Dla cech ciągłych pokazano "
             "tylko Violin Plot i statystyki (boxplot pominięty)"
@@ -304,7 +281,6 @@ if analysis_mode == "Pojedyncza cecha":
             st.plotly_chart(fig, width="stretch")
 
         with tab2:
-            # Bin continuous feature into quartiles
             train["feature_binned"] = pd.qcut(
                 train[selected_feature],
                 q=4,
@@ -330,10 +306,8 @@ if analysis_mode == "Pojedyncza cecha":
 
     st.divider()
 
-    # Feature behavior over eras
     st.subheader("Zachowanie w czasie (Ery)")
 
-    # Mean feature value per era
     feature_era = (
         train.groupby("era")[selected_feature].agg(["mean", "std"]).reset_index()
     )
@@ -387,7 +361,6 @@ if analysis_mode == "Pojedyncza cecha":
 
     st.plotly_chart(fig, width="stretch")
 
-    # Correlation with target per era
     st.subheader("Korelacja z Target per Era")
 
     era_correlations = []
@@ -436,10 +409,6 @@ if analysis_mode == "Pojedyncza cecha":
         st.metric("% Er z dodatnią korelacją", f"{stability:.1f}%")
 
 elif analysis_mode == "Porównanie cech":
-    # ========================================================================
-    # FEATURE COMPARISON
-    # ========================================================================
-
     compare_features = st.sidebar.multiselect(
         "Wybierz cechy do porównania (2-5):", feature_set, default=feature_set[:3]
     )
@@ -454,7 +423,6 @@ elif analysis_mode == "Porównanie cech":
 
     st.header(f"🔄 Porównanie {len(compare_features)} cech")
 
-    # Check which features are discrete vs continuous
     feature_types = {}
     normalized_features = []
 
@@ -464,7 +432,6 @@ elif analysis_mode == "Porównanie cech":
         feature_types[feature_name] = (
             "Dyskretna" if is_discrete_feature(train[feature_name]) else "Ciągła"
         )
-    # Comparison statistics
     st.subheader("Statystyki porównawcze")
     comparison_stats = []
 
@@ -495,11 +462,9 @@ elif analysis_mode == "Porównanie cech":
 
     st.divider()
 
-    # Separate discrete and continuous features
     discrete_features = [f for f in compare_features if feature_types[f] == "Dyskretna"]
     continuous_features = [f for f in compare_features if feature_types[f] == "Ciągła"]
 
-    # Distribution comparison for discrete features
     if discrete_features:
         st.subheader("Porównanie rozkładów - Cechy Dyskretne")
 
@@ -527,7 +492,6 @@ elif analysis_mode == "Porównanie cech":
 
         st.plotly_chart(fig, width="stretch")
 
-    # Distribution for continuous features
     if continuous_features:
         st.subheader("Rozkłady - Cechy Ciągłe")
         st.info(f"Wykryto {len(continuous_features)} cech ciągłych")
@@ -547,7 +511,6 @@ elif analysis_mode == "Porównanie cech":
 
     st.divider()
 
-    # Correlation with target comparison
     st.subheader("Porównanie korelacji z Target (zwrot z akcji)")
 
     fig = px.bar(
@@ -569,7 +532,6 @@ elif analysis_mode == "Porównanie cech":
 
     st.divider()
 
-    # Target distribution per feature value (only boxplot for discrete)
     st.subheader("Target (zwrot z akcji) per wartość cechy")
 
     for feature in compare_features:
@@ -577,7 +539,6 @@ elif analysis_mode == "Porównanie cech":
             col_mean, col_median = st.columns(2)
 
             with col_mean:
-                # Show boxplot only for discrete features
                 if feature_types[feature] == "Dyskretna":
                     fig = px.box(
                         train,
@@ -599,7 +560,6 @@ elif analysis_mode == "Porównanie cech":
                         train.groupby(feature)["target"].mean().reset_index()
                     )
                 else:
-                    # Bin continuous features
                     train["temp_binned"] = pd.qcut(
                         train[feature],
                         q=4,
@@ -635,7 +595,6 @@ elif analysis_mode == "Porównanie cech":
 
     st.divider()
 
-    # Pairwise correlations
     st.subheader("Korelacje między cechami")
 
     corr_matrix = train[compare_features].corr()
@@ -654,10 +613,6 @@ elif analysis_mode == "Porównanie cech":
     st.plotly_chart(fig, width="stretch")
 
 else:
-    # ========================================================================
-    # BATCH ANALYSIS
-    # ========================================================================
-
     num_features_batch = st.sidebar.slider(
         "Liczba cech do analizy:", 10, min(100, len(feature_set)), 30, 10
     )
@@ -672,7 +627,6 @@ else:
         batch_stats = []
 
         selected_target = st.session_state.get("selected_target", "target")
-        # Ensure selected_target is a single, hashable column name
         if isinstance(selected_target, list | tuple | np.ndarray | pd.Index):
             if len(selected_target) > 0:
                 selected_target = selected_target[0]
@@ -703,7 +657,6 @@ else:
 
         batch_df = pd.DataFrame(batch_stats)
 
-    # Count discrete vs continuous
     discrete_count = (batch_df["Typ"] == "Dyskretna").sum()
     continuous_count = (batch_df["Typ"] == "Ciągła").sum()
 
@@ -719,7 +672,6 @@ else:
         height=400,
     )
 
-    # Download option
     csv = batch_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="📥 Pobierz jako CSV",
@@ -730,7 +682,6 @@ else:
 
     st.divider()
 
-    # Visualizations
     tab1, tab2, tab3 = st.tabs(
         ["Rozkład korelacji", "Mean vs Std", "Entropia vs Korelacja"]
     )
@@ -787,7 +738,6 @@ else:
 
     st.divider()
 
-    # Top features by correlation
     st.subheader("Top 20 cech według korelacji z Target")
 
     col_mean, col_median = st.columns(2)
@@ -830,5 +780,4 @@ else:
         fig.update_xaxes(title_text="Wartość korelacji")
         st.plotly_chart(fig, width="stretch")
 
-# Footer
 st.divider()

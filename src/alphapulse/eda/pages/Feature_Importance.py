@@ -9,7 +9,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# Add parent directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
@@ -29,9 +28,6 @@ Ranking ważności cech na podstawie korelacji z Target (znormalizowany zwrot z 
 """)
 
 
-# ============================================================================
-# COMPUTE IMPORTANCE METRICS
-# ============================================================================
 @st.cache_data
 def compute_importance(_train: pd.DataFrame, features: list[str]) -> pd.DataFrame:
     importance_data = []
@@ -44,7 +40,7 @@ def compute_importance(_train: pd.DataFrame, features: list[str]) -> pd.DataFram
             {
                 "Cecha": feature,
                 "Korelacja": corr,
-                "Abs_Korelacja": abs_corr,  # <-- DODAJ TĘ KOLUMNĘ!
+                "Abs_Korelacja": abs_corr,
             }
         )
 
@@ -54,50 +50,43 @@ def compute_importance(_train: pd.DataFrame, features: list[str]) -> pd.DataFram
 with st.spinner("Obliczanie ważności cech..."):
     importance_df = compute_importance(train, feature_set)
 
-# ============================================================================
-# SUMMARY METRICS
-# ============================================================================
+
 st.header("📊 Podsumowanie")
 
-col1, col2, col3 = st.columns(3)
+top_feature_col, avg_corr_col, threshold_count_col = st.columns(3)
 
-with col1:
+with top_feature_col:
     top_corr = importance_df.iloc[0]
     st.metric(
         "Top Cecha", top_corr["Cecha"][:30] + "...", f"{top_corr['Abs_Korelacja']:.6f}"
     )
 
-with col2:
+with avg_corr_col:
     st.metric("Średnia |Korelacja|", f"{importance_df['Abs_Korelacja'].mean():.6f}")
 
-with col3:
+with threshold_count_col:
     above_threshold = (importance_df["Abs_Korelacja"] > 0.01).sum()
     st.metric("Cechy z |r| > 0.01", above_threshold)
 
 st.divider()
 
-# REMOVED: "Wizualizacje Ważności" section completely
-
-# ============================================================================
-# DETAILED TABLE
-# ============================================================================
 st.header("📋 Ranking Ważności Cech")
 
-# Filter options
-col1, col2 = st.columns(2)
 
-with col1:
+top_feature_col, avg_corr_col = st.columns(2)
+
+with top_feature_col:
     filter_type = st.selectbox(
         "Filtruj według:", ["Wszystkie", "Top 50", "Top 100", "Powyżej progu"]
     )
 
-with col2:
+with avg_corr_col:
     if filter_type == "Powyżej progu":
         threshold = st.number_input(
             "Próg |Korelacji|:", min_value=0.0, max_value=1.0, value=0.01, format="%.4f"
         )
 
-# Apply filters
+
 if filter_type == "Top 50":
     display_df = importance_df.head(50)
 elif filter_type == "Top 100":
@@ -115,7 +104,7 @@ st.dataframe(
     height=600,
 )
 
-# Download
+
 csv = display_df.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="📥 Pobierz jako CSV",
@@ -126,14 +115,12 @@ st.download_button(
 
 st.divider()
 
-# ============================================================================
-# TOP 20 FEATURES - SIMPLE BAR CHARTS
-# ============================================================================
+
 st.header("🏆 Top 20 Cech")
 
-col1, col2 = st.columns(2)
+top_feature_col, avg_corr_col = st.columns(2)
 
-with col1:
+with top_feature_col:
     st.subheader("Dodatnie Korelacje")
     top_pos = importance_df.nlargest(20, "Korelacja")
 
@@ -153,7 +140,7 @@ with col1:
     fig.update_yaxes(title_text="Cecha")
     st.plotly_chart(fig, width="stretch")
 
-with col2:
+with avg_corr_col:
     st.subheader("Ujemne Korelacje")
     top_neg = importance_df.nsmallest(20, "Korelacja")
 
@@ -173,5 +160,5 @@ with col2:
     fig.update_yaxes(title_text="Cecha")
     st.plotly_chart(fig, width="stretch")
 
-# Footer
+
 st.divider()

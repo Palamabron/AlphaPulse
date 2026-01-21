@@ -44,11 +44,9 @@ def load_numerai_data(
     messages: dict[str, list[str]] = {"info": [], "warning": [], "error": []}
 
     try:
-        # Use PyArrow to read metadata only (no data loaded)
         pf = pq.ParquetFile(data_path)
-        all_columns = pf.schema.names  # Just column names, no data
+        all_columns = pf.schema.names
 
-        # Load feature metadata
         metadata = load_feature_metadata()
 
         if metadata and "feature_sets" in metadata:
@@ -76,16 +74,12 @@ def load_numerai_data(
                 if col not in ["era", "id"] and col.startswith("feature_")
             ]
 
-        # Get all target columns
         all_targets = [col for col in all_columns if col.startswith("target")]
 
-        # Build columns to load
         columns_to_load = ["era"] + all_targets + feature_set
 
-        # Single data load using PyArrow
         train = pf.read(columns=columns_to_load).to_pandas()
 
-        # Subsample eras if requested
         if subsample_eras:
             unique_eras = train["era"].unique()
             sampled_eras = unique_eras[::4]

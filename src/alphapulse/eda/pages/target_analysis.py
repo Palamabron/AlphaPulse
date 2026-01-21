@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-# Add parent directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
@@ -33,12 +32,8 @@ Szczegółowa analiza zmiennej docelowej oraz jej zachowania w czasie.
 
 """)
 
-# ============================================================================
-# TARGET SELECTION (DROPDOWN)
-# ============================================================================
 st.sidebar.header("⚙️ Ustawienia Analizy")
 
-# Get all target columns from data
 if len(all_targets) == 0:
     all_targets = [col for col in train.columns if col.startswith("target")]
 
@@ -52,7 +47,6 @@ selected_target = st.sidebar.selectbox(
     help="Kliknij aby wybrać inny target",
 )
 
-# Validate selected target exists
 if selected_target not in train.columns:
     st.error(f"❌ Target '{selected_target}' nie istnieje w danych!")
     st.stop()
@@ -61,9 +55,6 @@ st.info(f"📊 Analizowany Target: **{selected_target}** (znormalizowany zwrot z
 
 st.divider()
 
-# ============================================================================
-# TARGET STATISTICS
-# ============================================================================
 st.header("📊 Statystyki Target")
 
 target_stats = train[selected_target].describe()
@@ -94,9 +85,6 @@ with col_skew_kurtosis:
 
 st.divider()
 
-# ============================================================================
-# RIDGEPLOT - DISTRIBUTION OF ALL TARGETS
-# ============================================================================
 st.header("📈 Ridgeplot - Rozkład Target dla wszystkich Er")
 
 st.markdown("""
@@ -106,21 +94,18 @@ Umożliwia wizualną ocenę stabilności rozkładu w czasie.
 
 """)
 
-# Sample eras for better visualization
 era_sample_rate = st.slider(
     "Co która Era na wykresie:", 1, 10, 3, key="ridgeplot_sample"
 )
 
 sample_eras = sorted(train["era"].unique())[::era_sample_rate]
 
-# Create ridgeplot data
 ridgeplot_data = []
 
 for era in sample_eras:
     era_data = train[train["era"] == era][selected_target].dropna()
     ridgeplot_data.append({"era": era, "values": era_data.values})
 
-# Create figure with multiple violin plots
 fig = go.Figure()
 
 for idx, era_dict in enumerate(ridgeplot_data):
@@ -155,9 +140,6 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-# ============================================================================
-# ERA vs TARGET SCATTER/LINE PLOT
-# ============================================================================
 st.header("⏰ Wykres Era vs Target")
 
 st.markdown("""
@@ -165,7 +147,6 @@ Wykres przedstawia wartości Target w funkcji Ery (oś X: Era, oś Y: Target).
 
 """)
 
-# Option to show sample or all data
 show_sample = st.checkbox("Pokaż próbkę danych (szybsze renderowanie)", value=True)
 
 if show_sample:
@@ -185,7 +166,6 @@ fig = px.scatter(
     color_continuous_scale="RdBu_r",
 )
 
-# Add mean line per era
 era_stats = train.groupby("era")[selected_target].mean().reset_index()
 
 fig.add_trace(
@@ -198,7 +178,6 @@ fig.add_trace(
     )
 )
 
-# Add global mean
 fig.add_hline(
     y=train[selected_target].mean(),
     line_dash="dash",
@@ -218,12 +197,8 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-# ============================================================================
-# ERA-BASED ANALYSIS
-# ============================================================================
 st.header("⏰ Analiza Target przez Ery")
 
-# Safe era statistics calculation
 try:
     era_stats_full = (
         train.groupby("era")
@@ -242,7 +217,6 @@ except Exception as e:
     st.error(f"❌ Błąd przy obliczaniu statystyk: {e}")
     st.stop()
 
-# Metrics per era over time
 col_mean_std, col_median_iqr = st.columns(2)
 
 with col_mean_std:
@@ -260,7 +234,6 @@ with col_mean_std:
         )
     )
 
-    # Add confidence band
     fig.add_trace(
         go.Scatter(
             x=era_stats_full["era"],
@@ -322,7 +295,6 @@ with col_median_iqr:
     fig.update_yaxes(title_text=f"Std Dev {selected_target}")
     st.plotly_chart(fig, width="stretch")
 
-# Combined metrics
 st.subheader("Kompleksowa analiza w czasie")
 
 fig = make_subplots(
@@ -337,7 +309,6 @@ fig = make_subplots(
     shared_xaxes=True,
 )
 
-# Mean
 fig.add_trace(
     go.Scatter(
         x=era_stats_full["era"],
@@ -350,7 +321,6 @@ fig.add_trace(
     col=1,
 )
 
-# Std
 fig.add_trace(
     go.Scatter(
         x=era_stats_full["era"],
@@ -363,7 +333,6 @@ fig.add_trace(
     col=1,
 )
 
-# Range
 era_stats_full["range"] = era_stats_full["target_max"] - era_stats_full["target_min"]
 fig.add_trace(
     go.Scatter(
@@ -386,9 +355,6 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-# ============================================================================
-# STABILITY METRICS
-# ============================================================================
 st.header("🎲 Metryki Stabilności Target")
 
 col_mean_std, col_median_iqr, col_min_max = st.columns(3)
@@ -419,10 +385,8 @@ with col_min_max:
         help="Jak bardzo zmienia się zakres między erami",
     )
 
-# Era stability heatmap
 st.subheader("Mapa stabilności Target")
 
-# Calculate rolling statistics
 window = 5
 era_stats_full["rolling_mean"] = (
     era_stats_full["target_mean"].rolling(window=window).mean()
