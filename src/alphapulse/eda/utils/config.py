@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+DATASET_VERSION = "v5.2"
 ROOT = Path(__file__).parent.parent.parent.parent.parent
 TRAIN_DATA_PATH = ROOT / "data" / "v5.2" / "train.parquet"
 FEATURES_JSON_PATH = ROOT / "data" / "v5.2" / "features.json"

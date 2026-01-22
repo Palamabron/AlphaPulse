@@ -1,8 +1,3 @@
-"""
-Numerai v5.0 EDA Dashboard - Home Page
-Main entry point for the multipage Streamlit application
-"""
-
 import json
 import os
 import sys
@@ -13,6 +8,7 @@ import streamlit as st
 from utils.config import (
     APP_ICON,
     APP_TITLE,
+    DATASET_VERSION,
     FEATURES_JSON_PATH,
     LAYOUT,
     TRAIN_DATA_PATH,
@@ -26,7 +22,7 @@ sys.path.insert(0, current_dir)
 lang = st.sidebar.radio("🌐 Language / Język", ["English", "Polski"], index=1)
 
 
-def t(en: str, pl: str) -> str:
+def translate_text(en: str, pl: str) -> str:
     """Translation helper function"""
     return en if lang == "English" else pl
 
@@ -100,10 +96,10 @@ available_targets = get_available_targets(str(TRAIN_DATA_PATH))
 st.sidebar.header("⚙️ Konfiguracja Datasetu")
 
 feature_set_choice = st.sidebar.selectbox(
-    t("Select feature set:", "Wybierz zestaw cech:"),
+    translate_text("Select feature set:", "Wybierz zestaw cech:"),
     ["small", "medium", "all"],
     index=1,
-    help=t(
+    help=translate_text(
         f"Small: {n_small} features,"
         "Medium: {n_medium} features, All: {n_big} features",
         f"Mały: {n_small} cech, Średni: {n_medium} cech, Wszystkie: {n_big} cech",
@@ -113,10 +109,10 @@ feature_set_choice = st.sidebar.selectbox(
 st.sidebar.subheader("🎯 Wybór Aktywnego Targetu")
 
 selected_target = st.sidebar.selectbox(
-    t("Select target to analyze:", "Wybierz target do analizy:"),
+    translate_text("Select target to analyze:", "Wybierz target do analizy:"),
     available_targets,
     index=0,
-    help=t(
+    help=translate_text(
         "Choose which target to work with in the analysis",
         "Wybierz który target ma być aktywny do analizy",
     ),
@@ -131,7 +127,10 @@ if (
     or st.session_state.get("cache_key") != cache_key
 ):
     with st.spinner(
-        t("Loading Numerai v5.0 data...", "Ładowanie danych Numerai v5.0...")
+        translate_text(
+            f"Loading Numerai {DATASET_VERSION} data...",
+            f"Ładowanie danych Numerai {DATASET_VERSION}...",
+        )
     ):
         try:
             train, feature_set, messages = load_numerai_data(
@@ -179,13 +178,13 @@ if (
             st.stop()
         except Exception as e:
             st.error(
-                t(
+                translate_text(
                     f"❌ Error loading data: {e}",
                     f"❌ Błąd podczas ładowania danych: {e}",
                 )
             )
             st.info(
-                t(
+                translate_text(
                     "💡 Make sure data file exists at: ",
                     "💡 Upewnij się, że plik danych znajduje się w: ",
                 )
@@ -223,19 +222,19 @@ data_size = get_data_size_mb(str(TRAIN_DATA_PATH))
 st.title(f"{APP_ICON} {APP_TITLE}")
 
 st.markdown(
-    t(
-        """
+    translate_text(
+        f"""
 ---
-## 👋 Welcome to Numerai v5.0 EDA Dashboard!
+## 👋 Welcome to Numerai {DATASET_VERSION} EDA Dashboard!
 
 This interactive dashboard allows comprehensive exploratory data analysis
 of Numerai tournament data using **encrypted stock market data**.
 
 ### 📊 Data loaded successfully!
 """,
-        """
+        f"""
 ---
-## 👋 Witaj w Dashboard EDA dla Numerai v5.0!
+## 👋 Witaj w Dashboard EDA dla Numerai {DATASET_VERSION}!
 
 Ten interaktywny dashboard pozwala na kompleksową analizę eksploracyjną danych
 z turnieju Numerai wykorzystując **zaszyfrowane dane giełdowe**.
@@ -245,22 +244,24 @@ z turnieju Numerai wykorzystując **zaszyfrowane dane giełdowe**.
     )
 )
 
-st.subheader(t("📊 Dataset Overview", "📊 Przegląd Datasetu"))
+st.subheader(translate_text("📊 Dataset Overview", "📊 Przegląd Datasetu"))
 
 rows_col, features_col, missing_data_col = st.columns(3)
 
 with rows_col:
-    st.metric(t("📝 Rows", "📝 Liczba Wierszy"), f"{len(train):,}")
+    st.metric(translate_text("📝 Rows", "📝 Liczba Wierszy"), f"{len(train):,}")
 
 with features_col:
     st.metric(
-        t("🔢 Features (Current Set)", "🔢 Liczba Cech (Bieżący Zestaw)"),
+        translate_text("🔢 Features (Current Set)", "🔢 Liczba Cech (Bieżący Zestaw)"),
         len(feature_set),
     )
 
 with missing_data_col:
     missing_pct = (train.isnull().sum().sum() / (len(train) * len(train.columns))) * 100
-    st.metric(t("❓ Missing Data", "❓ Brakujące Dane"), f"{missing_pct:.2f}%")
+    st.metric(
+        translate_text("❓ Missing Data", "❓ Brakujące Dane"), f"{missing_pct:.2f}%"
+    )
 
 st.divider()
 
@@ -269,23 +270,27 @@ st.subheader("🎯 Informacja o Target")
 rows_col, features_col, missing_data_col = st.columns(3)
 
 with rows_col:
-    st.metric(t("Active Target", "Aktywny Target"), selected_target)
+    st.metric(translate_text("Active Target", "Aktywny Target"), selected_target)
 
 with features_col:
     st.metric(
-        t("Available Targets", "Dostępne Targety"),
+        translate_text("Available Targets", "Dostępne Targety"),
         len(all_targets),
-        help=t(
+        help=translate_text(
             "Total number of targets available in the dataset",
             "Całkowita liczba targetów dostępnych w datasecie",
         ),
     )
 
 with missing_data_col:
-    st.metric(t("Target Mean", "Średnia Target"), f"{train['target'].mean():.6f}")
+    st.metric(
+        translate_text("Target Mean", "Średnia Target"), f"{train['target'].mean():.6f}"
+    )
 
 with st.expander(
-    t("📋 Show all available targets", "📋 Pokaż wszystkie dostępne targety")
+    translate_text(
+        "📋 Show all available targets", "📋 Pokaż wszystkie dostępne targety"
+    )
 ):
     cols = st.columns(3)
     for idx, target in enumerate(all_targets):
@@ -293,7 +298,7 @@ with st.expander(
         cols[idx % 3].write(f"{is_active} {target}")
 
     st.info(
-        t(
+        translate_text(
             "✅ = Currently active target |"
             " ⭕ = Available targets (select in sidebar to switch)",
             "✅ = Aktywny target |"
@@ -303,26 +308,33 @@ with st.expander(
 
 st.divider()
 
-st.subheader(t("📦 Feature Set Sizes", "📦 Rozmiary Zestawów Cech"))
+st.subheader(translate_text("📦 Feature Set Sizes", "📦 Rozmiary Zestawów Cech"))
 
 rows_col, features_col, missing_data_col = st.columns(3)
 
 with rows_col:
-    st.metric(t("Small Set (20%)", "Zestaw Mały (20%)"), f"{n_small:,}")
+    st.metric(translate_text("Small Set (20%)", "Zestaw Mały (20%)"), f"{n_small:,}")
 
 with features_col:
-    st.metric(t("Medium Set (50%)", "Zestaw Średni (50%)"), f"{n_medium:,}")
+    st.metric(
+        translate_text("Medium Set (50%)", "Zestaw Średni (50%)"), f"{n_medium:,}"
+    )
 
 with missing_data_col:
-    st.metric(t("Big/All Set (100%)", "Zestaw Duży/Wszystkie (100%)"), f"{n_big:,}")
+    st.metric(
+        translate_text("Big/All Set (100%)", "Zestaw Duży/Wszystkie (100%)"),
+        f"{n_big:,}",
+    )
 
 st.divider()
 
-st.metric(t("💾 Data Size (MB)", "💾 Rozmiar Danych (MB)"), f"{data_size:.2f}")
+st.metric(
+    translate_text("💾 Data Size (MB)", "💾 Rozmiar Danych (MB)"), f"{data_size:.2f}"
+)
 
 st.divider()
 
-st.subheader(t("🔍 Sanity Check", "🔍 Sanity Check"))
+st.subheader(translate_text("🔍 Sanity Check", "🔍 Sanity Check"))
 
 discrete_features = [f for f in feature_set if f not in continuous_features]
 
@@ -330,9 +342,9 @@ rows_col, features_col = st.columns(2)
 
 with rows_col:
     st.metric(
-        t("✅ Discrete Features", "✅ Cechy Dyskretne"),
+        translate_text("✅ Discrete Features", "✅ Cechy Dyskretne"),
         len(discrete_features),
-        help=t(
+        help=translate_text(
             "Features with only values: 0, 0.25, 0.5, 0.75, 1.0",
             "Cechy zawierające tylko wartości: 0, 0.25, 0.5, 0.75, 1.0",
         ),
@@ -340,9 +352,9 @@ with rows_col:
 
 with features_col:
     st.metric(
-        t("⚠️ Continuous Features", "⚠️ Cechy Ciągłe"),
+        translate_text("⚠️ Continuous Features", "⚠️ Cechy Ciągłe"),
         len(continuous_features),
-        help=t(
+        help=translate_text(
             "Features with values outside discrete set",
             "Cechy zawierające wartości poza zestawem dyskretnym",
         ),
@@ -350,7 +362,7 @@ with features_col:
 
 if continuous_features:
     st.warning(
-        t(
+        translate_text(
             f"⚠️ Warning: {len(continuous_features)} continuous "
             "features detected (expected discrete: 0, 0.25, 0.5, 0.75, 1.0)",
             f"⚠️ Uwaga: Wykryto {len(continuous_features)} "
@@ -358,19 +370,19 @@ if continuous_features:
         )
     )
 
-    with st.expander(t("Show continuous features", "Pokaż cechy ciągłe")):
+    with st.expander(translate_text("Show continuous features", "Pokaż cechy ciągłe")):
         for feat in continuous_features[:20]:
             st.write(f"- {feat}")
         if len(continuous_features) > 20:
             st.write(
-                t(
+                translate_text(
                     f"... and {len(continuous_features) - 20} more",
                     f"... i {len(continuous_features) - 20} więcej",
                 )
             )
 else:
     st.success(
-        t(
+        translate_text(
             "✅ All features are discrete "
             "with expected values (0, 0.25, 0.5, 0.75, 1.0)",
             "✅ Wszystkie cechy są dyskretne "
@@ -378,10 +390,10 @@ else:
         )
     )
 
-with st.expander(t("Show discrete features", "Pokaż cechy dyskretne")):
+with st.expander(translate_text("Show discrete features", "Pokaż cechy dyskretne")):
     if discrete_features:
         st.info(
-            t(
+            translate_text(
                 f"✅ {len(discrete_features)} features are properly discrete",
                 f"✅ {len(discrete_features)} cech jest poprawnie dyskretnych",
             )
@@ -393,22 +405,24 @@ with st.expander(t("Show discrete features", "Pokaż cechy dyskretne")):
 
         if len(discrete_features) > 50:
             st.write(
-                t(
+                translate_text(
                     f"... and {len(discrete_features) - 50} more discrete features",
                     f"... i {len(discrete_features) - 50} więcej cech dyskretnych",
                 )
             )
     else:
         st.error(
-            t("❌ No discrete features found!", "❌ Nie znaleziono cech dyskretnych!")
+            translate_text(
+                "❌ No discrete features found!", "❌ Nie znaleziono cech dyskretnych!"
+            )
         )
 
 st.divider()
 
-st.subheader(t("🧭 Navigation", "🧭 Nawigacja"))
+st.subheader(translate_text("🧭 Navigation", "🧭 Nawigacja"))
 
 st.markdown(
-    t(
+    translate_text(
         """
 Use the **sidebar** to navigate to different analysis sections:
 
@@ -447,24 +461,26 @@ Wybierz stronę z menu bocznego, aby rozpocząć analizę.
 st.divider()
 
 with st.expander(
-    t("🔍 Data preview (first 10 rows)", "🔍 Podgląd danych (pierwsze 10 wierszy)")
+    translate_text(
+        "🔍 Data preview (first 10 rows)", "🔍 Podgląd danych (pierwsze 10 wierszy)"
+    )
 ):
     st.dataframe(train.head(10), width="stretch")
 
-with st.expander(t("📊 Quick statistics", "📊 Szybkie statystyki")):
+with st.expander(translate_text("📊 Quick statistics", "📊 Szybkie statystyki")):
     st.dataframe(train.describe(), width="stretch")
 
 st.markdown(
-    t(
+    translate_text(
         f"""
 ---
-**Numerai v5.0 EDA Dashboard** | Dataset: `r1105_v5_0_train.parquet`
+**Numerai {DATASET_VERSION} EDA Dashboard** | Dataset: `r1105_v5_0_train.parquet`
 📊 *Dataset contains encrypted stock market data*
 **Currently Analyzing:** {selected_target}
 """,
         f"""
 ---
-**Numerai v5.0 EDA Dashboard** | Dataset: `r1105_v5_0_train.parquet`
+**Numerai {DATASET_VERSION} EDA Dashboard** | Dataset: `r1105_v5_0_train.parquet`
 📊 *Dataset zawiera zaszyfrowane dane giełdowe*
 **Aktualnie Analizuję:** {selected_target}
 """,
