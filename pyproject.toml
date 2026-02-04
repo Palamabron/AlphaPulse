@@ -62,6 +62,12 @@ eda = [
   "pyarrow"
 ]
 
+models = [
+  "xgboost",
+  "pandas",
+  "numpy",
+]
+
 
 
 [project.urls]
