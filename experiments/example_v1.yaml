@@ -1,0 +1,34 @@
+# Experiment v1 — same nested shape as Ray Tune `pipeline_config_from_flat` output.
+# Feature groups: map names to column lists from your Numerai metadata (or patterns).
+# For v5.2, download feature metadata from Numerai docs/API and align names with train.parquet.
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.05
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: XGBoost
+    params:
+      params:
+        max_depth: 3
+        learning_rate: 0.05
+        tree_method: hist
+        objective: reg:squarederror
+        eval_metric: rmse
+ensemble_method: single
+ensemble_params: {}
+train:
+  n_rounds: 40
+  early_stopping_rounds: 5
+evaluation:
+  primary_metric: mean_per_era_correlation
+  era_holdout_last_n: null
+  walk_forward: false
+  walk_forward_min_train_eras: 1

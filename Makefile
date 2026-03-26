@@ -1,52 +1,57 @@
-.PHONY: sync-core sync-dev format lint types test all nb-format nb-lint nb-types deadcode precommit
+PYTHON := uv run
+RUFF := $(PYTHON) ruff
+MYPY := $(PYTHON) mypy --config-file pyproject.toml
 
-sync-core:
-	uv sync
+.PHONY: fmt
+fmt:
+	$(RUFF) check --select I --fix src tests scripts
+	$(RUFF) format .
 
-sync-dev:
-	uv sync --extra dev
-
-format:
-	uv run ruff check --select I --fix src tests
-	uv run ruff format .
-
-lint:
-	uv run ruff check src tests
-	uv run ruff format --check .
-
+.PHONY: types
 types:
-	uv run mypy --install-types --non-interactive src/alphapulse tests
+	$(MYPY) src/alphapulse tests
 
+.PHONY: lint
+lint:
+	$(RUFF) check src tests scripts
+	$(RUFF) format --check .
+
+.PHONY: test
 test:
-	uv run pytest
+	$(PYTHON) pytest \
+		tests/ \
+		-v --tb=short
 
 # --- Notebooks (.ipynb) via nbQA ---
-# nbQA expects: nbqa <tool> <notebook(s)/dir(s)> -- <tool args>. [web:95]
-# Ruff formatter is a subcommand: ruff format ... [web:32]
 NB := $(shell find notebooks -type f -name "*.ipynb" 2>/dev/null)
 
+.PHONY: nb-format
 nb-format:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to format."; exit 0; else \
 		uv run nbqa ruff $(NB) -- check --fix; \
 		uv run nbqa ruff $(NB) -- format; \
 	fi
 
+.PHONY: nb-lint
 nb-lint:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to lint."; exit 0; else \
 		uv run nbqa ruff $(NB) -- check; \
 		uv run nbqa ruff $(NB) -- format --check; \
 	fi
 
+.PHONY: nb-types
 nb-types:
 	@if [ -z "$(NB)" ]; then echo "No notebooks to type-check."; exit 0; else \
 		uv run nbqa mypy $(NB) -- --install-types --non-interactive; \
 	fi
 
 # --- Dead code ---
+.PHONY: deadcode
 deadcode:
 	uv run vulture src --min-confidence 80
 
-all: lint nb-lint types nb-types test deadcode
+.PHONY: check
+check: fmt types test
 
-# Convenience target to run the same things pre-commit will run
+.PHONY: precommit
 precommit: lint nb-lint types deadcode

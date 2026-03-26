@@ -1,0 +1,16 @@
+# Exclude large dirs and data so Ray package stays under 512MB.
+# Trainable loads data from config["data_dir"] (absolute path) at runtime.
+data/
+.venv/
+.venv
+.git/
+artifacts/
+*.parquet
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+.eggs/
