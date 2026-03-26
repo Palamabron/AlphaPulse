@@ -1,4 +1,36 @@
 repos:
+  # Format and type-check via Makefile (single source of truth)
+  - repo: local
+    hooks:
+      - id: make-fmt
+        name: make fmt
+        entry: make fmt
+        language: system
+        pass_filenames: false
+      - id: make-types
+        name: make types
+        entry: make types
+        language: system
+        pass_filenames: false
+
+  # nbQA: apply linters/type-checkers to Jupyter notebooks
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+        name: nbqa (ruff)
+        additional_dependencies: ["ruff>=0.12"]
+        args: [--fix]
+        files: \.ipynb$
+      - id: nbqa-mypy
+        name: nbqa (mypy)
+        additional_dependencies:
+          - "mypy>=1.10"
+          - "types-requests>=2.32"
+          - "types-PyYAML>=6.0"
+        files: \.ipynb$
+
+  # Generic sanity checks for common file issues
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

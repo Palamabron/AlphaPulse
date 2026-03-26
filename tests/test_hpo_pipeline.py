@@ -1,0 +1,74 @@
+"""Tests for HPO pipeline (run_trial with preloaded data)."""
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from alphapulse.hpo import run_trial, sample_random_config
+
+
+@pytest.fixture
+def toy_data_with_era() -> dict[str, Any]:
+    np.random.seed(42)
+    n = 300
+    X = pd.DataFrame(np.random.randn(n, 4).astype(np.float64), columns=list("ABCD"))
+    X["era"] = np.repeat(["e1", "e2", "e3"], n // 3)
+    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + np.random.randn(n) * 0.2)
+    feature_cols = list("ABCD") + ["era"]
+    era_val = X["era"]
+    X_val = X.iloc[:50]
+    y_val = y.iloc[:50]
+    era_val_small = era_val.iloc[:50]
+    return {
+        "X_train": X,
+        "y_train": y,
+        "X_val": X_val,
+        "y_val": y_val,
+        "era_val": era_val_small,
+        "feature_cols": feature_cols,
+    }
+
+
+@pytest.fixture
+def minimal_flat_config() -> dict[str, Any]:
+    return {
+        "num_models": 1,
+        "model_1_type": "XGBoost",
+        "model_2_type": "XGBoost",
+        "model_3_type": "XGBoost",
+        "scaler_type": "StandardScaler",
+        "use_packboost": False,
+        "packboost_n_worst_eras": 5,
+        "packboost_boost_weight": 0.3,
+        "packboost_n_rounds_base": 300,
+        "packboost_n_rounds_boost": 100,
+        "xgb_max_depth": 3,
+        "xgb_learning_rate": 0.05,
+        "xgb_n_rounds": 15,
+        "xgb_early_stopping": 5,
+        "packboost_model_n_worst_eras": 5,
+        "packboost_model_boost_weight": 0.3,
+        "packboost_model_n_rounds_base": 300,
+        "packboost_model_n_rounds_boost": 100,
+        "ensemble_method": "single",
+        "stacking_meta_learner": "ridge",
+    }
+
+
+def test_run_trial_returns_metrics(
+    toy_data_with_era: dict[str, Any], minimal_flat_config: dict[str, Any]
+) -> None:
+    metrics = run_trial(minimal_flat_config, **toy_data_with_era)
+    assert isinstance(metrics, dict)
+    assert "mean_per_era_correlation" in metrics
+    assert "sharpe" in metrics
+    assert "correlation" in metrics
+
+
+def test_sample_random_config_returns_dict() -> None:
+    config = sample_random_config(seed=42)
+    assert isinstance(config, dict)
+    assert "num_models" in config
+    assert "scaler_type" in config

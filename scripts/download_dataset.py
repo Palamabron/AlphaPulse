@@ -1,4 +1,5 @@
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,6 +67,7 @@ def main(config: DownloadConfig) -> None:
         config (DownloadConfig): Configuration object containing API credentials,
             target version, output path, and file list.
     """
+    # Create versioned output directory
     versioned_output_dir = config.output_dir / config.dataset_version
     versioned_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,4 +108,8 @@ def main(config: DownloadConfig) -> None:
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    try:
+        tyro.cli(main)
+    except KeyboardInterrupt:
+        logger.warning("Process interrupted by user.")
+        sys.exit(0)

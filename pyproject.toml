@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "alphapulse"
-dynamic = ["version"]
-description = ""
+version = "0.1.0"
+description = "Config-driven framework for building, training, and deploying Numerai competition pipelines."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "MIT"
 keywords = []
 authors = [
@@ -16,52 +16,46 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Python :: Implementation :: PyPy",
 ]
-
 dependencies = [
   "python-dotenv",
-  "requests>=2.31",
   "loguru>=0.7",
-  "tenacity>=8.2",
-  "pydantic>=2",
+  "pydantic>=2,<3",
   "pandas",
   "numerapi",
   "tyro",
-  "ruff>=0.12.12",
-  "pyarrow>=14.0.0"
+  "wandb",
+  "cloudpickle",
+  "xgboost",
+  "lightgbm",
+  "catboost",
+  "optuna",
+  "scipy",
+  "scikit-learn",
+  "pyarrow",
+  "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pre-commit>=3.7.0",
   "ruff>=0.12",
+  "black>=24",
   "mypy>=1.10",
-  "types-requests>=2.32",
+  "pytest>=8.0",
   "types-PyYAML>=6.0",
   "nbqa>=1.9.1",
-  "vulture>=2.3",
-  "pytest>=8",
 ]
-
-eda = [
-  "streamlit",
-  "plotly",
-  "plotly-stubs",
-  "scipy",
-  "scipy-stubs",
-  "networkx",
-  "types-networkx",
-  "pandas",
-  "pandas-stubs",
-  "numpy",
-  "matplotlib",
-  "pyarrow"
+hpo = [
+  "ray[tune]>=2.0",
 ]
-
+deep = [
+  "pytorch_tabular",
+  "torch",
+]
 
 
 [project.urls]
@@ -69,37 +63,15 @@ Documentation = "https://github.com/Palamabron/AlphaPulse/blob/main/README.md"
 Issues = "https://github.com/Palamabron/AlphaPulse/issues"
 Source = "https://github.com/Palamabron/AlphaPulse"
 
-[tool.hatch.version]
-path = "src/alphapulse/__about__.py"
+[tool.setuptools]
+package-dir = {"" = "src"}
 
-[tool.hatch.envs.default]
-installer = "uv"
-features = ["dev"]
-
-[tool.hatch.envs.default.scripts]
-lint = [
-  "ruff check src tests",
-  "ruff format --check .",
-]
-format = [
-  "ruff check --select I --fix src tests",
-  "ruff format .",
-]
-types = "mypy --install-types --non-interactive src/alphapulse tests"
-all = [
-  "ruff check src tests",
-  "ruff format --check .",
-  "mypy src/alphapulse tests",
-]
-
-[tool.hatch.envs.types]
-extra-dependencies = []
-
-[tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:src/alphapulse tests}"
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["alphapulse*"]
 
 [tool.coverage.run]
-source_pkgs = ["alphapulse", "tests"]
+source_pkgs = ["alphapulse"]
 branch = true
 parallel = true
 omit = [
@@ -119,7 +91,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py312"
 extend-exclude = ["build", "dist", ".venv", ".eggs"]
 src = ["src", "tests"]
 
@@ -139,10 +111,13 @@ select = [
 ]
 ignore = [
   "S101",
+  "S301",
+  "S311",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "T20"]
+"scripts/**" = ["T20"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -152,10 +127,12 @@ docstring-code-format = true
 
 [tool.black]
 line-length = 88
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
+mypy_path = "src"
+explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 warn_unused_configs = true
 warn_redundant_casts = true
@@ -175,17 +152,39 @@ exclude = [
 
 [[tool.mypy.overrides]]
 module = [
-  "matplotlib.*",
-  "streamlit.*",
-  "plotly.*",
-  "utils.*",
+  "cloudpickle",
+  "ray",
+  "ray.*",
+  "pandas",
+  "pandas.*",
+  "pyarrow",
+  "pyarrow.*",
   "requests.*",
+  "sklearn",
+  "sklearn.*",
   "yaml.*",
+  "lightgbm",
+  "lightgbm.*",
+  "catboost",
+  "catboost.*",
+  "optuna",
+  "optuna.*",
+  "scipy",
+  "scipy.*",
+  "xgboost",
+  "xgboost.*",
+  "sdv",
+  "sdv.*",
+  "pytorch_tabular",
+  "pytorch_tabular.*",
+  "torch",
+  "torch.*",
 ]
 ignore_missing_imports = true
 
-[dependency-groups]
-dev = [
-    "pre-commit>=4.3.0",
-    "vulture>=2.14",
-]
+[[tool.mypy.overrides]]
+module = ["scripts.*"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

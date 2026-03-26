@@ -1,0 +1,32 @@
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+
+class BaseModel(ABC):
+    def __init__(self, name: str | None = None) -> None:
+        self.name = name or self.__class__.__name__
+        self.model: Any = None
+        self.is_trained = False
+
+    @abstractmethod
+    def train(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        **kwargs: Any,
+    ) -> dict[str, float]: ...
+
+    @abstractmethod
+    def predict(self, X: pd.DataFrame) -> np.ndarray: ...
+
+    @abstractmethod
+    def save(self, path: Path) -> None: ...
+
+    @abstractmethod
+    def load(self, path: Path) -> "BaseModel": ...
