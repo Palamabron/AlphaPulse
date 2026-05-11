@@ -5,11 +5,12 @@ import optuna
 from .base import BaseModel
 from .catboost_model import CatBoostModel
 from .diffusion_augmenter import SyntheticDataAugmenter
+from .era_ensemble_model import EraEnsembleModel
 from .lightgbm_model import LightGBMModel
 from .xgboost_model import XGBoostModel
 
-TREE_MODEL_TYPES = ("xgboost", "lightgbm", "catboost")
-ALL_MODEL_TYPES = TREE_MODEL_TYPES + ("ft_transformer", "mlp")
+TREE_MODEL_TYPES = ("xgboost", "lightgbm", "catboost", "random_forest", "extra_trees")
+ALL_MODEL_TYPES = TREE_MODEL_TYPES + ("ft_transformer", "mlp", "ridge")
 
 
 class ModelFactory:
@@ -24,19 +25,26 @@ class ModelFactory:
         choices = list(ALL_MODEL_TYPES) if self.include_dl else list(TREE_MODEL_TYPES)
         model_type = trial.suggest_categorical(self._p("type"), choices)
 
-        builders = {
-            "xgboost": self._suggest_xgboost,
-            "lightgbm": self._suggest_lightgbm,
-            "catboost": self._suggest_catboost,
-            "ft_transformer": lambda t: self._suggest_dl(t, "ft_transformer"),
-            "mlp": lambda t: self._suggest_dl(t, "mlp"),
-        }
-        builder = builders.get(model_type)
-        if builder is None:
+        if model_type == "xgboost":
+            return self._suggest_xgboost(trial)
+        elif model_type == "lightgbm":
+            return self._suggest_lightgbm(trial)
+        elif model_type == "catboost":
+            return self._suggest_catboost(trial)
+        elif model_type == "random_forest":
+            return self._suggest_random_forest(trial)
+        elif model_type == "extra_trees":
+            return self._suggest_extra_trees(trial)
+        elif model_type == "ridge":
+            return self._suggest_ridge(trial)
+        elif model_type == "ft_transformer":
+            return self._suggest_dl(trial, "ft_transformer")
+        elif model_type == "mlp":
+            return self._suggest_dl(trial, "mlp")
+        else:
             raise ValueError(f"Unknown model type: {model_type}")
-        return builder(trial)
 
-    def _suggest_xgboost(self, trial: optuna.Trial) -> XGBoostModel:
+    def _suggest_xgboost(self, trial: optuna.Trial) -> EraEnsembleModel:
         params = {
             "max_depth": trial.suggest_int(self._p("xgb_max_depth"), 3, 8),
             "learning_rate": trial.suggest_float(
@@ -58,9 +66,15 @@ class ModelFactory:
             "eval_metric": "rmse",
         }
         n_rounds = trial.suggest_int(self._p("xgb_n_rounds"), 200, 2000, step=100)
-        return XGBoostModel(params=params, name=f"XGB_{n_rounds}r")
+        n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
+        base_name = f"XGB_{n_rounds}r"
 
-    def _suggest_lightgbm(self, trial: optuna.Trial) -> LightGBMModel:
+        def factory() -> XGBoostModel:
+            return XGBoostModel(params=params, name=base_name)
+
+        return EraEnsembleModel(factory, n_subs=n_subs, name=f"EraXGB_{n_rounds}r")
+
+    def _suggest_lightgbm(self, trial: optuna.Trial) -> EraEnsembleModel:
         params = {
             "objective": "regression",
             "metric": "rmse",
@@ -86,9 +100,15 @@ class ModelFactory:
             "n_jobs": -1,
         }
         n_est = trial.suggest_int(self._p("lgb_n_estimators"), 200, 2000, step=100)
-        return LightGBMModel(params=params, n_estimators=n_est, name=f"LGB_{n_est}r")
+        n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
+        base_name = f"LGB_{n_est}r"
 
-    def _suggest_catboost(self, trial: optuna.Trial) -> CatBoostModel:
+        def factory() -> LightGBMModel:
+            return LightGBMModel(params=params, n_estimators=n_est, name=base_name)
+
+        return EraEnsembleModel(factory, n_subs=n_subs, name=f"EraLGB_{n_est}r")
+
+    def _suggest_catboost(self, trial: optuna.Trial) -> EraEnsembleModel:
         params = {
             "loss_function": "RMSE",
             "depth": trial.suggest_int(self._p("cb_depth"), 4, 8),
@@ -107,7 +127,67 @@ class ModelFactory:
             "allow_writing_files": False,
         }
         iters = trial.suggest_int(self._p("cb_iterations"), 200, 2000, step=100)
-        return CatBoostModel(params=params, iterations=iters, name=f"CB_{iters}i")
+        n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
+        base_name = f"CB_{iters}i"
+
+        def factory() -> CatBoostModel:
+            return CatBoostModel(params=params, iterations=iters, name=base_name)
+
+        return EraEnsembleModel(factory, n_subs=n_subs, name=f"EraCB_{iters}i")
+
+    def _suggest_random_forest(self, trial: optuna.Trial) -> EraEnsembleModel:
+        from .sklearn_models import RandomForestModel
+
+        params = {
+            "n_estimators": trial.suggest_int(
+                self._p("rf_n_estimators"), 100, 500, step=50
+            ),
+            "min_samples_leaf": trial.suggest_int(
+                self._p("rf_min_samples_leaf"), 50, 500
+            ),
+            "max_features": trial.suggest_float(self._p("rf_max_features"), 0.1, 0.5),
+            "n_jobs": -1,
+            "random_state": 42,
+        }
+        n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
+        base_name = f"RF_{params['n_estimators']}t"
+
+        def factory() -> RandomForestModel:
+            return RandomForestModel(params=params, name=base_name)
+
+        return EraEnsembleModel(
+            factory, n_subs=n_subs, name=f"EraRF_{params['n_estimators']}t"
+        )
+
+    def _suggest_extra_trees(self, trial: optuna.Trial) -> EraEnsembleModel:
+        from .sklearn_models import ExtraTreesModel
+
+        params = {
+            "n_estimators": trial.suggest_int(
+                self._p("et_n_estimators"), 100, 500, step=50
+            ),
+            "min_samples_leaf": trial.suggest_int(
+                self._p("et_min_samples_leaf"), 50, 500
+            ),
+            "max_features": trial.suggest_float(self._p("et_max_features"), 0.1, 0.5),
+            "n_jobs": -1,
+            "random_state": 42,
+        }
+        n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
+        base_name = f"ET_{params['n_estimators']}t"
+
+        def factory() -> ExtraTreesModel:
+            return ExtraTreesModel(params=params, name=base_name)
+
+        return EraEnsembleModel(
+            factory, n_subs=n_subs, name=f"EraET_{params['n_estimators']}t"
+        )
+
+    def _suggest_ridge(self, trial: optuna.Trial) -> BaseModel:
+        from .sklearn_models import RidgeModel
+
+        alpha = trial.suggest_float(self._p("ridge_alpha"), 1.0, 1000.0, log=True)
+        return RidgeModel(alpha=alpha, name=f"Ridge_a{alpha:.1f}")
 
     def _suggest_dl(self, trial: optuna.Trial, architecture: str) -> BaseModel:
         from .tabular_dl_model import TabularDLModel
@@ -154,20 +234,40 @@ class ModelFactory:
         self, model_type: str, params: dict[str, Any] | None = None, **kwargs: Any
     ) -> BaseModel:
         p = params or {}
+        n_subs: int = p.get("n_subs", 10)
         if model_type == "xgboost":
-            return XGBoostModel(params=p.get("params"), name=p.get("name", "XGBoost"))
+            base_name = p.get("name", "XGBoost")
+
+            def _xgb() -> XGBoostModel:
+                return XGBoostModel(params=p.get("params"), name=base_name)
+
+            return EraEnsembleModel(
+                _xgb, n_subs=n_subs, name=f"EraEnsemble_{base_name}"
+            )
         elif model_type == "lightgbm":
-            return LightGBMModel(
-                params=p.get("params"),
-                n_estimators=p.get("n_estimators", 2000),
-                name=p.get("name", "LightGBM"),
+            base_name = p.get("name", "LightGBM")
+
+            def _lgb() -> LightGBMModel:
+                return LightGBMModel(
+                    params=p.get("params"),
+                    n_estimators=p.get("n_estimators", 2000),
+                    name=base_name,
+                )
+
+            return EraEnsembleModel(
+                _lgb, n_subs=n_subs, name=f"EraEnsemble_{base_name}"
             )
         elif model_type == "catboost":
-            return CatBoostModel(
-                params=p.get("params"),
-                iterations=p.get("iterations", 2000),
-                name=p.get("name", "CatBoost"),
-            )
+            base_name = p.get("name", "CatBoost")
+
+            def _cb() -> CatBoostModel:
+                return CatBoostModel(
+                    params=p.get("params"),
+                    iterations=p.get("iterations", 2000),
+                    name=base_name,
+                )
+
+            return EraEnsembleModel(_cb, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
         elif model_type in ("ft_transformer", "mlp"):
             from .tabular_dl_model import TabularDLModel
 
@@ -177,6 +277,28 @@ class ModelFactory:
                 trainer_params=p.get("trainer_params"),
                 name=p.get("name"),
             )
+        elif model_type == "random_forest":
+            from .sklearn_models import RandomForestModel
+
+            base_name = p.get("name", "RandomForest")
+
+            def _rf() -> RandomForestModel:
+                return RandomForestModel(params=p.get("params"), name=base_name)
+
+            return EraEnsembleModel(_rf, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
+        elif model_type == "extra_trees":
+            from .sklearn_models import ExtraTreesModel
+
+            base_name = p.get("name", "ExtraTrees")
+
+            def _et() -> ExtraTreesModel:
+                return ExtraTreesModel(params=p.get("params"), name=base_name)
+
+            return EraEnsembleModel(_et, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
+        elif model_type == "ridge":
+            from .sklearn_models import RidgeModel
+
+            return RidgeModel(alpha=p.get("alpha", 100.0), name=p.get("name", "Ridge"))
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 

@@ -17,8 +17,8 @@ class PurgedEraCV:
     def __init__(
         self,
         n_splits: int = 5,
-        n_purge: int = 2,
-        n_embargo: int = 1,
+        n_purge: int = 4,
+        n_embargo: int = 4,
         *,
         max_train_eras: int | None = None,
         min_train_eras: int = 10,
@@ -133,9 +133,30 @@ class PurgedEraCV:
     def split_eras(
         self, era_series: pd.Series
     ) -> Iterator[tuple[list[str], list[str]]]:
+        """Yield (train_eras, test_eras) string lists for each fold.
+
+        Applies the same validation guards as :meth:`split` — raises
+        ``ValueError`` when parameters produce no valid folds rather than
+        silently returning an empty iterator.
+        """
         sorted_eras = sorted(era_series.unique(), key=lambda x: str(x))
         n_eras = len(sorted_eras)
+
+        overhead_per_fold = self.n_purge + self.n_embargo
+        available = n_eras - overhead_per_fold * self.n_splits
+        if available < self.n_splits + self.min_train_eras:
+            min_eras_needed = (
+                self.n_splits + overhead_per_fold * self.n_splits + self.min_train_eras
+            )
+            raise ValueError(
+                f"Not enough eras ({n_eras}) for {self.n_splits} splits with "
+                f"n_purge={self.n_purge}, n_embargo={self.n_embargo}, "
+                f"min_train_eras={self.min_train_eras}. "
+                f"Need at least {min_eras_needed} eras."
+            )
+
         test_era_count = max(1, (n_eras - self.min_train_eras) // self.n_splits)
+        folds_yielded = 0
 
         for fold_i in range(self.n_splits):
             test_start = self.min_train_eras + self.n_purge + fold_i * test_era_count
@@ -146,6 +167,7 @@ class PurgedEraCV:
             test_eras = sorted_eras[test_start:test_end]
             train_end_era_idx = test_start - self.n_purge
             if train_end_era_idx <= 0:
+                logger.debug("Fold {}: not enough training eras, skipping", fold_i)
                 continue
 
             if self.max_train_eras is not None:
@@ -159,9 +181,22 @@ class PurgedEraCV:
             train_eras = [e for e in train_eras if e not in embargo_eras]
 
             if len(train_eras) < self.min_train_eras:
+                logger.debug(
+                    "Fold {}: only {} train eras (need {}), skipping",
+                    fold_i,
+                    len(train_eras),
+                    self.min_train_eras,
+                )
                 continue
 
+            folds_yielded += 1
             yield train_eras, test_eras
+
+        if folds_yielded == 0:
+            raise ValueError(
+                "No valid folds could be generated. Try reducing n_splits, "
+                "n_purge, n_embargo, or min_train_eras."
+            )
 
     def summary(self, era_series: pd.Series) -> list[dict[str, Any]]:
         result = []

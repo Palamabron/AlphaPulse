@@ -198,7 +198,7 @@ evaluation:
 
   * **Feature Groups:** Define `features.groups` as a mapping of `group_name -> [columns]`. You can then assign specific models to specific groups using `models[].input_group: group_name`.
   * **Available Preprocessors:** `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `GaussianNoise`, `VarianceSelector`, and `Packboost`.
-  * **Available Models:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`.
+  * **Available Models:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`, `RandomForest`, `ExtraTrees`, `Ridge`.
   * **Ensembling:** `single`, `weighted`, or `stacking` (Meta-learners: `ridge` or `xgboost`).
 
 -----

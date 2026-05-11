@@ -116,6 +116,6 @@ class EraSplitEvaluator:
             "std_per_era_correlation": float(valid.std())
             if len(valid) > 1
             else float("nan"),
-            "sharpe": scoring["sharpe_era_corr"],
+            "sharpe": scoring["corr_sharpe"],
             "correlation": scoring["mean_era_corr"],
         }
