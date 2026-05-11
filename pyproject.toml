@@ -56,6 +56,10 @@ deep = [
   "pytorch_tabular",
   "torch",
 ]
+foundation = [
+  "tabpfn>=2.0",
+  "tabicl>=2.0",
+]
 
 
 [project.urls]
@@ -118,6 +122,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "T20"]
 "scripts/**" = ["T20"]
+"src/alphapulse/autoresearch/agent.py" = ["E501", "S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -179,6 +184,10 @@ module = [
   "pytorch_tabular.*",
   "torch",
   "torch.*",
+  "tabpfn",
+  "tabpfn.*",
+  "tabicl",
+  "tabicl.*",
 ]
 ignore_missing_imports = true
 

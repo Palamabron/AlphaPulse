@@ -9,6 +9,7 @@ from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor
 from .ensemble import EnsembleStrategy
+from .neutralizer import FeatureNeutralizer
 
 
 class Pipeline:
@@ -26,6 +27,12 @@ class Pipeline:
             (e.g. ``{"weights": [0.6, 0.4]}`` for weighted ensembling).
         benchmark_blend_weight: Fraction to blend Numerai benchmark
             predictions into the final output (0.0 = no blending).
+        neutralize_proportion: Proportion of feature exposure to remove from
+            predictions (0.0 = disabled). Applied per era when eras are
+            provided to ``predict()``. Rank-normalizes output after
+            neutralization.
+        neutralize_features: Feature columns used as neutralization basis.
+            Defaults to all feature columns when *None*.
     """
 
     def __init__(
@@ -37,6 +44,8 @@ class Pipeline:
         ensemble_method: Literal["single", "weighted", "stacking"] = "single",
         ensemble_params: dict[str, Any] | None = None,
         benchmark_blend_weight: float = 0.0,
+        neutralize_proportion: float = 0.0,
+        neutralize_features: list[str] | None = None,
     ) -> None:
         self.preprocessors = preprocessors
         self.model = model
@@ -49,6 +58,13 @@ class Pipeline:
         self.benchmark_blend_weight = benchmark_blend_weight
         self._ensemble = EnsembleStrategy(
             method=ensemble_method, params=ensemble_params or {}
+        )
+        self.neutralize_proportion = float(neutralize_proportion)
+        self.neutralize_features = neutralize_features
+        self._neutralizer: FeatureNeutralizer | None = (
+            FeatureNeutralizer(proportion=self.neutralize_proportion)
+            if self.neutralize_proportion > 0.0
+            else None
         )
 
     @property
@@ -114,24 +130,50 @@ class Pipeline:
 
         return metrics
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(
+        self,
+        X: pd.DataFrame,
+        eras: pd.Series | None = None,
+    ) -> np.ndarray:
         """Generate predictions for new data.
 
         Args:
             X: Feature DataFrame (same schema as training data).
+            eras: Optional era labels for per-era feature neutralization.
+                When *None* and neutralization is enabled, neutralization is
+                applied across the entire batch.
 
         Returns:
-            1-D array of predictions.
+            1-D array of predictions. Rank-normalized when neutralization
+            is active.
         """
+        X_orig = X
         X_t = X
         for pp in self.preprocessors:
             X_t = pp.transform(X_t)
 
         if len(self.models) == 1:
-            return self.models[0].predict(X_t)
+            raw_preds = self.models[0].predict(X_t)
+        else:
+            preds = np.column_stack([m.predict(X_t) for m in self.models])
+            raw_preds = self._ensemble.combine(preds)
 
-        preds = np.column_stack([m.predict(X_t) for m in self.models])
-        return self._ensemble.combine(preds)
+        if self._neutralizer is None:
+            return raw_preds
+
+        neutral_cols = (
+            self.neutralize_features or self.feature_columns or list(X_orig.columns)
+        )
+        available_cols = [c for c in neutral_cols if c in X_orig.columns]
+        if not available_cols:
+            return raw_preds
+
+        neutralized = self._neutralizer.neutralize(
+            raw_preds,
+            X_orig[available_cols],
+            eras=eras,
+        )
+        return rank_normalize(neutralized)
 
     def to_numerai_predict(
         self,
@@ -161,7 +203,10 @@ class Pipeline:
         ) -> pd.DataFrame:
             X = live_features[feature_columns]
             raw_preds = pipeline.predict(X)
-            ranked = rank_normalize(raw_preds)
+            if pipeline._neutralizer is None:
+                ranked = rank_normalize(raw_preds)
+            else:
+                ranked = raw_preds
 
             if (
                 blend_weight > 0.0

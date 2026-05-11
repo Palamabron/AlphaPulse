@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
@@ -19,7 +20,7 @@ class EnsembleStrategy:
     def fit(
         self,
         n_models: int,
-        get_val_predictions: Any = None,
+        get_val_predictions: Callable[[], np.ndarray] | None = None,
         y_val: pd.Series | None = None,
     ) -> None:
         if n_models <= 1:

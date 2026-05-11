@@ -1,4 +1,3 @@
-import pickle
 from pathlib import Path
 from typing import Any
 
@@ -92,19 +91,14 @@ class PackboostModel(BaseModel):
             else self.early_stopping_rounds_base
         )
 
+        feat_val: pd.DataFrame | None = None
+        era_val_series: pd.Series | None = None
         if X_val is not None and y_val is not None:
             feat_val = self._feature_matrix(X_val)
             dval = xgb.DMatrix(feat_val, label=y_val)
             eval_set = [(dtrain, "train"), (dval, "eval")]
-        else:
-            feat_val = None
-            era_val_series = None
-
-        era_val_series = (
-            X_val[self.era_column]
-            if (X_val is not None and self.era_column in X_val.columns)
-            else None
-        )
+            if self.era_column in X_val.columns:
+                era_val_series = X_val[self.era_column]
 
         callbacks: list[Any] = _make_ray_callbacks()
 
@@ -229,6 +223,8 @@ class PackboostModel(BaseModel):
         return out
 
     def save(self, path: Path) -> None:
+        import cloudpickle
+
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         state = {
@@ -240,11 +236,13 @@ class PackboostModel(BaseModel):
             "boost_weight": self.boost_weight,
         }
         with open(path, "wb") as f:
-            pickle.dump(state, f)
+            cloudpickle.dump(state, f)
 
     def load(self, path: Path) -> "PackboostModel":
+        import cloudpickle
+
         with open(path, "rb") as f:
-            state = pickle.load(f)
+            state = cloudpickle.load(f)
         self._base_model = state["base"]
         self._era_models = state["era_models"]
         self._feature_columns = state["feature_columns"]

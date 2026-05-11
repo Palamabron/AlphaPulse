@@ -37,19 +37,27 @@ def sample_random_config(
             "packboost_n_rounds_base": 200,
             "packboost_n_rounds_boost": 100,
             "num_models": 1,
-            "model_1_type": "XGBoost",
-            "model_2_type": "XGBoost",
-            "model_3_type": "XGBoost",
+            "model_1_type": random.choice(["XGBoost", "LightGBM"]),
+            "model_2_type": random.choice(["XGBoost", "LightGBM"]),
+            "model_3_type": random.choice(["XGBoost", "LightGBM"]),
+            "n_subs": random.choice([8, 10]),
             "xgb_max_depth": random.choice([3, 5]),
             "xgb_learning_rate": _loguniform(3e-3, 0.05),
             "xgb_n_rounds": random.choice([200, 300, 400]),
             "xgb_early_stopping": random.choice([20, 30, 50]),
+            "lgbm_num_leaves": random.choice([16, 31, 63]),
+            "lgbm_learning_rate": _loguniform(5e-3, 0.05),
+            "lgbm_n_rounds": random.choice([300, 500, 800]),
+            "lgbm_min_child_samples": random.choice([100, 200]),
+            "lgbm_early_stopping": random.choice([50, 100]),
             "packboost_model_n_worst_eras": 3,
             "packboost_model_boost_weight": random.uniform(0.2, 0.3),
             "packboost_model_n_rounds_base": 300,
             "packboost_model_n_rounds_boost": 100,
             "ensemble_method": "single",
             "stacking_meta_learner": "ridge",
+            "use_neutralization": False,
+            "neutralization_proportion": 0.5,
         }
 
     return {
@@ -60,19 +68,27 @@ def sample_random_config(
         "packboost_n_rounds_base": random.choice([200, 300, 500]),
         "packboost_n_rounds_boost": random.choice([100, 150, 200]),
         "num_models": random.choice([1, 2, 3]),
-        "model_1_type": random.choice(["XGBoost", "Packboost"]),
-        "model_2_type": random.choice(["XGBoost", "Packboost"]),
-        "model_3_type": random.choice(["XGBoost", "Packboost"]),
+        "model_1_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "model_2_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "model_3_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "n_subs": random.choice([5, 8, 10, 15]),
         "xgb_max_depth": random.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1),
         "xgb_n_rounds": random.choice([300, 500, 800]),
         "xgb_early_stopping": random.choice([30, 50, 100]),
+        "lgbm_num_leaves": random.choice([16, 31, 63, 127]),
+        "lgbm_learning_rate": _loguniform(5e-3, 0.05),
+        "lgbm_n_rounds": random.choice([300, 500, 800, 1500]),
+        "lgbm_min_child_samples": random.choice([100, 200, 500]),
+        "lgbm_early_stopping": random.choice([50, 100]),
         "packboost_model_n_worst_eras": random.choice([3, 5, 7]),
         "packboost_model_boost_weight": random.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": random.choice([300, 500]),
         "packboost_model_n_rounds_boost": random.choice([100, 200]),
         "ensemble_method": random.choice(["single", "weighted", "stacking"]),
         "stacking_meta_learner": random.choice(["ridge", "xgboost"]),
+        "use_neutralization": random.choice([True, False]),
+        "neutralization_proportion": random.uniform(0.1, 0.8),
     }
 
 
@@ -90,19 +106,27 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
         "num_models": tune.choice([1, 2, 3]),
-        "model_1_type": tune.choice(["XGBoost", "Packboost"]),
-        "model_2_type": tune.choice(["XGBoost", "Packboost"]),
-        "model_3_type": tune.choice(["XGBoost", "Packboost"]),
+        "model_1_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "model_2_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "model_3_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "n_subs": tune.choice([5, 8, 10, 15]),
         "xgb_max_depth": tune.choice([3, 5, 7]),
         "xgb_learning_rate": tune.loguniform(1e-3, 0.1),
         "xgb_n_rounds": tune.choice([300, 500, 800]),
         "xgb_early_stopping": tune.choice([30, 50, 100]),
+        "lgbm_num_leaves": tune.choice([16, 31, 63, 127]),
+        "lgbm_learning_rate": tune.loguniform(5e-3, 0.05),
+        "lgbm_n_rounds": tune.choice([300, 500, 800, 1500]),
+        "lgbm_min_child_samples": tune.choice([100, 200, 500]),
+        "lgbm_early_stopping": tune.choice([50, 100]),
         "packboost_model_n_worst_eras": tune.choice([3, 5, 7]),
         "packboost_model_boost_weight": tune.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": tune.choice([300, 500]),
         "packboost_model_n_rounds_boost": tune.choice([100, 200]),
         "ensemble_method": tune.choice(["single", "weighted", "stacking"]),
         "stacking_meta_learner": tune.choice(["ridge", "xgboost"]),
+        "use_neutralization": tune.choice([True, False]),
+        "neutralization_proportion": tune.uniform(0.1, 0.8),
     }
 
 
@@ -115,8 +139,8 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         Nested dictionary with keys ``preprocessors``, ``models``,
-        ``ensemble_method``, and ``ensemble_params`` ready for
-        ``build_pipeline_or_multi``.
+        ``ensemble_method``, ``ensemble_params``, and
+        ``neutralize_proportion`` ready for ``build_pipeline_or_multi``.
     """
     num_models = flat.get("num_models", 1)
     types = [
@@ -152,6 +176,17 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                     "eval_metric": "rmse",
                 },
             }
+        if t == "LightGBM":
+            return {
+                "params": {
+                    "num_leaves": flat.get("lgbm_num_leaves", 31),
+                    "learning_rate": flat.get("lgbm_learning_rate", 0.01),
+                    "min_child_samples": flat.get("lgbm_min_child_samples", 200),
+                    "objective": "regression",
+                    "metric": "rmse",
+                    "verbosity": -1,
+                },
+            }
         if t == "Packboost":
             return {
                 "n_worst_eras": flat.get("packboost_model_n_worst_eras", 5),
@@ -161,7 +196,10 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             }
         return {}
 
-    models = [{"type": t, "params": model_params(t, i)} for i, t in enumerate(types)]
+    models = [
+        {"type": t, "params": model_params(t, i), "n_subs": flat.get("n_subs", 10)}
+        for i, t in enumerate(types)
+    ]
 
     ensemble_method = flat.get("ensemble_method", "single")
     if num_models == 1:
@@ -173,11 +211,18 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         ensemble_params["meta_learner"] = flat.get("stacking_meta_learner", "ridge")
         ensemble_params["meta_params"] = {}
 
+    neutralize_proportion = (
+        float(flat.get("neutralization_proportion", 0.5))
+        if flat.get("use_neutralization")
+        else 0.0
+    )
+
     return {
         "preprocessors": preprocessors,
         "models": models,
         "ensemble_method": ensemble_method,
         "ensemble_params": ensemble_params,
+        "neutralize_proportion": neutralize_proportion,
     }
 
 

@@ -34,6 +34,7 @@ def run_trial(
     y_val: pd.Series,
     era_val: pd.Series,
     feature_cols: list[str],
+    seed: int | None = None,
 ) -> dict[str, float]:
     """Train a single HPO trial and return backtest metrics.
 
@@ -46,13 +47,17 @@ def run_trial(
         y_val: Validation target Series.
         era_val: Era labels for the validation set.
         feature_cols: Feature column names.
+        seed: Optional integer seed for reproducibility. Pass a per-trial
+            value (e.g. trial number) rather than a fixed constant so that
+            parallel Ray workers do not share the same RNG state.
 
     Returns:
         Dictionary of backtest metrics (keys include ``sharpe``,
         ``mean_per_era_correlation``, ``correlation``, etc.).
     """
-    np.random.seed(0)
-    random.seed(0)
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
 
     pipeline_cfg = resolve_flat_config(config)
     pipeline = build_pipeline_or_multi(

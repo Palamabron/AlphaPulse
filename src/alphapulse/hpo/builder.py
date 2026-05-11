@@ -1,11 +1,17 @@
+from collections.abc import Callable
 from typing import Any, Literal
 
 from ..models.base import BaseModel
+from ..models.era_ensemble_model import EraEnsembleModel
 from ..pipeline.multihead import HeadSpec, MultiHeadPipeline
 from ..pipeline.pipeline import Pipeline
 from ..preprocessors.base import BasePreprocessor
 from ..preprocessors.grouped import GroupedPreprocessor
 from .registry import MODEL_REGISTRY, PREPROCESSOR_REGISTRY
+
+TREE_MODEL_NAMES = frozenset(
+    {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
+)
 
 
 def _merge_params(
@@ -57,6 +63,15 @@ def build_preprocessors(config: list[dict[str, Any]]) -> list[BasePreprocessor]:
     return out
 
 
+def _make_base_factory(
+    cls: type[BaseModel], params: dict[str, Any]
+) -> Callable[[], BaseModel]:
+    def factory() -> BaseModel:
+        return cls(**params)
+
+    return factory
+
+
 def build_models(config: list[dict[str, Any]]) -> list[BaseModel]:
     out: list[BaseModel] = []
     for i, item in enumerate(config):
@@ -68,7 +83,20 @@ def build_models(config: list[dict[str, Any]]) -> list[BaseModel]:
         merged = _merge_params(defaults, params)
         if "name" not in merged:
             merged["name"] = f"{name}_{i}"
-        out.append(cls(**merged))
+
+        if name in TREE_MODEL_NAMES:
+            n_subs: int = item.get("n_subs", 10)
+            factory = _make_base_factory(cls, dict(merged))
+            out.append(
+                EraEnsembleModel(
+                    base_model_factory=factory,
+                    n_subs=n_subs,
+                    era_column="era",
+                    name=f"EraEnsemble_{merged['name']}",
+                )
+            )
+        else:
+            out.append(cls(**merged))
     return out
 
 
@@ -150,6 +178,8 @@ def build_pipeline(
         feature_columns=feature_columns,
         ensemble_method=ensemble_method,
         ensemble_params=ensemble_params,
+        neutralize_proportion=config.get("neutralize_proportion", 0.0),
+        neutralize_features=config.get("neutralize_features"),
     )
 
 

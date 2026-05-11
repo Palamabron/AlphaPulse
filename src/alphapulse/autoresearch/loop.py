@@ -1,0 +1,280 @@
+"""Time-bounded, agent-driven research loop."""
+
+from __future__ import annotations
+
+import csv
+import random
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from loguru import logger
+
+from ..evaluation import Backtester
+from ..hpo.builder import build_pipeline_or_multi
+from ..hpo.search_space import resolve_flat_config, sample_random_config
+from . import agent as research_agent
+from .mutations import (
+    add_model,
+    add_preprocessor,
+    change_ensemble,
+    remove_model,
+    remove_preprocessor,
+    set_neutralization,
+    tune_model_params,
+)
+from .state import ResearchState, TrialRecord
+
+
+def _run_one_trial(
+    config: dict[str, Any],
+    *,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    era_val: pd.Series,
+    feature_cols: list[str],
+    seed: int,
+) -> tuple[dict[str, float], float]:
+    np.random.seed(seed)
+    random.seed(seed)
+
+    t0 = time.perf_counter()
+    pipeline = build_pipeline_or_multi(config, feature_columns=feature_cols)
+    pipeline.fit(X_train, y_train, X_val=X_val, y_val=y_val)
+    bt = Backtester(pipeline, feature_columns=feature_cols)
+    metrics = bt.evaluate(X_val, y_val, era_val)
+    return metrics, time.perf_counter() - t0
+
+
+def _apply_decision(
+    config: dict[str, Any],
+    decision: research_agent.MutationDecision,
+    seed: int,
+) -> dict[str, Any]:
+    name = decision.action_name
+    kw = decision.action_kwargs
+
+    if name == "tune_model_params":
+        return tune_model_params(config, kw["model_index"], kw["param_updates"])
+    if name == "add_model":
+        return add_model(config, kw["model_type"], kw.get("params", {}))
+    if name == "remove_model":
+        return remove_model(config, kw["model_index"])
+    if name == "change_ensemble":
+        return change_ensemble(config, kw["method"], kw.get("params", {}))
+    if name == "add_preprocessor":
+        return add_preprocessor(
+            config,
+            kw["preprocessor_type"],
+            kw.get("params", {}),
+            kw.get("position", 999),
+        )
+    if name == "remove_preprocessor":
+        return remove_preprocessor(config, kw["position"])
+    if name == "set_neutralization":
+        return set_neutralization(config, kw["proportion"])
+    if name == "try_random_config":
+        return resolve_flat_config(sample_random_config(seed=seed))
+    raise ValueError(f"Unknown action: {name!r}")
+
+
+def run_autoresearch(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    era_val: pd.Series,
+    feature_cols: list[str],
+    *,
+    max_hours: float | None = None,
+    max_trials: int | None = 50,
+    output_dir: Path,
+    seed_config: dict[str, Any] | None = None,
+    seed: int = 42,
+    agent_model: str = "claude-sonnet-4-6",
+    resume: bool = False,
+) -> ResearchState:
+    """Run the agent-driven research loop.
+
+    Stops when either max_hours wall-clock time or max_trials count is reached,
+    whichever comes first. At least one must be provided.
+
+    Args:
+        max_hours: Wall-clock budget in hours. None = no limit.
+        max_trials: Maximum number of trials. None = no limit.
+        seed_config: Nested pipeline config to start from. Defaults to a random config.
+        seed: Base random seed.
+
+    Returns:
+        ResearchState with full trial history and best config.
+    """
+    if max_hours is None and max_trials is None:
+        raise ValueError("At least one of max_hours or max_trials must be set.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / "trials_summary.csv"
+    state_path = output_dir / "research_state.json"
+
+    if resume and state_path.exists():
+        state = ResearchState.load(state_path)
+        state.start_time = time.time()
+        trial_num = len(state.trials)
+        last_action = (
+            state.trials[-1].action_taken if state.trials else "initial_config"
+        )
+        last_reasoning = (
+            state.trials[-1].agent_reasoning if state.trials else "Resumed from state."
+        )
+        logger.info(
+            "Resumed from {} ({} trials completed, best sharpe={:.4f})",
+            state_path,
+            trial_num,
+            state.best_trial.sharpe if state.best_trial else float("-inf"),
+        )
+    else:
+        state = ResearchState()
+        state.start_time = time.time()
+        state.current_config = (
+            seed_config
+            if seed_config is not None
+            else resolve_flat_config(sample_random_config(seed=seed))
+        )
+        last_action = "initial_config"
+        last_reasoning = (
+            "Starting from provided seed config."
+            if seed_config is not None
+            else "Starting from random config."
+        )
+        trial_num = 0
+
+    deadline = time.time() + max_hours * 3600 if max_hours is not None else float("inf")
+
+    while True:
+        if max_trials is not None and trial_num >= max_trials:
+            logger.info("Trial budget reached ({} trials).", max_trials)
+            break
+        if time.time() >= deadline:
+            logger.info("Time budget reached ({} hours).", max_hours)
+            break
+
+        n_models = len(state.current_config.get("models", []))
+        logger.info(
+            "Trial {}{} | action={} | models={}",
+            trial_num,
+            f"/{max_trials}" if max_trials else "",
+            last_action,
+            n_models,
+        )
+
+        try:
+            metrics, elapsed = _run_one_trial(
+                state.current_config,
+                X_train=X_train,
+                y_train=y_train,
+                X_val=X_val,
+                y_val=y_val,
+                era_val=era_val,
+                feature_cols=feature_cols,
+                seed=seed + trial_num,
+            )
+            sharpe = metrics.get("sharpe", float("-inf"))
+            error = None
+        except Exception as exc:
+            logger.warning("Trial {} failed: {}", trial_num, exc)
+            metrics = {}
+            sharpe = float("-inf")
+            elapsed = 0.0
+            error = str(exc)
+
+        model_types = [
+            m.get("type", "?") for m in state.current_config.get("models", [])
+        ]
+        record = TrialRecord(
+            trial_number=trial_num,
+            sharpe=sharpe,
+            metrics=metrics,
+            config=state.current_config,
+            model_types=model_types,
+            elapsed_seconds=elapsed,
+            action_taken=last_action,
+            agent_reasoning=last_reasoning,
+            error=error,
+        )
+        state.add_trial(record)
+
+        best_sharpe = state.best_trial.sharpe if state.best_trial else float("-inf")
+        logger.info(
+            "  sharpe={:.4f} corr={:.4f} ({:.1f}s) | best={:.4f}{}",
+            sharpe,
+            metrics.get("mean_per_era_correlation", 0.0),
+            elapsed,
+            best_sharpe,
+            " [ERROR]" if error else "",
+        )
+
+        state.save(output_dir / "research_state.json")
+        _append_csv_row(csv_path, record, write_header=(trial_num == 0))
+
+        trial_num += 1
+
+        if max_trials is not None and trial_num >= max_trials:
+            break
+        if time.time() >= deadline:
+            break
+
+        try:
+            decision = research_agent.decide_next_action(state, model=agent_model)
+            logger.info(
+                "  Agent → {} | {}",
+                decision.action_name,
+                decision.reasoning[:120],
+            )
+            state.current_config = _apply_decision(
+                state.current_config, decision, seed + trial_num
+            )
+            last_action = decision.action_name
+            last_reasoning = decision.reasoning
+        except Exception as exc:
+            logger.warning("Agent/mutation error — keeping current config: {}", exc)
+            last_action = "no_change_error"
+            last_reasoning = str(exc)
+
+    if state.best_trial is not None:
+        import json
+
+        best_path = output_dir / "best_config.json"
+        best_path.write_text(json.dumps(state.best_trial.config, indent=2))
+        logger.info(
+            "Best trial #{}: sharpe={:.4f} | config saved to {}",
+            state.best_trial.trial_number,
+            state.best_trial.sharpe,
+            best_path,
+        )
+    else:
+        logger.warning("No successful trials — no best_config.json written.")
+
+    state.save(output_dir / "research_state.json")
+    return state
+
+
+def _append_csv_row(path: Path, record: TrialRecord, write_header: bool) -> None:
+    row = {
+        "trial_number": record.trial_number,
+        "sharpe": record.sharpe,
+        "mean_per_era_correlation": record.metrics.get("mean_per_era_correlation", ""),
+        "std_per_era_correlation": record.metrics.get("std_per_era_correlation", ""),
+        "model_types": "+".join(record.model_types),
+        "elapsed_seconds": f"{record.elapsed_seconds:.1f}",
+        "action_taken": record.action_taken,
+        "agent_reasoning": (record.agent_reasoning or "")[:200],
+        "error": record.error or "",
+    }
+    with open(path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
