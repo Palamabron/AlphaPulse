@@ -17,8 +17,9 @@ Numerai is a global data science tournament where you build ML models to predict
   - [1. Download Dataset](#1-download-dataset)
   - [2. Run an Experiment (YAML-driven)](#2-run-an-experiment-yaml-driven)
   - [3. Run HPO (Automated Search)](#3-run-hpo-automated-search)
-  - [4. Quick Test & Smoke Test](#4-quick-test--smoke-test)
-  - [5. Exporting for Submission](#5-exporting-for-submission)
+  - [4. Run AutoResearch (Agent-Driven Research Loop)](#4-run-autoresearch-agent-driven-research-loop)
+  - [5. Quick Test & Smoke Test](#5-quick-test--smoke-test)
+  - [6. Exporting for Submission](#6-exporting-for-submission)
 - [Configuring Experiments (Experiment v1 YAML)](#configuring-experiments-experiment-v1-yaml)
 - [Directory Structure](#directory-structure)
 - [Contributing](#contributing)
@@ -125,7 +126,29 @@ uv run python scripts/hpo_pipeline.py \
 
 The best resulting configuration will be saved to `artifacts/hpo_x8/best_config.json`.
 
-### 4\. Quick Test & Smoke Test
+### 4\. Run AutoResearch (Agent-Driven Research Loop)
+
+Use `scripts/autoresearch.py` to let a Claude agent drive the research process, iteratively proposing and testing pipeline improvements (adding models, tuning hyperparameters, changing ensembles, etc.).
+
+```bash
+uv run python scripts/autoresearch.py \
+  --data-dir data/v5.2 \
+  --train-subsample 0.125 \
+  --trials 50 \
+  --hours 2 \
+  --output-dir artifacts/autoresearch \
+  --agent-model claude-sonnet-4-6
+```
+
+The agent will:
+- Analyze trial results and decide what to try next
+- Propose mutations: add/remove models, tune hyperparameters, change ensemble methods, add preprocessors, set neutralization
+- Track progress and reasoning in `research_state.json`
+- Output the best configuration to `best_config.json` and a summary to `trials_summary.csv`
+
+Optional: Start from an existing config with `--seed-config path/to/config.json`, or resume with `--resume`.
+
+### 5\. Quick Test & Smoke Test
 
 Use the "test pipeline" for a lightweight run that trains on a small subsample, backtests, and exports a pickle in one go.
 
@@ -136,7 +159,7 @@ uv run python scripts/run_test_pipeline.py \
   --output-dir artifacts/test_run
 ```
 
-### 5\. Exporting for Submission
+### 6\. Exporting for Submission
 
 To generate the `predict.pkl` required for Numerai:
 
@@ -197,8 +220,13 @@ evaluation:
 ### Advanced Features
 
   * **Feature Groups:** Define `features.groups` as a mapping of `group_name -> [columns]`. You can then assign specific models to specific groups using `models[].input_group: group_name`.
-  * **Available Preprocessors:** `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `GaussianNoise`, `VarianceSelector`, and `Packboost`.
-  * **Available Models:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`, `RandomForest`, `ExtraTrees`, `Ridge`.
+  * **Available Preprocessors:** `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `GaussianNoise`, `VarianceSelector`, `LGBMImportanceSelector`, `Packboost`, and `GroupedPreprocessor`.
+  * **Available Models:**
+    - **Gradient Boosting:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`
+    - **Tree Ensembles:** `RandomForest`, `ExtraTrees`
+    - **Linear:** `Ridge`
+    - **Foundation Models:** `TabPFN`, `TabICL` (tabular foundation models)
+    - **Meta Models:** `EraEnsemble` (era-specific ensemble), `SyntheticDataAugmenter` (diffusion-based augmentation)
   * **Ensembling:** `single`, `weighted`, or `stacking` (Meta-learners: `ridge` or `xgboost`).
 
 -----
@@ -252,6 +280,15 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 
 -----
 
+## Recent Additions (v0.1.0)
+
+✅ **AutoResearch Loop:** Claude agent-driven research with automated mutation strategies
+✅ **New Foundation Models:** TabPFN and TabICL support for tabular data
+✅ **Enhanced Model Suite:** EraEnsemble, SyntheticDataAugmenter, and expanded sklearn models
+✅ **Advanced Pipeline Features:** Multi-target, multi-head, and feature neutralization support
+✅ **Robust Data Handling:** Automatic NaN/inf filtering in pipeline fit and predict
+✅ **Ensemble Optimizer:** Automated ensemble weight optimization
+
 ## Roadmap
 
 1.  **Payout Optimization:** Integrate Numerai payout-style scoring directly into HPO and experiment selection.
@@ -259,6 +296,7 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 3.  **Unified Export:** Create a dedicated "export from YAML" script to bridge the gap between manual experiments and production pickles.
 4.  **Validation:** Improve error messages for feature routing mismatches (e.g., missing columns in a group).
 5.  **Metrics:** Add dedicated tests for MMC (Meta-Model Contribution) and alignment with Numerai benchmark signals.
+6.  **Weights & Biases Integration:** Full logging and visualization support for experiments and AutoResearch.
 
 -----
 

@@ -95,16 +95,50 @@ class Pipeline:
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
 
+        # Filter invalid values (NaN, inf) from input data and targets before preprocessing
+        X_invalid_mask = X.isna().any(axis=1) | np.isinf(X.select_dtypes(include=[np.number])).any(axis=1)
+        y_invalid_mask = y.isna() | np.isinf(y)
+        combined_invalid_mask = X_invalid_mask | y_invalid_mask
+
+        if combined_invalid_mask.any():
+            valid_mask = ~combined_invalid_mask
+            X = X[valid_mask]
+            y = y[valid_mask]
+
         X_fit = X
         for pp in self.preprocessors:
             pp.fit(X_fit, y)
             X_fit = pp.transform(X_fit)
 
+        # Filter NaN values after preprocessing to prevent training errors
+        if X_fit.isna().any().any():
+            nan_mask = ~X_fit.isna().any(axis=1)
+            X_fit = X_fit[nan_mask]
+            y = y[nan_mask]
+
         X_val_t: pd.DataFrame | None = None
         if X_val is not None:
+            # Filter invalid values from validation data and targets before preprocessing
+            val_X_invalid_mask = X_val.isna().any(axis=1) | np.isinf(X_val.select_dtypes(include=[np.number])).any(axis=1)
+            val_y_invalid_mask = y_val.isna() | np.isinf(y_val) if y_val is not None else pd.Series([False] * len(X_val))
+            val_combined_invalid_mask = val_X_invalid_mask | val_y_invalid_mask
+
+            if val_combined_invalid_mask.any():
+                val_valid_mask = ~val_combined_invalid_mask
+                X_val = X_val[val_valid_mask]
+                if y_val is not None:
+                    y_val = y_val[val_valid_mask]
+
             X_val_t = X_val
             for pp in self.preprocessors:
                 X_val_t = pp.transform(X_val_t)
+
+            # Filter NaN values in validation set after preprocessing
+            if X_val_t.isna().any().any():
+                val_nan_mask = ~X_val_t.isna().any(axis=1)
+                X_val_t = X_val_t[val_nan_mask]
+                if y_val is not None:
+                    y_val = y_val[val_nan_mask]
 
         if len(self.models) == 1:
             metrics = self.models[0].train(
@@ -148,15 +182,64 @@ class Pipeline:
             is active.
         """
         X_orig = X
-        X_t = X
-        for pp in self.preprocessors:
-            X_t = pp.transform(X_t)
 
-        if len(self.models) == 1:
-            raw_preds = self.models[0].predict(X_t)
+        # Identify invalid rows (NaN or inf) before preprocessing
+        input_invalid_mask = X.isna().any(axis=1) | np.isinf(X.select_dtypes(include=[np.number])).any(axis=1)
+
+        if input_invalid_mask.any():
+            # Process only valid rows
+            valid_mask = ~input_invalid_mask
+            X_valid = X[valid_mask]
+
+            X_t = X_valid
+            for pp in self.preprocessors:
+                X_t = pp.transform(X_t)
+
+            # Check for NaN after preprocessing
+            if X_t.isna().any().any():
+                post_nan_mask = ~X_t.isna().any(axis=1)
+                X_t = X_t[post_nan_mask]
+                combined_valid_mask_indices = valid_mask.copy()
+                valid_indices = np.where(valid_mask)[0]
+                invalid_post_processing = valid_indices[~post_nan_mask]
+                combined_valid_mask_indices[invalid_post_processing] = False
+            else:
+                combined_valid_mask_indices = valid_mask
+
+            if len(self.models) == 1:
+                valid_preds = self.models[0].predict(X_t)
+            else:
+                preds = np.column_stack([m.predict(X_t) for m in self.models])
+                valid_preds = self._ensemble.combine(preds)
+
+            # Create full predictions array with invalid rows filled with median
+            raw_preds = np.full(len(X), np.median(valid_preds))
+            raw_preds[combined_valid_mask_indices] = valid_preds
         else:
-            preds = np.column_stack([m.predict(X_t) for m in self.models])
-            raw_preds = self._ensemble.combine(preds)
+            # All rows valid - normal path
+            X_t = X
+            for pp in self.preprocessors:
+                X_t = pp.transform(X_t)
+
+            # Check for NaN after preprocessing
+            if X_t.isna().any().any():
+                nan_mask = ~X_t.isna().any(axis=1)
+                X_t_valid = X_t[nan_mask]
+
+                if len(self.models) == 1:
+                    valid_preds = self.models[0].predict(X_t_valid)
+                else:
+                    preds = np.column_stack([m.predict(X_t_valid) for m in self.models])
+                    valid_preds = self._ensemble.combine(preds)
+
+                raw_preds = np.full(len(X), np.median(valid_preds))
+                raw_preds[nan_mask] = valid_preds
+            else:
+                if len(self.models) == 1:
+                    raw_preds = self.models[0].predict(X_t)
+                else:
+                    preds = np.column_stack([m.predict(X_t) for m in self.models])
+                    raw_preds = self._ensemble.combine(preds)
 
         if self._neutralizer is None:
             return raw_preds
