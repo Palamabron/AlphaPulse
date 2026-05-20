@@ -81,6 +81,17 @@ uv run python scripts/export_numerai_pickle.py \
   --output-dir artifacts/competition_pickle
 ```
 
+**Run AutoResearch (agent-driven research loop):**
+```bash
+uv run python scripts/autoresearch.py \
+  --data-dir data/v5.2 \
+  --train-subsample 0.125 \
+  --trials 50 \
+  --hours 2 \
+  --output-dir artifacts/autoresearch \
+  --agent-model claude-sonnet-4-6
+```
+
 ## Architecture
 
 ### Core Abstractions
@@ -89,16 +100,48 @@ uv run python scripts/export_numerai_pickle.py \
 - Central orchestrator: chains preprocessors, trains models, and combines predictions via ensemble strategies
 - `fit(X, y, X_val, y_val, **model_train_kwargs)` → trains preprocessors and all models
 - `predict(X)` → preprocesses features and returns ensemble predictions
+- **Robust data handling:** automatically filters NaN/inf values before and after preprocessing, imputes invalid predictions with median
 - `to_numerai_predict(benchmark_col)` → wraps the pipeline in a Numerai-compatible callable for submission
 - `save_pipeline(path)` / `load_pipeline(path)` → cloudpickle serialization
 
+**MultiTargetPipeline** (`src/alphapulse/pipeline/multi_target.py`)
+- Trains separate pipelines for multiple target columns
+- `fit()` and `predict()` for multi-target scenarios
+
+**MultiHeadPipeline** (`src/alphapulse/pipeline/multihead.py`)
+- Trains multiple specialized "heads" with different configurations
+- Each head can use different models, preprocessing, or feature subsets
+- `HeadSpec` defines per-head configuration
+
+**FeatureNeutralizer** (`src/alphapulse/pipeline/neutralizer.py`)
+- Neutralizes predictions against specified feature columns
+- Removes systematic biases or exposures
+
+**Stacker** (`src/alphapulse/pipeline/stacker.py`)
+- Stacking ensemble with out-of-fold predictions
+- Meta-learner: Ridge or XGBoost
+
+**EnsembleOptimizer** (`src/alphapulse/pipeline/ensemble_optimizer.py`)
+- Optimizes ensemble weights using validation set
+- Maximizes chosen metric (e.g., Sharpe, correlation)
+
 **BaseModel** (`src/alphapulse/models/base.py`)
 - Abstract interface: `train()`, `predict()`, `save()`, `load()`
-- Concrete implementations: `XGBoostModel`, `LightGBMModel`, `CatBoostModel`, `PackboostModel`
+- **Gradient Boosting Models:** `XGBoostModel`, `LightGBMModel`, `CatBoostModel`, `PackboostModel`
+- **Tree Ensembles:** `RandomForestModel`, `ExtraTreesModel`
+- **Linear Models:** `RidgeModel`
+- **Foundation Models:** `TabPFNModel`, `TabICLModel` (tabular deep learning, zero/few-shot)
+- **Meta Models:** `EraEnsembleModel` (trains separate models per era), `SyntheticDataAugmenter` (diffusion-based data augmentation)
+- `ModelFactory.create(model_type, params)` → instantiates models from config
+- `suggest_augmentation(config)` → helper to add data augmentation to pipeline
 
 **BasePreprocessor** (`src/alphapulse/preprocessors/base.py`)
 - Abstract interface: `fit()`, `transform()`
-- Available preprocessors: `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `GaussianNoise`, `VarianceSelector`, `Packboost`
+- **Scaling:** `StandardScalerPreprocessor`, `RobustScalerPreprocessor`
+- **Dimensionality Reduction:** `PCAPreprocessor`, `TruncatedSVDPreprocessor`
+- **Feature Selection:** `VarianceFeatureSelector`, `LGBMImportanceSelector`
+- **Noise Injection:** `GaussianNoiseInjector`
+- **Special:** `PackboostPreprocessor`, `GroupedPreprocessor` (applies preprocessor to feature groups)
 - `PreprocessorFactory` (`src/alphapulse/preprocessors/factory.py`) instantiates preprocessors from config dicts
 
 **EnsembleStrategy** (`src/alphapulse/pipeline/ensemble.py`)
@@ -142,6 +185,32 @@ uv run python scripts/export_numerai_pickle.py \
 - `build_pipeline(config, feature_columns, feature_groups)` → constructs `Pipeline` from config dict
 - `build_pipeline_or_multi(...)` → handles both single and multi-target pipelines
 
+**Registry** (`src/alphapulse/hpo/registry.py`)
+- Centralized registry for models, preprocessors, and ensemble methods
+- Provides search space definitions for HPO
+
+### AutoResearch System
+
+**Research Loop** (`src/alphapulse/autoresearch/loop.py`)
+- `run_autoresearch(X_train, y_train, X_val, y_val, era_val, feature_cols, **kwargs)` → main entry point
+- Runs trials within time/count budget with Claude agent deciding what to try next
+- Outputs: `best_config.json`, `research_state.json`, `trials_summary.csv`
+
+**Agent** (`src/alphapulse/autoresearch/agent.py`)
+- Claude-powered research agent that analyzes trial history and proposes next experiments
+- Decides between mutation strategies based on recent performance
+- Maintains reasoning trail in research state
+
+**Mutations** (`src/alphapulse/autoresearch/mutations.py`)
+- Mutation strategies: `add_model`, `remove_model`, `tune_model_params`, `change_ensemble`, `add_preprocessor`, `remove_preprocessor`, `set_neutralization`
+- Each mutation modifies the pipeline config in a specific way
+- Agent chooses which mutation to apply and with what parameters
+
+**State** (`src/alphapulse/autoresearch/state.py`)
+- `ResearchState`: tracks trial history, agent reasoning, and best result
+- `TrialRecord`: stores config, metrics, error, model types, and agent action for each trial
+- Supports resume from disk
+
 ### Evaluation
 
 **Backtester** (`src/alphapulse/evaluation/backtester.py`)
@@ -150,8 +219,14 @@ uv run python scripts/export_numerai_pickle.py \
 
 **Metrics** (`src/alphapulse/evaluation/metrics.py`)
 - `per_era_correlation(y_true, y_pred, era)` → correlation within each era
+- `per_era_spearman(y_true, y_pred, era)` → Spearman correlation per era
 - `era_sharpe(per_era_corr)` → sharpe ratio of per-era correlations
+- `era_correlation_metrics(y_true, y_pred, era)` → full suite of era-based metrics
+- `calculate_metrics(y_true, y_pred, era)` → comprehensive metrics dict
 - `rank_normalize(preds)` → maps predictions to [0, 1] uniform distribution (required for Numerai submissions)
+
+**Era Splitting** (`src/alphapulse/evaluation/era_split.py`)
+- Utilities for splitting data by era for validation
 
 ## Code Conventions
 
@@ -234,3 +309,28 @@ From `.cursor/coding-guidelines.md`:
 **Adding a new ensemble method:**
 1. Extend `EnsembleStrategy.fit()` and `combine()` in `src/alphapulse/pipeline/ensemble.py`
 2. Update the `Literal` type in `src/alphapulse/experiments/schema.py` for `ensemble_method`
+
+## Key Recent Changes
+
+**Pipeline robustness (v0.1.0):**
+- Pipeline now automatically filters NaN and inf values before and after preprocessing in both `fit()` and `predict()`
+- Invalid rows during prediction are imputed with median of valid predictions
+- Prevents training errors from bad data while maintaining output shape
+
+**AutoResearch system (v0.1.0):**
+- New Claude agent-driven research loop that autonomously explores pipeline configurations
+- Agent analyzes trial history and proposes strategic mutations
+- Supports time and trial count budgets
+- Full state persistence and resume capability
+
+**Expanded model library (v0.1.0):**
+- Foundation models: TabPFN and TabICL for zero/few-shot tabular learning
+- Meta models: EraEnsemble for era-specific modeling, SyntheticDataAugmenter for diffusion-based data augmentation
+- All sklearn tree models: RandomForest, ExtraTrees
+- Ridge regression for linear baselines
+
+**Advanced pipeline features (v0.1.0):**
+- Multi-target and multi-head pipeline support
+- Feature neutralization for removing systematic biases
+- Ensemble weight optimization
+- Stacking with OOF predictions
