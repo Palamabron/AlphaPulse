@@ -6,18 +6,20 @@ Supports two modes:
 """
 
 import json
-import sys
 import time
 from pathlib import Path
 
 import tyro
 from loguru import logger
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from alphapulse.experiments.data import load_train_val_frames
 from alphapulse.hpo.objective import TrialResult, run_trial
 from alphapulse.hpo.search_space import sample_random_config
+from alphapulse.logging_.leaderboard import (
+    entry_from_hpo_result,
+    print_leaderboard,
+    save_leaderboard,
+)
 
 
 def _run_local(
@@ -62,6 +64,7 @@ def _run_local(
                 y_val=y_val,
                 era_val=era_val,
                 feature_cols=feature_cols,
+                seed=seed + i,
             )
             elapsed = time.perf_counter() - t0
             sharpe = metrics.get("sharpe", float("-inf"))
@@ -95,6 +98,11 @@ def _run_local(
             result.elapsed_seconds,
             f" [ERROR: {result.error}]" if result.error else "",
         )
+        print_leaderboard(
+            logger,
+            [entry_from_hpo_result(r) for r in results],
+            current_trial=i,
+        )
 
         if result.sharpe > best_sharpe:
             best_sharpe = result.sharpe
@@ -114,6 +122,7 @@ def _run_local(
             "sharpe": r.sharpe,
             "metrics": r.metrics,
             "model_type": r.model_type,
+            "params": r.params,
             "elapsed_seconds": r.elapsed_seconds,
             "error": r.error,
         }
@@ -122,6 +131,11 @@ def _run_local(
     with open(all_results_path, "w", encoding="utf-8") as f:
         json.dump(serializable, f, indent=2)
     logger.info("All trial results saved to: {}", all_results_path)
+    save_leaderboard(
+        output_dir / "leaderboard.json",
+        [entry_from_hpo_result(r) for r in results],
+    )
+    logger.info("Leaderboard saved to: {}", output_dir / "leaderboard.json")
 
 
 def _run_ray(

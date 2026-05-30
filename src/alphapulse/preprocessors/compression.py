@@ -17,17 +17,21 @@ class PCAPreprocessor(BasePreprocessor):
         super().__init__(name=name)
         self.n_components = n_components
         self.random_state = random_state
+        self._numeric_cols: list[str] = []
         self._pca = PCA(n_components=n_components, random_state=random_state)
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        self._pca.fit(X.values)
+        self._numeric_cols = list(X.select_dtypes(include=[np.number]).columns)
+        if not self._numeric_cols:
+            raise ValueError("PCAPreprocessor: no numeric columns found.")
+        self._pca.fit(X[self._numeric_cols].values)
         self.is_fitted = True
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if not self.is_fitted:
             raise ValueError("Preprocessor not fitted!")
-        out = self._pca.transform(X.values)
+        out = self._pca.transform(X[self._numeric_cols].values)
         cols = [f"pca_{i}" for i in range(out.shape[1])]
         return pd.DataFrame(out, columns=cols, index=X.index)
 
@@ -42,17 +46,21 @@ class TruncatedSVDPreprocessor(BasePreprocessor):
         super().__init__(name=name)
         self.n_components = n_components
         self.random_state = random_state
+        self._numeric_cols: list[str] = []
         self._svd = TruncatedSVD(n_components=n_components, random_state=random_state)
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        self._svd.fit(X.values)
+        self._numeric_cols = list(X.select_dtypes(include=[np.number]).columns)
+        if not self._numeric_cols:
+            raise ValueError("TruncatedSVDPreprocessor: no numeric columns found.")
+        self._svd.fit(X[self._numeric_cols].values)
         self.is_fitted = True
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if not self.is_fitted:
             raise ValueError("Preprocessor not fitted!")
-        out = self._svd.transform(X.values)
+        out = self._svd.transform(X[self._numeric_cols].values)
         cols = [f"svd_{i}" for i in range(out.shape[1])]
         return pd.DataFrame(
             np.asarray(out, dtype=np.float64), columns=cols, index=X.index

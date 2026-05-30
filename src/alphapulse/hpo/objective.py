@@ -1,4 +1,3 @@
-import random
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,8 +55,8 @@ def run_trial(
         ``mean_per_era_correlation``, ``correlation``, etc.).
     """
     if seed is not None:
-        np.random.seed(seed)
-        random.seed(seed)
+        rng = np.random.default_rng(seed)
+        np.random.seed(rng.integers(0, 2**31))
 
     pipeline_cfg = resolve_flat_config(config)
     pipeline = build_pipeline_or_multi(

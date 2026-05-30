@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from pathlib import Path
 from typing import Any
 
@@ -5,11 +6,7 @@ import cloudpickle
 import numpy as np
 import pandas as pd
 
-from .base import BaseModel
-
-
-def _numeric(X: pd.DataFrame) -> pd.DataFrame:
-    return X.select_dtypes(include=[np.number])
+from .base import BaseModel, _numeric
 
 
 def _save_sklearn(model: Any, path: Path) -> None:
@@ -24,7 +21,52 @@ def _load_sklearn(path: Path) -> Any:
         return cloudpickle.load(f)
 
 
-class RandomForestModel(BaseModel):
+class SklearnModel(BaseModel):
+    """Base for sklearn-style models with shared train/predict/save/load."""
+
+    def __init__(
+        self, params: dict[str, Any] | None = None, name: str | None = None
+    ) -> None:
+        super().__init__(name)
+        self.params: dict[str, Any] = params or self._default_params()
+
+    @abstractmethod
+    def _default_params(self) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def _make_estimator(self) -> Any: ...
+
+    def train(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        **kwargs: Any,
+    ) -> dict[str, float]:
+        feat = _numeric(X_train)
+        if feat.shape[1] == 0:
+            raise ValueError(f"{self.name}: no numeric feature columns found.")
+        self.model = self._make_estimator()
+        self.model.fit(feat, y_train)
+        self.is_trained = True
+        return {}
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        self._require_trained()
+        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
+
+    def save(self, path: Path) -> None:
+        self._require_trained()
+        _save_sklearn(self.model, path)
+
+    def load(self, path: Path) -> "SklearnModel":
+        self.model = _load_sklearn(path)
+        self.is_trained = True
+        return self
+
+
+class RandomForestModel(SklearnModel):
     """sklearn RandomForestRegressor.
 
     Bagged fully-grown trees give predictions that are decorrelated from
@@ -37,8 +79,10 @@ class RandomForestModel(BaseModel):
         params: dict[str, Any] | None = None,
         name: str | None = "RandomForest",
     ) -> None:
-        super().__init__(name)
-        self.params: dict[str, Any] = params or {
+        super().__init__(params, name)
+
+    def _default_params(self) -> dict[str, Any]:
+        return {
             "n_estimators": 300,
             "min_samples_leaf": 200,
             "max_features": 0.3,
@@ -46,41 +90,13 @@ class RandomForestModel(BaseModel):
             "random_state": 42,
         }
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
+    def _make_estimator(self) -> Any:
         from sklearn.ensemble import RandomForestRegressor
 
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError("RandomForestModel: no numeric feature columns found.")
-        self.model = RandomForestRegressor(**self.params)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if not self.is_trained or self.model is None:
-            raise ValueError("Model is not trained!")
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        if self.model is None:
-            raise ValueError("Cannot save untrained model")
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "RandomForestModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return RandomForestRegressor(**self.params)
 
 
-class ExtraTreesModel(BaseModel):
+class ExtraTreesModel(SklearnModel):
     """sklearn ExtraTreesRegressor.
 
     Splits are chosen at random (not optimally) which produces trees that are
@@ -93,8 +109,10 @@ class ExtraTreesModel(BaseModel):
         params: dict[str, Any] | None = None,
         name: str | None = "ExtraTrees",
     ) -> None:
-        super().__init__(name)
-        self.params: dict[str, Any] = params or {
+        super().__init__(params, name)
+
+    def _default_params(self) -> dict[str, Any]:
+        return {
             "n_estimators": 300,
             "min_samples_leaf": 200,
             "max_features": 0.3,
@@ -102,41 +120,13 @@ class ExtraTreesModel(BaseModel):
             "random_state": 42,
         }
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
+    def _make_estimator(self) -> Any:
         from sklearn.ensemble import ExtraTreesRegressor
 
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError("ExtraTreesModel: no numeric feature columns found.")
-        self.model = ExtraTreesRegressor(**self.params)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if not self.is_trained or self.model is None:
-            raise ValueError("Model is not trained!")
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        if self.model is None:
-            raise ValueError("Cannot save untrained model")
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "ExtraTreesModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return ExtraTreesRegressor(**self.params)
 
 
-class RidgeModel(BaseModel):
+class RidgeModel(SklearnModel):
     """sklearn Ridge (L2-regularised linear regression).
 
     Captures linear combinations of features that gradient-boosted trees
@@ -149,38 +139,13 @@ class RidgeModel(BaseModel):
         alpha: float = 100.0,
         name: str | None = "Ridge",
     ) -> None:
-        super().__init__(name)
+        super().__init__({"alpha": alpha}, name)
         self.alpha = alpha
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
+    def _default_params(self) -> dict[str, Any]:
+        return {"alpha": 100.0}
+
+    def _make_estimator(self) -> Any:
         from sklearn.linear_model import Ridge
 
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError("RidgeModel: no numeric feature columns found.")
-        self.model = Ridge(alpha=self.alpha)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if not self.is_trained or self.model is None:
-            raise ValueError("Model is not trained!")
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        if self.model is None:
-            raise ValueError("Cannot save untrained model")
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "RidgeModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return Ridge(alpha=self.alpha)

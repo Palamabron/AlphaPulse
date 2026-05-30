@@ -5,7 +5,16 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-VALID_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
+VALID_MODELS = [
+    "XGBoost",
+    "LightGBM",
+    "Packboost",
+    "CatBoost",
+    "TabPFN",
+    "TabPFN3",
+    "TabPFN3Reasoning",
+    "TabICL",
+]
 VALID_PREPROCESSORS = [
     "StandardScaler",
     "RobustScaler",

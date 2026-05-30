@@ -9,16 +9,14 @@ This script is intended to be used after HPO:
 
 import gc
 import json
-import sys
 from pathlib import Path
 
 import cloudpickle
 import tyro
 from loguru import logger
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from alphapulse.experiments.data import load_train_only_frame
+from alphapulse.experiments.split import internal_val_split
 from alphapulse.hpo.builder import build_pipeline_or_multi
 from alphapulse.hpo.search_space import get_train_kwargs_from_flat, resolve_flat_config
 
@@ -31,21 +29,6 @@ def _needs_era_from_flat_config(flat: dict) -> bool:
         if flat.get(f"model_{i}_type") == "Packboost":
             return True
     return False
-
-
-def _internal_val_split(X_train, y_train):
-    """Match the internal early-stopping split used in HPO."""
-    INTERNAL_VAL_THRESHOLD = 5000
-    INTERNAL_VAL_FRACTION = 0.1
-    if len(X_train) > INTERNAL_VAL_THRESHOLD:
-        n_val_internal = int(len(X_train) * INTERNAL_VAL_FRACTION)
-        return (
-            X_train.iloc[:-n_val_internal],
-            y_train.iloc[:-n_val_internal],
-            X_train.tail(n_val_internal),
-            y_train.tail(n_val_internal),
-        )
-    return X_train, y_train, None, None
 
 
 def main(
@@ -91,8 +74,16 @@ def main(
     mem_mb = X_train.memory_usage(deep=True).sum() / 1e6
     logger.info("Train shape: {} ({:.1f} MB)", X_train.shape, mem_mb)
 
-    X_train_fit, y_train_fit, X_val_internal, y_val_internal = _internal_val_split(
-        X_train, y_train
+    era_train = X_train["era"] if "era" in X_train.columns else None
+    stacking_needs_val = (
+        int(flat_config.get("num_models", 1)) > 1
+        and flat_config.get("ensemble_method") == "stacking"
+    )
+    X_train_fit, y_train_fit, X_val_internal, y_val_internal = internal_val_split(
+        X_train,
+        y_train,
+        era_train=era_train,
+        force_internal=stacking_needs_val,
     )
     del X_train, y_train
     gc.collect()

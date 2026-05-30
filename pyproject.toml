@@ -24,18 +24,18 @@ dependencies = [
   "python-dotenv",
   "loguru>=0.7",
   "pydantic>=2,<3",
-  "pandas",
+  "pandas>=2,<3",
   "numerapi",
   "tyro",
   "wandb",
   "cloudpickle",
-  "xgboost",
-  "lightgbm",
-  "catboost",
-  "optuna",
-  "scipy",
-  "scikit-learn",
-  "pyarrow",
+  "xgboost>=2,<3",
+  "lightgbm>=4,<5",
+  "catboost>=1.2,<2",
+  "optuna>=3,<5",
+  "scipy>=1.12,<2",
+  "scikit-learn>=1.4,<2",
+  "pyarrow>=14,<20",
   "pyyaml>=6",
 ]
 
@@ -46,8 +46,10 @@ dev = [
   "black>=24",
   "mypy>=1.10",
   "pytest>=8.0",
+  "pytest-cov>=5.0",
   "types-PyYAML>=6.0",
   "nbqa>=1.9.1",
+  "vulture>=2.14",
 ]
 hpo = [
   "ray[tune]>=2.0",
@@ -57,8 +59,17 @@ deep = [
   "torch",
 ]
 foundation = [
-  "tabpfn>=2.0",
+  "tabpfn>=7.0",
   "tabicl>=2.0",
+]
+foundation-api = [
+  "tabpfn-client>=0.3.0",
+]
+eda = [
+  "streamlit>=1.30",
+  "plotly>=5.18",
+  "matplotlib>=3.8",
+  "networkx>=3.2",
 ]
 
 
@@ -80,6 +91,7 @@ branch = true
 parallel = true
 omit = [
   "src/alphapulse/__about__.py",
+  "eda/*",
 ]
 
 [tool.coverage.paths]
@@ -96,7 +108,7 @@ exclude_lines = [
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-extend-exclude = ["build", "dist", ".venv", ".eggs"]
+extend-exclude = ["build", "dist", ".venv", ".eggs", "eda"]
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -120,7 +132,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "T20"]
+"tests/**" = ["S101", "S108", "T20"]
 "scripts/**" = ["T20"]
 "src/alphapulse/autoresearch/agent.py" = ["E501", "S603", "S607"]
 
@@ -153,6 +165,7 @@ exclude = [
   '^build/.*',
   '^dist/.*',
   '^\.venv/.*',
+  '^eda/.*',
 ]
 
 [[tool.mypy.overrides]]
@@ -186,6 +199,8 @@ module = [
   "torch.*",
   "tabpfn",
   "tabpfn.*",
+  "tabpfn_client",
+  "tabpfn_client.*",
   "tabicl",
   "tabicl.*",
 ]

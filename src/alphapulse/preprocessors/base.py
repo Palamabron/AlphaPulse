@@ -1,6 +1,14 @@
 from abc import ABC, abstractmethod
+from typing import Protocol, Self, runtime_checkable
 
 import pandas as pd
+
+
+@runtime_checkable
+class TrainEvalPreprocessor(Protocol):
+    def train(self) -> Self: ...
+
+    def eval(self) -> Self: ...
 
 
 class BasePreprocessor(ABC):

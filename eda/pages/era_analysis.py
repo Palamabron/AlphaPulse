@@ -1,21 +1,10 @@
-"""
-Era Analysis Page - Temporal analysis of features and target across eras
-"""
-
-import os
-import sys
+"""Era Analysis Page — Temporal analysis of features and target across eras."""
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
 
 st.set_page_config(page_title="Analiza Era", page_icon="⏰", layout="wide")
 
@@ -123,11 +112,16 @@ era_count_col, avg_obs_col, min_obs_col = st.columns(3)
 
 with era_count_col:
     cv = (era_stats["count"].std() / era_stats["count"].mean()) * 100
-    st.metric("CV Rozmiaru Er", f"{cv:.2f}%", help="Współczynnik zmienności rozmiaru")
+    st.metric(
+        "CV Rozmiaru Er",
+        f"{cv:.2f}%",
+        help="Współczynnik zmienności rozmiaru",
+    )
 
 with avg_obs_col:
     st.metric(
-        "Zakres Rozmiaru", f"{era_stats['count'].max() - era_stats['count'].min()}"
+        "Zakres Rozmiaru",
+        f"{era_stats['count'].max() - era_stats['count'].min()}",
     )
 
 with min_obs_col:
@@ -223,11 +217,17 @@ with tab1:
         )
 
     with avg_obs_col:
-        trend = np.polyfit(range(len(era_stats)), era_stats["target_mean"], 1)[0]
-        st.metric("Trend", f"{trend:.8f}", help="Nachylenie trendu liniowego")
+        trend = np.polyfit(
+            range(len(era_stats)), era_stats["target_mean"], 1
+        )[0]
+        st.metric(
+            "Trend", f"{trend:.8f}", help="Nachylenie trendu liniowego"
+        )
 
     with min_obs_col:
-        range_mean = era_stats["target_mean"].max() - era_stats["target_mean"].min()
+        range_mean = (
+            era_stats["target_mean"].max() - era_stats["target_mean"].min()
+        )
         st.metric("Zakres Średnich", f"{range_mean:.6f}")
 
 with tab2:
@@ -256,7 +256,9 @@ with tab2:
     )
 
     fig.update_layout(
-        xaxis_title="Era", yaxis_title=f"Std Dev {selected_target.upper()}", height=500
+        xaxis_title="Era",
+        yaxis_title=f"Std Dev {selected_target.upper()}",
+        height=500,
     )
 
     fig.update_xaxes(tickangle=45)
@@ -275,9 +277,13 @@ with tab2:
     )
 
 with tab3:
-    st.subheader(f"Zakres {selected_target.upper()} per Era (Max - Min)")
+    st.subheader(
+        f"Zakres {selected_target.upper()} per Era (Max - Min)"
+    )
 
-    era_stats["target_range"] = era_stats["target_max"] - era_stats["target_min"]
+    era_stats["target_range"] = (
+        era_stats["target_max"] - era_stats["target_min"]
+    )
 
     fig = go.Figure()
 
@@ -319,7 +325,9 @@ if len(selected_features_time) > 5:
 
 if len(selected_features_time) > 0:
     feature_era_stats = (
-        train.groupby("era")[selected_features_time].agg(["mean", "std"]).reset_index()
+        train.groupby("era")[selected_features_time]
+        .agg(["mean", "std"])
+        .reset_index()
     )
 
     st.subheader("Średnie Wartości Cech per Era")
@@ -333,7 +341,9 @@ if len(selected_features_time) > 0:
                 y=feature_era_stats[feature]["mean"],
                 mode="lines+markers",
                 name=feature,
-                hovertemplate=f"{feature}<br>Era: %{{x}}<br>Mean: %{{y:.4f}}",
+                hovertemplate=(
+                    f"{feature}<br>Era: %{{x}}<br>Mean: %{{y:.4f}}"
+                ),
             )
         )
 
@@ -382,14 +392,19 @@ if len(selected_features_time) > 0:
                 y=corr_time_df[feature],
                 mode="lines+markers",
                 name=feature,
-                hovertemplate=f"{feature}<br>Era: %{{x}}<br>Corr: %{{y:.6f}}",
+                hovertemplate=(
+                    f"{feature}<br>Era: %{{x}}<br>Corr: %{{y:.6f}}"
+                ),
             )
         )
 
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
 
     fig.update_layout(
-        title=f"Korelacja z {selected_target.upper()} (zwrot z akcji) w czasie",
+        title=(
+            f"Korelacja z {selected_target.upper()} "
+            f"(zwrot z akcji) w czasie"
+        ),
         xaxis_title="Era",
         yaxis_title="Correlation",
         height=500,
@@ -451,7 +466,9 @@ if len(selected_features_time) > 0:
     stability_df = pd.DataFrame(stability_metrics)
 
     st.dataframe(
-        stability_df.style.background_gradient(subset=["Stabilność_σ(ρ)"], cmap="Reds"),
+        stability_df.style.background_gradient(
+            subset=["Stabilność_σ(ρ)"], cmap="Reds"
+        ),
         width="stretch",
     )
 
@@ -470,10 +487,14 @@ st.header("📉 Statystyki Kroczące (Rolling)")
 window_size = st.slider("Rozmiar okna:", 3, 20, 5)
 
 era_stats["rolling_mean"] = (
-    era_stats["target_mean"].rolling(window=window_size, center=True).mean()
+    era_stats["target_mean"]
+    .rolling(window=window_size, center=True)
+    .mean()
 )
 era_stats["rolling_std"] = (
-    era_stats["target_std"].rolling(window=window_size, center=True).mean()
+    era_stats["target_std"]
+    .rolling(window=window_size, center=True)
+    .mean()
 )
 
 fig = make_subplots(
@@ -540,8 +561,12 @@ fig.add_trace(
 )
 
 fig.update_xaxes(title_text="Era", row=2, col=1, tickangle=45)
-fig.update_yaxes(title_text=f"{selected_target.upper()} Mean", row=1, col=1)
-fig.update_yaxes(title_text=f"{selected_target.upper()} Std", row=2, col=1)
+fig.update_yaxes(
+    title_text=f"{selected_target.upper()} Mean", row=1, col=1
+)
+fig.update_yaxes(
+    title_text=f"{selected_target.upper()} Std", row=2, col=1
+)
 
 fig.update_layout(height=700, hovermode="x unified")
 st.plotly_chart(fig, width="stretch")

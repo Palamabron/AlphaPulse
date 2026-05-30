@@ -22,7 +22,7 @@ def evaluate_holdout_last_n_eras(
 ) -> dict[str, float]:
     if last_n_eras < 1:
         raise ValueError("last_n_eras must be >= 1")
-    eras_sorted = sorted(era_val.unique(), key=lambda x: str(x))
+    eras_sorted = sorted(era_val.unique(), key=str)
     holdout_eras = eras_sorted[-last_n_eras:]
     mask = era_val.isin(holdout_eras)
     if not mask.any():
@@ -60,7 +60,7 @@ class EraSplitEvaluator:
         df = pd.concat([X_use, df], axis=1)
 
         if eras_order is None:
-            eras_order = sorted(df["era"].unique(), key=lambda x: str(x))
+            eras_order = sorted(df["era"].unique(), key=str)
         if len(eras_order) < self.min_train_eras + 1:
             return {
                 "mean_per_era_correlation": float("nan"),

@@ -92,6 +92,32 @@ uv run python scripts/autoresearch.py \
   --agent-model claude-sonnet-4-6
 ```
 
+## EDA Dashboard
+
+The EDA dashboard is a standalone Streamlit app that lives in the top-level `eda/` directory (not inside `src/alphapulse/`). It imports `NumeraiDataLoader` from the core library for data loading, but is otherwise self-contained with its own config and page modules.
+
+**Install EDA dependencies:**
+```bash
+uv sync --extra eda
+```
+
+**Run the dashboard:**
+```bash
+streamlit run eda/app.py
+```
+
+**Environment overrides:**
+- `ALPHAPULSE_DATA_DIR` — path to the data directory (default: `data/v5.2`)
+- `ALPHAPULSE_DATASET_VERSION` — dataset version string (default: `v5.2`)
+
+**Structure:**
+- `eda/app.py` — main entry point
+- `eda/pages/` — multi-page analysis modules (clustering, correlations, era analysis, target analysis, feature analysis, feature distributions, feature importance)
+- `eda/utils/config.py` — path resolution with env var overrides
+- `eda/utils/data_loader.py` — wraps `NumeraiDataLoader`
+
+The EDA app is excluded from mypy, ruff, test coverage, and the main `make check` pipeline. Use `make eda-lint` for standalone linting.
+
 ## Architecture
 
 ### Core Abstractions

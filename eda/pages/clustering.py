@@ -1,10 +1,6 @@
-"""
-Clustering Page - Hierarchical clustering to identify feature groups
-"""
+"""Clustering Page — Hierarchical clustering to identify feature groups."""
 
 import json
-import os
-import sys
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -14,11 +10,8 @@ import plotly.express as px
 import streamlit as st
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
-from utils.config import FEATURES_JSON_PATH
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
+from eda.utils.config import FEATURES_JSON_PATH
 
 st.set_page_config(page_title="Clustering", page_icon="🔬", layout="wide")
 
@@ -38,7 +31,6 @@ Grupowanie podobnych cech na podstawie korelacji - identyfikacja grup redundantn
 
 @st.cache_data
 def load_feature_groups() -> dict[str, list[str]]:
-    """Load feature group mappings from features.json"""
     try:
         encodings = ["utf-8", "latin1", "cp1250", "iso-8859-2", "windows-1250"]
         features_json = None
@@ -95,7 +87,6 @@ feature_to_group_map = load_feature_groups()
 
 
 def get_feature_group(feature_name: str) -> str:
-    """Get group for a feature"""
     if feature_name in feature_to_group_map:
         group = feature_to_group_map[feature_name]
         return group if isinstance(group, str) else "other"
@@ -110,7 +101,6 @@ def get_feature_group(feature_name: str) -> str:
 
 
 def get_group_color(group_name: str | None) -> str:
-    """Assign color based on feature group"""
     if group_name is None:
         group_name = "other"
     color_map = {
@@ -382,7 +372,9 @@ if redundant_pairs:
         st.dataframe(
             redundant_df.head(50)
             .style.apply(highlight_same_group, axis=1)
-            .background_gradient(subset=["Korelacja"], cmap="RdBu_r", vmin=-1, vmax=1),
+            .background_gradient(
+                subset=["Korelacja"], cmap="RdBu_r", vmin=-1, vmax=1
+            ),
             width="stretch",
             height=500,
         )
@@ -392,7 +384,10 @@ if redundant_pairs:
     with avg_corr_col:
         st.subheader("Statystyki")
         st.metric("Liczba Par", len(redundant_df))
-        st.metric("Średnia |Korelacja|", f"{redundant_df['Abs_Korelacja'].mean():.4f}")
+        st.metric(
+            "Średnia |Korelacja|",
+            f"{redundant_df['Abs_Korelacja'].mean():.4f}",
+        )
         st.metric("Max Korelacja", f"{redundant_df['Korelacja'].max():.4f}")
         st.metric("Min Korelacja", f"{redundant_df['Korelacja'].min():.4f}")
 

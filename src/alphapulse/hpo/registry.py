@@ -2,7 +2,12 @@ from typing import Any
 
 from ..models.base import BaseModel
 from ..models.catboost_model import CatBoostModel
-from ..models.foundation_models import TabICLModel, TabPFNModel
+from ..models.foundation_models import (
+    TabICLModel,
+    TabPFN3Model,
+    TabPFN3ReasoningModel,
+    TabPFNModel,
+)
 from ..models.lightgbm_model import LightGBMModel
 from ..models.packboost_model import PackboostModel
 from ..models.sklearn_models import ExtraTreesModel, RandomForestModel, RidgeModel
@@ -110,6 +115,24 @@ MODEL_REGISTRY: dict[str, tuple[type[BaseModel], dict[str, Any]]] = {
         {
             "n_estimators": 8,
             "ignore_pretraining_limits": False,
+        },
+    ),
+    "TabPFN3": (
+        TabPFN3Model,
+        {
+            "model_path": "auto",
+            "n_estimators": 8,
+            "ignore_pretraining_limits": False,
+            "random_state": 42,
+        },
+    ),
+    "TabPFN3Reasoning": (
+        TabPFN3ReasoningModel,
+        {
+            "thinking_mode": True,
+            "thinking_effort": "medium",
+            "thinking_timeout_s": 300,
+            "thinking_metric": "rmse",
         },
     ),
     "TabICL": (

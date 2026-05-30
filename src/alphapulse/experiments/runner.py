@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from loguru import logger
 
 from ..evaluation import Backtester
 from ..evaluation.era_split import EraSplitEvaluator, evaluate_holdout_last_n_eras
@@ -14,6 +15,7 @@ from ..pipeline.pipeline import Pipeline
 from .data import load_train_frame_with_era, load_train_val_frames
 from .hashing import config_hash
 from .schema import ExperimentV1
+from .split import internal_val_split
 
 
 @dataclass
@@ -49,22 +51,6 @@ def _need_era_column(exp: ExperimentV1) -> bool:
             if p.type == "Packboost":
                 return True
     return False
-
-
-INTERNAL_VAL_THRESHOLD = 5000
-INTERNAL_VAL_FRACTION = 0.1
-
-
-def _internal_val_split(X_train: Any, y_train: Any) -> tuple[Any, Any, Any, Any]:
-    if len(X_train) > INTERNAL_VAL_THRESHOLD:
-        n_val = int(len(X_train) * INTERNAL_VAL_FRACTION)
-        return (
-            X_train.iloc[:-n_val],
-            y_train.iloc[:-n_val],
-            X_train.tail(n_val),
-            y_train.tail(n_val),
-        )
-    return X_train, y_train, None, None
 
 
 def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> RunResult:
@@ -103,6 +89,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             need_era=need_era,
         )
     except Exception as e:
+        logger.exception("Experiment data load failed")
         return RunResult(
             error=str(e),
             config_hash=ch,
@@ -110,14 +97,14 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             pipeline_config=pipeline_cfg,
         )
 
-    X_train_fit, y_train_fit, X_val_internal, y_val_internal = _internal_val_split(
-        X_train, y_train
-    )
-
     stacking_needs_val = exp.ensemble_method == "stacking" and len(exp.models) > 1
-    if stacking_needs_val and X_val_internal is None:
-        X_val_internal = X_val
-        y_val_internal = y_val
+    era_train = X_train["era"] if "era" in X_train.columns else None
+    X_train_fit, y_train_fit, X_val_internal, y_val_internal = internal_val_split(
+        X_train,
+        y_train,
+        era_train=era_train,
+        force_internal=stacking_needs_val,
+    )
 
     pipeline: Pipeline | MultiHeadPipeline = build_pipeline_or_multi(
         pipeline_cfg, feature_columns=feature_cols, feature_groups=exp.features.groups
@@ -135,6 +122,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             **train_kw,
         )
     except Exception as e:
+        logger.exception("Pipeline fit failed")
         return RunResult(
             error=str(e),
             config_hash=ch,

@@ -260,8 +260,16 @@ train.n_rows, train.n_features
 │   ├── run_experiment.py
 │   ├── hpo_pipeline.py
 │   ├── run_test_pipeline.py
-│   └── export_numerai_pickle.py
+│   ├── export_numerai_pickle.py
+│   └── autoresearch.py
+├── eda/             # Standalone Streamlit EDA dashboard
+│   ├── app.py         # Main entry point (streamlit run eda/app.py)
+│   ├── pages/         # Multi-page analysis modules
+│   └── utils/         # Config & data loading (uses NumeraiDataLoader)
 ├── src/alphapulse/  # Core framework source code
+│   ├── autoresearch/  # Agent-driven research loop
+│   ├── logging_/      # Leaderboard and W&B helpers
+│   └── ...            # pipeline, models, hpo, experiments, etc.
 └── tests/           # Unit tests
 ```
 

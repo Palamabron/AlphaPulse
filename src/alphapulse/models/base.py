@@ -6,11 +6,19 @@ import numpy as np
 import pandas as pd
 
 
+def _numeric(X: pd.DataFrame) -> pd.DataFrame:
+    return X.select_dtypes(include=[np.number])
+
+
 class BaseModel(ABC):
     def __init__(self, name: str | None = None) -> None:
         self.name = name or self.__class__.__name__
         self.model: Any = None
         self.is_trained = False
+
+    def _require_trained(self) -> None:
+        if not self.is_trained or self.model is None:
+            raise RuntimeError(f"{self.name} is not trained.")
 
     @abstractmethod
     def train(

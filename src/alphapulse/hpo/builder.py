@@ -72,31 +72,49 @@ def _make_base_factory(
     return factory
 
 
+def instantiate_model(
+    type_name: str,
+    override: dict[str, Any] | None,
+    *,
+    index: int = 0,
+    n_subs: int = 10,
+    use_era_ensemble: bool = True,
+) -> BaseModel:
+    if not type_name or type_name not in MODEL_REGISTRY:
+        raise ValueError(f"Unknown model type: {type_name}")
+    cls, defaults = MODEL_REGISTRY[type_name]
+    merged = _merge_params(defaults, override or {})
+    if "name" not in merged:
+        merged["name"] = f"{type_name}_{index}"
+
+    if use_era_ensemble and type_name in TREE_MODEL_NAMES:
+        factory = _make_base_factory(cls, dict(merged))
+        return EraEnsembleModel(
+            base_model_factory=factory,
+            n_subs=n_subs,
+            era_column="era",
+            name=f"EraEnsemble_{merged['name']}",
+        )
+    return cls(**merged)
+
+
 def build_models(config: list[dict[str, Any]]) -> list[BaseModel]:
     out: list[BaseModel] = []
     for i, item in enumerate(config):
         name = item.get("type")
-        params = item.get("params") or {}
-        if not name or name not in MODEL_REGISTRY:
-            raise ValueError(f"Unknown model type: {name}")
-        cls, defaults = MODEL_REGISTRY[name]
-        merged = _merge_params(defaults, params)
-        if "name" not in merged:
-            merged["name"] = f"{name}_{i}"
-
-        if name in TREE_MODEL_NAMES:
-            n_subs: int = item.get("n_subs", 10)
-            factory = _make_base_factory(cls, dict(merged))
-            out.append(
-                EraEnsembleModel(
-                    base_model_factory=factory,
-                    n_subs=n_subs,
-                    era_column="era",
-                    name=f"EraEnsemble_{merged['name']}",
-                )
+        if not name:
+            raise ValueError(f"Model entry at index {i} is missing 'type'")
+        n_subs = int(item.get("n_subs", 10))
+        use_era_ensemble = bool(item.get("use_era_ensemble", True))
+        out.append(
+            instantiate_model(
+                name,
+                item.get("params"),
+                index=i,
+                n_subs=n_subs,
+                use_era_ensemble=use_era_ensemble,
             )
-        else:
-            out.append(cls(**merged))
+        )
     return out
 
 
