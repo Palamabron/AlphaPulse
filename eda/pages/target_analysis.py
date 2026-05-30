@@ -1,18 +1,9 @@
-"""
-Target Analysis Page - Comprehensive target variable exploration
-"""
-
-import os
-import sys
+"""Target Analysis Page — Comprehensive target variable exploration."""
 
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
 
 st.set_page_config(page_title="Analiza Target", page_icon="🎯", layout="wide")
 
@@ -128,7 +119,10 @@ for idx, era_dict in enumerate(ridgeplot_data):
     )
 
 fig.update_layout(
-    title=f"Ridgeplot - Rozkład {selected_target} per Era (co {era_sample_rate} Era)",
+    title=(
+        f"Ridgeplot - Rozkład {selected_target} per Era "
+        f"(co {era_sample_rate} Era)"
+    ),
     xaxis_title=f"{selected_target} (znormalizowany zwrot z akcji)",
     yaxis_title="Era",
     height=max(600, len(sample_eras) * 30),
@@ -147,7 +141,9 @@ Wykres przedstawia wartości Target w funkcji Ery (oś X: Era, oś Y: Target).
 
 """)
 
-show_sample = st.checkbox("Pokaż próbkę danych (szybsze renderowanie)", value=True)
+show_sample = st.checkbox(
+    "Pokaż próbkę danych (szybsze renderowanie)", value=True
+)
 
 if show_sample:
     plot_data = train.sample(min(10000, len(train)), random_state=42)
@@ -158,9 +154,14 @@ fig = px.scatter(
     plot_data,
     x="era",
     y=selected_target,
-    title=f"Era vs {selected_target}"
-    + ("(próbka 10k punktów)" if show_sample else "(wszystkie punkty)"),
-    labels={"era": "Era", selected_target: f"{selected_target} (zwrot z akcji)"},
+    title=(
+        f"Era vs {selected_target}"
+        + ("(próbka 10k punktów)" if show_sample else "(wszystkie punkty)")
+    ),
+    labels={
+        "era": "Era",
+        selected_target: f"{selected_target} (zwrot z akcji)",
+    },
     opacity=0.3,
     color=selected_target,
     color_continuous_scale="RdBu_r",
@@ -202,7 +203,9 @@ st.header("⏰ Analiza Target przez Ery")
 try:
     era_stats_full = (
         train.groupby("era")
-        .agg({selected_target: ["mean", "std", "min", "max"], "era": "size"})
+        .agg(
+            {selected_target: ["mean", "std", "min", "max"], "era": "size"}
+        )
         .reset_index()
     )
     era_stats_full.columns = [
@@ -237,7 +240,8 @@ with col_mean_std:
     fig.add_trace(
         go.Scatter(
             x=era_stats_full["era"],
-            y=era_stats_full["target_mean"] + era_stats_full["target_std"],
+            y=era_stats_full["target_mean"]
+            + era_stats_full["target_std"],
             mode="lines",
             name="Mean + Std",
             line={"width": 0},
@@ -248,7 +252,8 @@ with col_mean_std:
     fig.add_trace(
         go.Scatter(
             x=era_stats_full["era"],
-            y=era_stats_full["target_mean"] - era_stats_full["target_std"],
+            y=era_stats_full["target_mean"]
+            - era_stats_full["target_std"],
             mode="lines",
             name="Mean - Std",
             fill="tonexty",
@@ -266,7 +271,9 @@ with col_mean_std:
     )
 
     fig.update_layout(
-        xaxis_title="Era", yaxis_title=f"Średnia {selected_target}", height=400
+        xaxis_title="Era",
+        yaxis_title=f"Średnia {selected_target}",
+        height=400,
     )
 
     fig.update_xaxes(tickangle=45)
@@ -333,7 +340,9 @@ fig.add_trace(
     col=1,
 )
 
-era_stats_full["range"] = era_stats_full["target_max"] - era_stats_full["target_min"]
+era_stats_full["range"] = (
+    era_stats_full["target_max"] - era_stats_full["target_min"]
+)
 fig.add_trace(
     go.Scatter(
         x=era_stats_full["era"],
@@ -361,7 +370,8 @@ col_mean_std, col_median_iqr, col_min_max = st.columns(3)
 
 with col_mean_std:
     cv = (
-        era_stats_full["target_mean"].std() / era_stats_full["target_mean"].mean()
+        era_stats_full["target_mean"].std()
+        / era_stats_full["target_mean"].mean()
     ) * 100
     st.metric(
         "Coefficient of Variation",
@@ -455,8 +465,12 @@ fig.add_trace(
 )
 
 fig.update_xaxes(title_text="Era", row=2, col=1, tickangle=45)
-fig.update_yaxes(title_text=f"{selected_target} Mean", row=1, col=1)
-fig.update_yaxes(title_text=f"{selected_target} Std", row=2, col=1)
+fig.update_yaxes(
+    title_text=f"{selected_target} Mean", row=1, col=1
+)
+fig.update_yaxes(
+    title_text=f"{selected_target} Std", row=2, col=1
+)
 fig.update_layout(height=700, showlegend=True)
 st.plotly_chart(fig, width="stretch")
 

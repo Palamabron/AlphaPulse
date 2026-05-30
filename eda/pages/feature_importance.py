@@ -1,17 +1,8 @@
-"""
-Feature Importance Page - Ranking and analysis of feature importance
-"""
-
-import os
-import sys
+"""Feature Importance Page — Ranking and analysis of feature importance."""
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
 
 st.set_page_config(page_title="Feature Importance", page_icon="⭐", layout="wide")
 
@@ -58,11 +49,16 @@ top_feature_col, avg_corr_col, threshold_count_col = st.columns(3)
 with top_feature_col:
     top_corr = importance_df.iloc[0]
     st.metric(
-        "Top Cecha", top_corr["Cecha"][:30] + "...", f"{top_corr['Abs_Korelacja']:.6f}"
+        "Top Cecha",
+        top_corr["Cecha"][:30] + "...",
+        f"{top_corr['Abs_Korelacja']:.6f}",
     )
 
 with avg_corr_col:
-    st.metric("Średnia |Korelacja|", f"{importance_df['Abs_Korelacja'].mean():.6f}")
+    st.metric(
+        "Średnia |Korelacja|",
+        f"{importance_df['Abs_Korelacja'].mean():.6f}",
+    )
 
 with threshold_count_col:
     above_threshold = (importance_df["Abs_Korelacja"] > 0.01).sum()
@@ -83,7 +79,11 @@ with top_feature_col:
 with avg_corr_col:
     if filter_type == "Powyżej progu":
         threshold = st.number_input(
-            "Próg |Korelacji|:", min_value=0.0, max_value=1.0, value=0.01, format="%.4f"
+            "Próg |Korelacji|:",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.01,
+            format="%.4f",
         )
 
 

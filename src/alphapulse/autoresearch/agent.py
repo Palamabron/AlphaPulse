@@ -147,6 +147,9 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise ValueError(f"No valid JSON found in agent output:\n{text[:500]}")
 
 
+_MAX_RETRIES = 2
+
+
 def decide_next_action(
     state: ResearchState,
     model: str = "claude-sonnet-4-6",
@@ -161,28 +164,43 @@ def decide_next_action(
         f"Respond with ONLY a JSON object (no markdown, no prose)."
     )
 
-    result = subprocess.run(
-        ["claude", "-p", "--model", model, prompt],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
+    last_error: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            result = subprocess.run(
+                ["claude", "-p", "--model", model],
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"claude CLI exited with code {result.returncode}: {result.stderr[:300]}"
-        )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"claude CLI exited with code {result.returncode}: "
+                    f"{result.stderr[:300]}"
+                )
 
-    raw = result.stdout.strip()
-    decision = _extract_json(raw)
+            raw = result.stdout.strip()
+            decision = _extract_json(raw)
 
-    action_name = decision.get("action", "try_random_config")
-    action_kwargs = decision.get("params", {})
-    reasoning = decision.get("reasoning", "")
+            action_name = decision.get("action", "try_random_config")
+            action_kwargs = decision.get("params", {})
+            reasoning = decision.get("reasoning", "")
 
-    return MutationDecision(
-        action_name=action_name,
-        action_kwargs=action_kwargs,
-        reasoning=reasoning,
-    )
+            return MutationDecision(
+                action_name=action_name,
+                action_kwargs=action_kwargs,
+                reasoning=reasoning,
+            )
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError) as exc:
+            last_error = exc
+            if attempt < _MAX_RETRIES:
+                import time
+
+                time.sleep(2**attempt)
+
+    raise RuntimeError(
+        f"Agent failed after {_MAX_RETRIES + 1} attempts: {last_error}"
+    ) from last_error

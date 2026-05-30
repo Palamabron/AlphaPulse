@@ -10,13 +10,10 @@ Outputs in --output-dir:
 """
 
 import json
-import sys
 from pathlib import Path
 
 import tyro
 from loguru import logger
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from alphapulse.autoresearch.loop import run_autoresearch
 from alphapulse.experiments.data import load_train_val_frames

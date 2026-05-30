@@ -74,6 +74,9 @@ def load_train_val_frames(
     feature_columns: list[str] | None,
     need_era: bool,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.Series, list[str]]:
+    if train_subsample <= 0.0:
+        raise ValueError(f"train_subsample must be > 0, got {train_subsample}")
+
     train_path = data_dir / "train.parquet"
     val_path = data_dir / "validation.parquet"
     if not train_path.exists() or not val_path.exists():
@@ -81,18 +84,30 @@ def load_train_val_frames(
             f"Expected {train_path} and {val_path}. "
             "Run scripts/download_dataset.py first."
         )
-    train_df = pd.read_parquet(train_path)
-    val_df = pd.read_parquet(val_path)
-    cols = resolve_feature_columns(train_df, data_dir, feature_columns)
+
+    feature_names = feature_columns or load_feature_names(data_dir)
+    extra_cols = [target_col] + (["era"] if need_era else [])
+    if feature_names:
+        read_cols = list(dict.fromkeys(feature_names + extra_cols + ["era"]))
+        train_df = pd.read_parquet(train_path, columns=read_cols)
+        val_df = pd.read_parquet(val_path, columns=read_cols)
+        cols = [c for c in feature_names if c in train_df.columns]
+    else:
+        train_df = pd.read_parquet(train_path)
+        val_df = pd.read_parquet(val_path)
+        cols = resolve_feature_columns(train_df, data_dir, feature_columns)
+
     if not cols:
         raise ValueError("No feature columns resolved.")
-    if need_era and "era" not in cols and "era" in train_df.columns:
-        cols = cols + ["era"]
+    cols = [c for c in cols if c not in {"era", "id"}]
+    if not cols:
+        raise ValueError("No feature columns resolved after excluding metadata.")
+    read_cols = cols + (["era"] if need_era else [])
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
     return (
-        train_df[cols],
+        train_df[read_cols],
         train_df[target_col],
-        val_df[cols],
+        val_df[read_cols],
         val_df[target_col],
         val_df["era"],
         cols,
@@ -128,11 +143,13 @@ def load_train_only_frame(
 
     if not cols:
         raise ValueError("No feature columns resolved.")
-    if need_era and "era" not in cols and "era" in train_df.columns:
-        cols = cols + ["era"]
+    cols = [c for c in cols if c not in {"era", "id"}]
+    if not cols:
+        raise ValueError("No feature columns resolved after excluding metadata.")
+    read_cols = cols + (["era"] if need_era else [])
 
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
-    return train_df[cols], train_df[target_col], cols
+    return train_df[read_cols], train_df[target_col], cols
 
 
 def load_train_frame_with_era(
@@ -150,7 +167,9 @@ def load_train_frame_with_era(
     cols = resolve_feature_columns(train_df, data_dir, feature_columns)
     if not cols:
         raise ValueError("No feature columns resolved.")
-    if need_era and "era" not in cols and "era" in train_df.columns:
-        cols = cols + ["era"]
+    cols = [c for c in cols if c not in {"era", "id"}]
+    if not cols:
+        raise ValueError("No feature columns resolved after excluding metadata.")
+    read_cols = cols + (["era"] if need_era else [])
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
-    return train_df[cols], train_df[target_col], train_df["era"], cols
+    return train_df[read_cols], train_df[target_col], train_df["era"], cols

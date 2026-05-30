@@ -64,7 +64,7 @@ def per_era_correlation(
     if len(y_arr) == 0:
         return pd.Series(dtype=np.float64)
 
-    eras_sorted = sorted(pd.unique(e_arr), key=lambda v: str(v))
+    eras_sorted = sorted(pd.unique(e_arr), key=str)
     out: dict[Any, float] = {}
 
     for era in eras_sorted:
@@ -136,7 +136,7 @@ def mmc_score(
             "y_true, y_pred, meta_model, and eras must have the same length."
         )
 
-    eras_sorted = sorted(pd.unique(e_arr), key=lambda v: str(v))
+    eras_sorted = sorted(pd.unique(e_arr), key=str)
     era_scores: list[float] = []
 
     for era in eras_sorted:
@@ -200,7 +200,7 @@ def era_correlation_metrics(
 
     pct_positive_eras = float((valid > 0.0).mean())
 
-    cum = valid.to_numpy(dtype=np.float64)
+    cum = valid.cumsum().to_numpy(dtype=np.float64)
     peak = np.maximum.accumulate(cum)
     dd = peak - cum
     max_drawdown = float(np.max(dd)) if dd.size else 0.0

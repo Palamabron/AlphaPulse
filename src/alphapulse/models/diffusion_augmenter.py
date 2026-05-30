@@ -32,6 +32,8 @@ class SyntheticDataAugmenter:
         self._elite_X: pd.DataFrame | None = None
         self._elite_y: pd.Series | None = None
         self._synthesizer: Any = None
+        self._kde: Any = None
+        self._kde_fallback_combined: np.ndarray | None = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Self:
         n_elite = max(1, int(len(y) * self.top_fraction))
@@ -67,7 +69,16 @@ class SyntheticDataAugmenter:
         self._synthesizer = synth
 
     def _fit_kde(self) -> None:
-        pass
+        from scipy.stats import gaussian_kde
+
+        assert self._elite_X is not None and self._elite_y is not None
+        combined = np.column_stack([self._elite_X.values, self._elite_y.values])
+        try:
+            self._kde = gaussian_kde(combined.T, bw_method="silverman")
+            self._kde_fallback_combined = None
+        except np.linalg.LinAlgError:
+            self._kde = None
+            self._kde_fallback_combined = combined
 
     def generate(self) -> tuple[pd.DataFrame, pd.Series]:
         if not self._fitted:
@@ -85,16 +96,14 @@ class SyntheticDataAugmenter:
         return synth_df, y_synth
 
     def _generate_kde(self) -> tuple[pd.DataFrame, pd.Series]:
-        from scipy.stats import gaussian_kde
-
         assert self._elite_X is not None and self._elite_y is not None
         rng = np.random.RandomState(self.seed)
 
-        combined = np.column_stack([self._elite_X.values, self._elite_y.values])
-        try:
-            kde = gaussian_kde(combined.T, bw_method="silverman")
-            samples = kde.resample(size=self.n_synthetic, seed=rng).T
-        except np.linalg.LinAlgError:
+        if self._kde is not None:
+            samples = self._kde.resample(size=self.n_synthetic, seed=rng).T
+        else:
+            assert self._kde_fallback_combined is not None
+            combined = self._kde_fallback_combined
             idx = rng.choice(len(combined), size=self.n_synthetic, replace=True)
             noise = rng.randn(self.n_synthetic, combined.shape[1]) * 0.01
             samples = combined[idx] + noise

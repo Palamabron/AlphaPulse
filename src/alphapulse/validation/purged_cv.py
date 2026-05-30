@@ -62,7 +62,13 @@ class PurgedEraCV:
         groups: pd.Series | None = None,
     ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         era_series = self._resolve_groups(X, groups)
-        sorted_eras = sorted(era_series.unique(), key=lambda x: str(x))
+        if len(era_series) != len(X):
+            raise ValueError(
+                f"groups length ({len(era_series)}) must match X length ({len(X)})."
+            )
+        if isinstance(era_series, pd.Series) and not era_series.index.equals(X.index):
+            raise ValueError("groups index must align with X index.")
+        sorted_eras = sorted(era_series.unique(), key=str)
         n_eras = len(sorted_eras)
 
         overhead_per_fold = self.n_purge + self.n_embargo
@@ -139,7 +145,7 @@ class PurgedEraCV:
         ``ValueError`` when parameters produce no valid folds rather than
         silently returning an empty iterator.
         """
-        sorted_eras = sorted(era_series.unique(), key=lambda x: str(x))
+        sorted_eras = sorted(era_series.unique(), key=str)
         n_eras = len(sorted_eras)
 
         overhead_per_fold = self.n_purge + self.n_embargo

@@ -1,9 +1,5 @@
-"""
-Feature Distributions Page - Detailed distribution analysis
-"""
+"""Feature Distributions Page — Detailed distribution analysis."""
 
-import os
-import sys
 from typing import Any
 
 import numpy as np
@@ -11,10 +7,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from scipy import stats
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
 
 st.set_page_config(page_title="Rozkłady Cech", page_icon="📊", layout="wide")
 
@@ -53,7 +45,9 @@ with st.spinner("Obliczanie statystyk rozkładów..."):
 
         entropy = -(value_counts * np.log2(value_counts + 1e-10)).sum()
 
-        mode_val = feature_data.mode()[0] if len(feature_data.mode()) > 0 else np.nan
+        mode_val = (
+            feature_data.mode()[0] if len(feature_data.mode()) > 0 else np.nan
+        )
 
         dist_stats.append(
             {
@@ -65,7 +59,8 @@ with st.spinner("Obliczanie statystyk rozkładów..."):
                 "Skewness": feature_data.skew(),
                 "Kurtosis": feature_data.kurtosis(),
                 "Entropy": entropy,
-                "IQR": feature_data.quantile(0.75) - feature_data.quantile(0.25),
+                "IQR": feature_data.quantile(0.75)
+                - feature_data.quantile(0.25),
             }
         )
 
@@ -122,7 +117,9 @@ if len(compare_features) > 0:
         labels={"Wartość": "Wartość", "Procent": "Procent (%)"},
         height=500,
     )
-    fig.update_layout(xaxis_title="Wartość cechy", yaxis_title="Procent (%)")
+    fig.update_layout(
+        xaxis_title="Wartość cechy", yaxis_title="Procent (%)"
+    )
 
     st.plotly_chart(fig, width="stretch")
 
@@ -137,7 +134,9 @@ if len(compare_features) > 0:
         width="stretch",
     )
 else:
-    st.info("👆 Wybierz cechy z listy powyżej, aby rozpocząć porównanie.")
+    st.info(
+        "👆 Wybierz cechy z listy powyżej, aby rozpocząć porównanie."
+    )
 
 st.divider()
 
@@ -169,7 +168,8 @@ for feature in sample_features[:20]:
 chi_df = pd.DataFrame(chi_square_results).sort_values("P-Value")
 
 st.dataframe(
-    chi_df.style.background_gradient(subset=["P-Value"], cmap="RdYlGn"), width="stretch"
+    chi_df.style.background_gradient(subset=["P-Value"], cmap="RdYlGn"),
+    width="stretch",
 )
 
 uniform_count_col, avg_p_value_col = st.columns(2)

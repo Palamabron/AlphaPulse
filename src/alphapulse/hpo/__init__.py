@@ -4,6 +4,7 @@ from .builder import (
     build_pipeline,
     build_pipeline_or_multi,
     build_preprocessors,
+    instantiate_model,
     needs_multi_head_pipeline,
 )
 from .objective import TrialResult, ray_trainable, run_trial
@@ -24,6 +25,7 @@ __all__ = [
     "build_pipeline",
     "build_pipeline_or_multi",
     "build_preprocessors",
+    "instantiate_model",
     "get_full_param_space",
     "get_train_kwargs_from_flat",
     "needs_multi_head_pipeline",

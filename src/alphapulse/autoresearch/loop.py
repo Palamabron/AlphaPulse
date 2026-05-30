@@ -15,6 +15,11 @@ from loguru import logger
 from ..evaluation import Backtester
 from ..hpo.builder import build_pipeline_or_multi
 from ..hpo.search_space import resolve_flat_config, sample_random_config
+from ..logging_.leaderboard import (
+    entry_from_trial_record,
+    print_leaderboard,
+    save_leaderboard,
+)
 from . import agent as research_agent
 from .mutations import (
     add_model,
@@ -39,7 +44,8 @@ def _run_one_trial(
     feature_cols: list[str],
     seed: int,
 ) -> tuple[dict[str, float], float]:
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)
+    np.random.seed(int(rng.integers(0, 2**31)))
     random.seed(seed)
 
     t0 = time.perf_counter()
@@ -215,6 +221,11 @@ def run_autoresearch(
             best_sharpe,
             " [ERROR]" if error else "",
         )
+        print_leaderboard(
+            logger,
+            [entry_from_trial_record(t) for t in state.trials],
+            current_trial=trial_num,
+        )
 
         state.save(output_dir / "research_state.json")
         _append_csv_row(csv_path, record, write_header=(trial_num == 0))
@@ -256,6 +267,12 @@ def run_autoresearch(
         )
     else:
         logger.warning("No successful trials — no best_config.json written.")
+
+    save_leaderboard(
+        output_dir / "leaderboard.json",
+        [entry_from_trial_record(t) for t in state.trials],
+    )
+    logger.info("Leaderboard saved to: {}", output_dir / "leaderboard.json")
 
     state.save(output_dir / "research_state.json")
     return state

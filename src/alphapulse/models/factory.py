@@ -233,42 +233,12 @@ class ModelFactory:
     def suggest_fixed(
         self, model_type: str, params: dict[str, Any] | None = None, **kwargs: Any
     ) -> BaseModel:
-        p = params or {}
-        n_subs: int = p.get("n_subs", 10)
-        if model_type == "xgboost":
-            base_name = p.get("name", "XGBoost")
+        from ..hpo.builder import instantiate_model
 
-            def _xgb() -> XGBoostModel:
-                return XGBoostModel(params=p.get("params"), name=base_name)
+        p = dict(params or {})
+        n_subs = int(p.pop("n_subs", kwargs.get("n_subs", 10)))
 
-            return EraEnsembleModel(
-                _xgb, n_subs=n_subs, name=f"EraEnsemble_{base_name}"
-            )
-        elif model_type == "lightgbm":
-            base_name = p.get("name", "LightGBM")
-
-            def _lgb() -> LightGBMModel:
-                return LightGBMModel(
-                    params=p.get("params"),
-                    n_estimators=p.get("n_estimators", 2000),
-                    name=base_name,
-                )
-
-            return EraEnsembleModel(
-                _lgb, n_subs=n_subs, name=f"EraEnsemble_{base_name}"
-            )
-        elif model_type == "catboost":
-            base_name = p.get("name", "CatBoost")
-
-            def _cb() -> CatBoostModel:
-                return CatBoostModel(
-                    params=p.get("params"),
-                    iterations=p.get("iterations", 2000),
-                    name=base_name,
-                )
-
-            return EraEnsembleModel(_cb, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
-        elif model_type in ("ft_transformer", "mlp"):
+        if model_type in ("ft_transformer", "mlp"):
             from .tabular_dl_model import TabularDLModel
 
             return TabularDLModel(
@@ -277,30 +247,17 @@ class ModelFactory:
                 trainer_params=p.get("trainer_params"),
                 name=p.get("name"),
             )
-        elif model_type == "random_forest":
-            from .sklearn_models import RandomForestModel
 
-            base_name = p.get("name", "RandomForest")
-
-            def _rf() -> RandomForestModel:
-                return RandomForestModel(params=p.get("params"), name=base_name)
-
-            return EraEnsembleModel(_rf, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
-        elif model_type == "extra_trees":
-            from .sklearn_models import ExtraTreesModel
-
-            base_name = p.get("name", "ExtraTrees")
-
-            def _et() -> ExtraTreesModel:
-                return ExtraTreesModel(params=p.get("params"), name=base_name)
-
-            return EraEnsembleModel(_et, n_subs=n_subs, name=f"EraEnsemble_{base_name}")
-        elif model_type == "ridge":
-            from .sklearn_models import RidgeModel
-
-            return RidgeModel(alpha=p.get("alpha", 100.0), name=p.get("name", "Ridge"))
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
+        type_aliases = {
+            "xgboost": "XGBoost",
+            "lightgbm": "LightGBM",
+            "catboost": "CatBoost",
+            "random_forest": "RandomForest",
+            "extra_trees": "ExtraTrees",
+            "ridge": "Ridge",
+        }
+        registry_name = type_aliases.get(model_type, model_type)
+        return instantiate_model(registry_name, p, index=0, n_subs=n_subs)
 
 
 def suggest_augmentation(

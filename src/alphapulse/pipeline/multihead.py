@@ -9,6 +9,14 @@ from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor
 from .ensemble import EnsembleStrategy
+from .row_utils import (
+    filter_invalid_rows,
+    filter_nan_rows,
+    invalid_row_mask,
+    protected_metadata_frame,
+    reattach_protected_columns,
+    safe_median,
+)
 
 
 class HeadSpec:
@@ -60,9 +68,15 @@ class MultiHeadPipeline:
             method=ensemble_method, params=ensemble_params or {}
         )
 
-    def _transform_global(self, X: pd.DataFrame) -> pd.DataFrame:
+    def _transform_global(
+        self, X: pd.DataFrame, *, fit: bool, y: pd.Series | None
+    ) -> pd.DataFrame:
+        era_meta = protected_metadata_frame(X)
         for pp in self.global_preprocessors:
+            if fit:
+                pp.fit(X, y)
             X = pp.transform(X)
+            X = reattach_protected_columns(X, era_meta)
         return X
 
     def _head_matrix(
@@ -75,10 +89,12 @@ class MultiHeadPipeline:
                 f"Missing columns for head {head.model.name}: {missing[:10]}..."
             )
         X_h = X_global[cols].copy()
+        era_meta = protected_metadata_frame(X_h)
         for pp in head.local_preprocessors:
             if fit:
                 pp.fit(X_h, y)
             X_h = pp.transform(X_h)
+            X_h = reattach_protected_columns(X_h, era_meta)
         return X_h
 
     def fit(
@@ -92,14 +108,26 @@ class MultiHeadPipeline:
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
 
-        X_fit = X
-        for pp in self.global_preprocessors:
-            pp.fit(X_fit, y)
-            X_fit = pp.transform(X_fit)
+        X, y = filter_invalid_rows(X, y)
+        if len(X) == 0:
+            raise ValueError("No valid training rows after filtering invalid values")
+
+        X_fit = self._transform_global(X, fit=True, y=y)
+        X_fit, y = filter_nan_rows(X_fit, y)
+        if len(X_fit) == 0:
+            raise ValueError("No valid training rows after global preprocessing")
 
         X_val_g: pd.DataFrame | None = None
         if X_val is not None:
-            X_val_g = self._transform_global(X_val)
+            X_val, y_val = filter_invalid_rows(X_val, y_val)
+            if len(X_val) > 0:
+                X_val_g = self._transform_global(X_val, fit=False, y=None)
+                X_val_g, y_val = filter_nan_rows(X_val_g, y_val)
+                if len(X_val_g) == 0:
+                    X_val_g = None
+                    y_val = None
+            else:
+                y_val = None
 
         all_metrics: dict[str, float] = {}
         for head in self.heads:
@@ -136,7 +164,70 @@ class MultiHeadPipeline:
         return all_metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        X_g = self._transform_global(X)
+        input_invalid_mask = invalid_row_mask(X)
+
+        if input_invalid_mask.any():
+            valid_mask = ~input_invalid_mask
+            X_valid = X[valid_mask]
+            if len(X_valid) == 0:
+                return np.full(len(X), 0.0)
+
+            X_g = self._transform_global(X_valid, fit=False, y=None)
+            if X_g.isna().any().any():
+                post_nan_mask = ~X_g.isna().any(axis=1)
+                X_g = X_g[post_nan_mask]
+                combined_valid_mask = valid_mask.copy()
+                valid_indices = np.where(valid_mask)[0]
+                combined_valid_mask[valid_indices[~post_nan_mask]] = False
+            else:
+                combined_valid_mask = valid_mask
+
+            if len(X_g) == 0:
+                return np.full(len(X), 0.0)
+
+            if len(self.heads) == 1:
+                valid_preds = self.heads[0].model.predict(
+                    self._head_matrix(X_g, self.heads[0], fit=False, y=None)
+                )
+            else:
+                preds = np.column_stack(
+                    [
+                        h.model.predict(self._head_matrix(X_g, h, fit=False, y=None))
+                        for h in self.heads
+                    ]
+                )
+                valid_preds = self._ensemble.combine(preds)
+
+            raw_preds = np.full(len(X), safe_median(valid_preds))
+            raw_preds[combined_valid_mask] = valid_preds
+            return raw_preds
+
+        X_g = self._transform_global(X, fit=False, y=None)
+        if X_g.isna().any().any():
+            nan_mask = ~X_g.isna().any(axis=1)
+            X_g_valid = X_g[nan_mask]
+            if len(X_g_valid) == 0:
+                return np.full(len(X), 0.0)
+
+            if len(self.heads) == 1:
+                valid_preds = self.heads[0].model.predict(
+                    self._head_matrix(X_g_valid, self.heads[0], fit=False, y=None)
+                )
+            else:
+                preds = np.column_stack(
+                    [
+                        h.model.predict(
+                            self._head_matrix(X_g_valid, h, fit=False, y=None)
+                        )
+                        for h in self.heads
+                    ]
+                )
+                valid_preds = self._ensemble.combine(preds)
+
+            raw_preds = np.full(len(X), safe_median(valid_preds))
+            raw_preds[nan_mask] = valid_preds
+            return raw_preds
+
         if len(self.heads) == 1:
             X_h = self._head_matrix(X_g, self.heads[0], fit=False, y=None)
             return self.heads[0].model.predict(X_h)

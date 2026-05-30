@@ -15,14 +15,20 @@ class GaussianNoiseInjector(BasePreprocessor):
             raise ValueError(f"sigma must be >= 0, got {sigma}")
         self.sigma = sigma
         self.seed = seed
-        self._training = True
+        self._training = False
         self._feature_std: np.ndarray | None = None
+        self._numeric_cols: list[str] = []
         self._rng = np.random.RandomState(seed)
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        self._feature_std = np.asarray(X.std(axis=0).values, dtype=np.float64)
+        self._numeric_cols = list(X.select_dtypes(include=[np.number]).columns)
+        if not self._numeric_cols:
+            raise ValueError("GaussianNoiseInjector: no numeric columns found.")
+        self._feature_std = np.asarray(
+            X[self._numeric_cols].std(axis=0).values, dtype=np.float64
+        )
         self._feature_std = np.where(self._feature_std < 1e-12, 1.0, self._feature_std)
-        self._training = True
+        self._training = False
         self.is_fitted = True
         return self
 
@@ -32,8 +38,16 @@ class GaussianNoiseInjector(BasePreprocessor):
         if not self._training or self.sigma == 0.0:
             return X
         assert self._feature_std is not None
-        noise = self._rng.randn(X.shape[0], X.shape[1]) * self.sigma * self._feature_std
-        return pd.DataFrame(X.values + noise, columns=X.columns, index=X.index)
+        out = X.copy()
+        noise = (
+            self._rng.randn(len(X), len(self._numeric_cols))
+            * self.sigma
+            * self._feature_std
+        )
+        out[self._numeric_cols] = (
+            out[self._numeric_cols].to_numpy(dtype=np.float64) + noise
+        )
+        return out
 
     def train(self) -> Self:
         self._training = True

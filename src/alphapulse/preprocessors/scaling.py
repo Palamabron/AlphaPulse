@@ -26,7 +26,7 @@ class StandardScalerPreprocessor(BasePreprocessor):
         if not self.is_fitted:
             raise ValueError("Preprocessor not fitted!")
 
-        out = X.copy(deep=False)
+        out = X.copy()
         scaled = self.scaler.transform(X[self._numeric_cols])
         out[self._numeric_cols] = scaled.astype(np.float32, copy=False)
         return out
@@ -53,7 +53,7 @@ class RobustScalerPreprocessor(BasePreprocessor):
         if not self.is_fitted:
             raise ValueError("Preprocessor not fitted!")
 
-        out = X.copy(deep=False)
+        out = X.copy()
         scaled = self.scaler.transform(X[self._numeric_cols])
         out[self._numeric_cols] = scaled.astype(np.float32, copy=False)
         return out

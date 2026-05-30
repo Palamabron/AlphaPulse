@@ -20,7 +20,9 @@ lint:
 test:
 	$(PYTHON) pytest \
 		tests/ \
-		-v --tb=short
+		-v --tb=short \
+		--cov=alphapulse \
+		--cov-report=term-missing
 
 # --- Notebooks (.ipynb) via nbQA ---
 NB := $(shell find notebooks -type f -name "*.ipynb" 2>/dev/null)
@@ -50,8 +52,16 @@ nb-types:
 deadcode:
 	uv run vulture src --min-confidence 80
 
+.PHONY: eda-lint
+eda-lint:
+	$(RUFF) check eda --config pyproject.toml \
+		--extend-exclude "" \
+		--select E,F,W,I,UP
+	$(RUFF) format --check eda --config pyproject.toml \
+		--extend-exclude ""
+
 .PHONY: check
-check: fmt types test
+check: lint types test deadcode
 
 .PHONY: precommit
 precommit: lint nb-lint types deadcode

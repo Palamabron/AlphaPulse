@@ -1,29 +1,16 @@
 """Minimal train + backtest + wandb + save Numerai-ready pickle."""
 
-import json
-import sys
 from pathlib import Path
 
 import pandas as pd
 import tyro
 
-# Add project root for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from alphapulse.evaluation import Backtester
+from alphapulse.experiments.data import load_feature_names
 from alphapulse.logging_ import init_wandb, log_backtest_results, log_metrics
 from alphapulse.models.xgboost_model import XGBoostModel
 from alphapulse.pipeline import Pipeline
 from alphapulse.preprocessors.scaling import StandardScalerPreprocessor
-
-
-def load_feature_names(data_dir: Path) -> list[str]:
-    """Load feature names from features.json if present."""
-    features_path = data_dir / "features.json"
-    if features_path.exists():
-        with open(features_path) as f:
-            return json.load(f)
-    return []
 
 
 def main(

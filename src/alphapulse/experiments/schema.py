@@ -1,12 +1,44 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+_TOP_LEVEL_MODEL_KEYS = frozenset(
+    {
+        "params",
+        "name",
+        "n_estimators",
+        "iterations",
+        "n_subs",
+        "alpha",
+        "era_column",
+        "n_worst_eras",
+        "boost_weight",
+        "n_rounds_base",
+        "early_stopping_rounds_base",
+        "n_rounds_boost",
+        "early_stopping_rounds_boost",
+        "base_params",
+        "boost_params",
+        "model_path",
+        "ignore_pretraining_limits",
+        "random_state",
+        "thinking_mode",
+        "thinking_effort",
+        "thinking_timeout_s",
+        "thinking_metric",
+        "kv_cache",
+        "batch_size",
+        "dl_params",
+        "trainer_params",
+        "architecture",
+    }
+)
 
 
 class DataConfig(BaseModel):
     data_dir: Path
-    train_subsample: float = Field(1.0, ge=0.0, le=1.0)
+    train_subsample: float = Field(1.0, gt=0.0, le=1.0)
     target_col: str = "target"
     seed: int = 42
 
@@ -27,6 +59,18 @@ class ModelSpec(BaseModel):
     input_columns: list[str] | None = None
     input_group: str | None = None
     preprocessors: list[PreprocessorStep] = Field(default_factory=list)
+    n_subs: int = Field(default=10, ge=1)
+
+    @model_validator(mode="after")
+    def normalize_model_params(self) -> Self:
+        if not self.params:
+            return self
+        stray = {k: v for k, v in self.params.items() if k not in _TOP_LEVEL_MODEL_KEYS}
+        if stray and "params" not in self.params:
+            kept = {k: v for k, v in self.params.items() if k in _TOP_LEVEL_MODEL_KEYS}
+            kept["params"] = stray
+            object.__setattr__(self, "params", kept)
+        return self
 
 
 class NeutralizationConfig(BaseModel):

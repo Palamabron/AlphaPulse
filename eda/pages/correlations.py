@@ -1,9 +1,4 @@
-"""
-Correlation Analysis Page - Explore feature-target and inter-feature correlations
-"""
-
-import os
-import sys
+"""Correlation Analysis Page — Feature-target and inter-feature correlations."""
 
 import networkx as nx
 import numpy as np
@@ -11,12 +6,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
 
 st.set_page_config(page_title="Analiza Korelacji", page_icon="🔗", layout="wide")
 
@@ -73,12 +62,6 @@ st.divider()
 
 
 def _normalize_col_name(col: str | int | float | list | tuple) -> str:
-    """
-    Ensure that a column identifier is a single, hashable value.
-    Some widgets or upstream logic may provide column names wrapped
-    in a list/tuple, which are unhashable when used directly as
-    DataFrame column labels.
-    """
     if isinstance(col, list | tuple):
         return str(col[0]) if col else "unknown"
     return str(col)
@@ -269,7 +252,9 @@ elif corr_type == "Korelacje między cechami":
 
     st.subheader("Silnie Skorelowane Pary Cech")
 
-    threshold = st.slider("Próg korelacji (wartość bezwzględna):", 0.0, 1.0, 0.5, 0.05)
+    threshold = st.slider(
+        "Próg korelacji (wartość bezwzględna):", 0.0, 1.0, 0.5, 0.05
+    )
 
     corr_pairs = []
     for i in range(len(sample_features)):
@@ -319,7 +304,10 @@ elif corr_type == "Korelacje między cechami":
         with max_positive_col:
             st.markdown("**Statystyki Par:**")
             st.metric("Liczba Par", len(pairs_df))
-            st.metric("Średnia |Korelacja|", f"{pairs_df['Abs_Korelacja'].mean():.4f}")
+            st.metric(
+                "Średnia |Korelacja|",
+                f"{pairs_df['Abs_Korelacja'].mean():.4f}",
+            )
             st.metric("Max Korelacja", f"{pairs_df['Korelacja'].max():.4f}")
             st.metric("Min Korelacja", f"{pairs_df['Korelacja'].min():.4f}")
 
@@ -446,7 +434,9 @@ Wizualizacja sieci zależności gdzie:
         "Liczba cech w grafie:", 10, min(60, len(feature_set)), 30
     )
 
-    edge_threshold = st.slider("Próg korelacji dla krawędzi:", 0.1, 0.9, 0.5, 0.05)
+    edge_threshold = st.slider(
+        "Próg korelacji dla krawędzi:", 0.1, 0.9, 0.5, 0.05
+    )
 
     network_sample = feature_set[:network_features]
 
@@ -471,7 +461,8 @@ Wizualizacja sieci zależności gdzie:
 
     if len(edges_df) > 0:
         st.success(
-            f"Graf zawiera {len(edges_df)} krawędzi między {network_features} węzłami"
+            f"Graf zawiera {len(edges_df)} krawędzi "
+            f"między {network_features} węzłami"
         )
 
         avg_corr_col, max_positive_col, max_negative_col = st.columns(3)
@@ -482,7 +473,9 @@ Wizualizacja sieci zależności gdzie:
             st.metric("Krawędzie", len(edges_df))
         with max_negative_col:
             density = (
-                len(edges_df) / (network_features * (network_features - 1) / 2) * 100
+                len(edges_df)
+                / (network_features * (network_features - 1) / 2)
+                * 100
             )
             st.metric("Gęstość Grafu", f"{density:.1f}%")
 
@@ -544,12 +537,23 @@ Wizualizacja sieci zależności gdzie:
         fig = go.Figure(data=[edge_trace, node_trace])
 
         fig.update_layout(
-            title=f"Network Graph - Zależności między {network_features} cechami",
+            title=(
+                f"Network Graph - Zależności "
+                f"między {network_features} cechami"
+            ),
             showlegend=False,
             hovermode="closest",
             height=800,
-            xaxis={"showgrid": False, "zeroline": False, "showticklabels": False},
-            yaxis={"showgrid": False, "zeroline": False, "showticklabels": False},
+            xaxis={
+                "showgrid": False,
+                "zeroline": False,
+                "showticklabels": False,
+            },
+            yaxis={
+                "showgrid": False,
+                "zeroline": False,
+                "showticklabels": False,
+            },
         )
 
         st.plotly_chart(fig, width="stretch")
@@ -582,6 +586,8 @@ Wizualizacja sieci zależności gdzie:
         with max_positive_col:
             st.dataframe(degree_df, width="stretch", height=500)
     else:
-        st.warning(f"⚠️ Brak krawędzi dla progu {edge_threshold}. Zmniejsz próg.")
+        st.warning(
+            f"⚠️ Brak krawędzi dla progu {edge_threshold}. Zmniejsz próg."
+        )
 
 st.divider()

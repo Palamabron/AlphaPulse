@@ -1,4 +1,4 @@
-import random
+import random as _random_mod
 from typing import Any
 
 try:
@@ -6,9 +6,21 @@ try:
 except ImportError:
     tune = None
 
+BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
+FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
+FOUNDATION_SAMPLE_PROB = 0.05
 
-def _loguniform(low: float, high: float) -> float:
-    return float(low * (high / low) ** random.random())
+
+def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
+    if phase != "phase_a" and rng.random() < FOUNDATION_SAMPLE_PROB:
+        return rng.choice(FOUNDATION_MODELS)
+    if phase == "phase_a":
+        return rng.choice(["XGBoost", "LightGBM"])
+    return rng.choice(BOOSTING_MODELS)
+
+
+def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
+    return float(low * (high / low) ** rng.random())
 
 
 def sample_random_config(
@@ -25,33 +37,32 @@ def sample_random_config(
         Flat dictionary of hyperparameter values consumable by
         ``resolve_flat_config`` and ``run_trial``.
     """
-    if seed is not None:
-        random.seed(seed)
+    rng = _random_mod.Random(seed)
 
     if phase == "phase_a":
         return {
-            "scaler_type": random.choice(["StandardScaler", "RobustScaler"]),
+            "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
             "use_packboost": False,
             "packboost_n_worst_eras": 3,
-            "packboost_boost_weight": random.uniform(0.1, 0.3),
+            "packboost_boost_weight": rng.uniform(0.1, 0.3),
             "packboost_n_rounds_base": 200,
             "packboost_n_rounds_boost": 100,
             "num_models": 1,
-            "model_1_type": random.choice(["XGBoost", "LightGBM"]),
-            "model_2_type": random.choice(["XGBoost", "LightGBM"]),
-            "model_3_type": random.choice(["XGBoost", "LightGBM"]),
-            "n_subs": random.choice([8, 10]),
-            "xgb_max_depth": random.choice([3, 5]),
-            "xgb_learning_rate": _loguniform(3e-3, 0.05),
-            "xgb_n_rounds": random.choice([200, 300, 400]),
-            "xgb_early_stopping": random.choice([20, 30, 50]),
-            "lgbm_num_leaves": random.choice([16, 31, 63]),
-            "lgbm_learning_rate": _loguniform(5e-3, 0.05),
-            "lgbm_n_rounds": random.choice([300, 500, 800]),
-            "lgbm_min_child_samples": random.choice([100, 200]),
-            "lgbm_early_stopping": random.choice([50, 100]),
+            "model_1_type": _sample_model_type("phase_a", rng),
+            "model_2_type": _sample_model_type("phase_a", rng),
+            "model_3_type": _sample_model_type("phase_a", rng),
+            "n_subs": rng.choice([8, 10]),
+            "xgb_max_depth": rng.choice([3, 5]),
+            "xgb_learning_rate": _loguniform(3e-3, 0.05, rng),
+            "xgb_n_rounds": rng.choice([200, 300, 400]),
+            "xgb_early_stopping": rng.choice([20, 30, 50]),
+            "lgbm_num_leaves": rng.choice([16, 31, 63]),
+            "lgbm_learning_rate": _loguniform(5e-3, 0.05, rng),
+            "lgbm_n_rounds": rng.choice([300, 500, 800]),
+            "lgbm_min_child_samples": rng.choice([100, 200]),
+            "lgbm_early_stopping": rng.choice([50, 100]),
             "packboost_model_n_worst_eras": 3,
-            "packboost_model_boost_weight": random.uniform(0.2, 0.3),
+            "packboost_model_boost_weight": rng.uniform(0.2, 0.3),
             "packboost_model_n_rounds_base": 300,
             "packboost_model_n_rounds_boost": 100,
             "ensemble_method": "single",
@@ -61,34 +72,34 @@ def sample_random_config(
         }
 
     return {
-        "scaler_type": random.choice(["StandardScaler", "RobustScaler"]),
-        "use_packboost": random.choice([True, False]),
-        "packboost_n_worst_eras": random.choice([3, 5, 7]),
-        "packboost_boost_weight": random.uniform(0.1, 0.5),
-        "packboost_n_rounds_base": random.choice([200, 300, 500]),
-        "packboost_n_rounds_boost": random.choice([100, 150, 200]),
-        "num_models": random.choice([1, 2, 3]),
-        "model_1_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
-        "model_2_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
-        "model_3_type": random.choice(["XGBoost", "LightGBM", "Packboost"]),
-        "n_subs": random.choice([5, 8, 10, 15]),
-        "xgb_max_depth": random.choice([3, 5, 7]),
-        "xgb_learning_rate": _loguniform(1e-3, 0.1),
-        "xgb_n_rounds": random.choice([300, 500, 800]),
-        "xgb_early_stopping": random.choice([30, 50, 100]),
-        "lgbm_num_leaves": random.choice([16, 31, 63, 127]),
-        "lgbm_learning_rate": _loguniform(5e-3, 0.05),
-        "lgbm_n_rounds": random.choice([300, 500, 800, 1500]),
-        "lgbm_min_child_samples": random.choice([100, 200, 500]),
-        "lgbm_early_stopping": random.choice([50, 100]),
-        "packboost_model_n_worst_eras": random.choice([3, 5, 7]),
-        "packboost_model_boost_weight": random.uniform(0.2, 0.5),
-        "packboost_model_n_rounds_base": random.choice([300, 500]),
-        "packboost_model_n_rounds_boost": random.choice([100, 200]),
-        "ensemble_method": random.choice(["single", "weighted", "stacking"]),
-        "stacking_meta_learner": random.choice(["ridge", "xgboost"]),
-        "use_neutralization": random.choice([True, False]),
-        "neutralization_proportion": random.uniform(0.1, 0.8),
+        "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
+        "use_packboost": rng.choice([True, False]),
+        "packboost_n_worst_eras": rng.choice([3, 5, 7]),
+        "packboost_boost_weight": rng.uniform(0.1, 0.5),
+        "packboost_n_rounds_base": rng.choice([200, 300, 500]),
+        "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
+        "num_models": rng.choice([1, 2, 3]),
+        "model_1_type": _sample_model_type("phase_b", rng),
+        "model_2_type": _sample_model_type("phase_b", rng),
+        "model_3_type": _sample_model_type("phase_b", rng),
+        "n_subs": rng.choice([5, 8, 10, 15]),
+        "xgb_max_depth": rng.choice([3, 5, 7]),
+        "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
+        "xgb_n_rounds": rng.choice([300, 500, 800]),
+        "xgb_early_stopping": rng.choice([30, 50, 100]),
+        "lgbm_num_leaves": rng.choice([16, 31, 63, 127]),
+        "lgbm_learning_rate": _loguniform(5e-3, 0.05, rng),
+        "lgbm_n_rounds": rng.choice([300, 500, 800, 1500]),
+        "lgbm_min_child_samples": rng.choice([100, 200, 500]),
+        "lgbm_early_stopping": rng.choice([50, 100]),
+        "packboost_model_n_worst_eras": rng.choice([3, 5, 7]),
+        "packboost_model_boost_weight": rng.uniform(0.2, 0.5),
+        "packboost_model_n_rounds_base": rng.choice([300, 500]),
+        "packboost_model_n_rounds_boost": rng.choice([100, 200]),
+        "ensemble_method": rng.choice(["single", "weighted", "stacking"]),
+        "stacking_meta_learner": rng.choice(["ridge", "xgboost"]),
+        "use_neutralization": rng.choice([True, False]),
+        "neutralization_proportion": rng.uniform(0.1, 0.8),
     }
 
 
@@ -106,9 +117,9 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
         "num_models": tune.choice([1, 2, 3]),
-        "model_1_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
-        "model_2_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
-        "model_3_type": tune.choice(["XGBoost", "LightGBM", "Packboost"]),
+        "model_1_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
+        "model_2_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
+        "model_3_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
         "n_subs": tune.choice([5, 8, 10, 15]),
         "xgb_max_depth": tune.choice([3, 5, 7]),
         "xgb_learning_rate": tune.loguniform(1e-3, 0.1),
@@ -186,7 +197,45 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                     "metric": "rmse",
                     "verbosity": -1,
                 },
+                "n_estimators": flat.get("lgbm_n_rounds", 2000),
+                "early_stopping_rounds": flat.get("lgbm_early_stopping", 100),
             }
+        if t == "CatBoost":
+            return {
+                "params": {
+                    "depth": flat.get("catboost_depth", 6),
+                    "learning_rate": flat.get("catboost_learning_rate", 0.03),
+                    "l2_leaf_reg": flat.get("catboost_l2_leaf_reg", 5.0),
+                    "min_data_in_leaf": flat.get("catboost_min_data_in_leaf", 200),
+                    "loss_function": "RMSE",
+                    "verbose": 0,
+                    "allow_writing_files": False,
+                },
+                "iterations": flat.get("catboost_iterations", 2000),
+                "early_stopping_rounds": flat.get("catboost_early_stopping", 100),
+            }
+        if t == "RandomForest":
+            return {
+                "params": {
+                    "n_estimators": flat.get("rf_n_estimators", 300),
+                    "min_samples_leaf": flat.get("rf_min_samples_leaf", 200),
+                    "max_features": flat.get("rf_max_features", 0.3),
+                    "n_jobs": -1,
+                    "random_state": 42,
+                },
+            }
+        if t == "ExtraTrees":
+            return {
+                "params": {
+                    "n_estimators": flat.get("et_n_estimators", 300),
+                    "min_samples_leaf": flat.get("et_min_samples_leaf", 200),
+                    "max_features": flat.get("et_max_features", 0.3),
+                    "n_jobs": -1,
+                    "random_state": 42,
+                },
+            }
+        if t == "Ridge":
+            return {"alpha": flat.get("ridge_alpha", 100.0)}
         if t == "Packboost":
             return {
                 "n_worst_eras": flat.get("packboost_model_n_worst_eras", 5),
@@ -194,12 +243,17 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "n_rounds_base": flat.get("packboost_model_n_rounds_base", 500),
                 "n_rounds_boost": flat.get("packboost_model_n_rounds_boost", 200),
             }
+        if t in ("TabPFN", "TabPFN3", "TabICL", "TabPFN3Reasoning"):
+            return {}
         return {}
 
-    models = [
-        {"type": t, "params": model_params(t, i), "n_subs": flat.get("n_subs", 10)}
-        for i, t in enumerate(types)
-    ]
+    tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
+    models = []
+    for i, t in enumerate(types):
+        spec: dict[str, Any] = {"type": t, "params": model_params(t, i)}
+        if t in tree_models:
+            spec["n_subs"] = flat.get("n_subs", 10)
+        models.append(spec)
 
     ensemble_method = flat.get("ensemble_method", "single")
     if num_models == 1:
@@ -226,8 +280,31 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_MODEL_TRAIN_KWARGS: dict[str, tuple[str, str, int, int]] = {
+    "XGBoost": ("xgb_n_rounds", "xgb_early_stopping", 500, 50),
+    "LightGBM": ("lgbm_n_rounds", "lgbm_early_stopping", 2000, 100),
+    "CatBoost": ("catboost_iterations", "catboost_early_stopping", 2000, 100),
+    "Packboost": ("packboost_model_n_rounds_base", "xgb_early_stopping", 500, 50),
+    "RandomForest": ("rf_n_estimators", "xgb_early_stopping", 300, 50),
+    "ExtraTrees": ("et_n_estimators", "xgb_early_stopping", 300, 50),
+}
+
+
 def get_train_kwargs_from_flat(flat: dict[str, Any]) -> dict[str, Any]:
+    num_models = flat.get("num_models", 1)
+    model_type = flat.get("model_1_type", "XGBoost")
+    if num_models > 1:
+        for key in ("model_1_type", "model_2_type", "model_3_type"):
+            candidate = flat.get(key)
+            if candidate in _MODEL_TRAIN_KWARGS:
+                model_type = candidate
+                break
+
+    rounds_key, es_key, default_rounds, default_es = _MODEL_TRAIN_KWARGS.get(
+        model_type,
+        ("xgb_n_rounds", "xgb_early_stopping", 500, 50),
+    )
     return {
-        "n_rounds": flat.get("xgb_n_rounds", 500),
-        "early_stopping_rounds": flat.get("xgb_early_stopping", 50),
+        "n_rounds": flat.get(rounds_key, default_rounds),
+        "early_stopping_rounds": flat.get(es_key, default_es),
     }

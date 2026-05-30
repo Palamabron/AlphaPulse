@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 
-from .base import BaseModel
+from .base import BaseModel, _numeric
 
 
 def _make_ray_callbacks() -> list[Any]:
@@ -55,15 +55,15 @@ class XGBoostModel(BaseModel):
         early_stopping_rounds: int = 100,
         **kwargs: Any,
     ) -> dict[str, float]:
-        feat_train = X_train.select_dtypes(include=[np.number])
+        feat_train = _numeric(X_train)
         if feat_train.shape[1] == 0:
-            raise ValueError("XGBoostModel: no numeric feature columns found.")
+            raise ValueError(f"{self.name}: no numeric feature columns found.")
 
         dtrain = xgb.DMatrix(feat_train, label=y_train)
 
         eval_set: list[tuple[xgb.DMatrix, str]] = []
         if X_val is not None and y_val is not None:
-            feat_val = X_val.select_dtypes(include=[np.number])
+            feat_val = _numeric(X_val)
             dval = xgb.DMatrix(feat_val, label=y_val)
             eval_set = [(dtrain, "train"), (dval, "eval")]
 
@@ -89,16 +89,13 @@ class XGBoostModel(BaseModel):
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if not self.is_trained or self.model is None:
-            raise ValueError("Model is not trained!")
-
-        feat = X.select_dtypes(include=[np.number])
+        self._require_trained()
+        feat = _numeric(X)
         dtest = xgb.DMatrix(feat)
         return np.asarray(self.model.predict(dtest), dtype=np.float64)
 
     def save(self, path: Path) -> None:
-        if self.model is None:
-            raise ValueError("Cannot save untrained model")
+        self._require_trained()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save_model(str(path))

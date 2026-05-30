@@ -3,7 +3,12 @@ import pandas as pd
 import pytest
 
 from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_models
-from alphapulse.models.foundation_models import TabICLModel, TabPFNModel
+from alphapulse.models.foundation_models import (
+    TabICLModel,
+    TabPFN3Model,
+    TabPFN3ReasoningModel,
+    TabPFNModel,
+)
 
 N_ROWS = 50
 N_FEATURES = 4
@@ -55,6 +60,56 @@ def test_tabpfn_not_in_tree_model_names() -> None:
 def test_tabpfn_registry_returns_tabpfn_model() -> None:
     models = build_models([{"type": "TabPFN", "params": {}}])
     assert isinstance(models[0], TabPFNModel)
+
+
+# ---------------------------------------------------------------------------
+# TabPFN3Model
+# ---------------------------------------------------------------------------
+
+
+def test_tabpfn3_model_init_defaults() -> None:
+    model = TabPFN3Model()
+    assert model.name == "TabPFN3"
+    assert model.model_path == "auto"
+    assert model.n_estimators == 8
+    assert not model.is_trained
+
+
+def test_tabpfn3_registry_returns_tabpfn3_model() -> None:
+    models = build_models([{"type": "TabPFN3", "params": {}}])
+    assert isinstance(models[0], TabPFN3Model)
+
+
+def test_tabpfn3_not_in_tree_model_names() -> None:
+    assert "TabPFN3" not in TREE_MODEL_NAMES
+
+
+# ---------------------------------------------------------------------------
+# TabPFN3ReasoningModel
+# ---------------------------------------------------------------------------
+
+
+def test_tabpfn3_reasoning_init_defaults() -> None:
+    model = TabPFN3ReasoningModel()
+    assert model.name == "TabPFN3Reasoning"
+    assert model.thinking_mode is True
+    assert not model.is_trained
+
+
+def test_tabpfn3_reasoning_train_requires_api_key(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("tabpfn_client", reason="tabpfn-client not installed — skip")
+    monkeypatch.delenv("TABPFN_API_KEY", raising=False)
+    X, y = toy_data
+    with pytest.raises(ValueError, match="TABPFN_API_KEY"):
+        TabPFN3ReasoningModel().train(X, y)
+
+
+def test_tabpfn3_reasoning_registry_returns_model() -> None:
+    models = build_models([{"type": "TabPFN3Reasoning", "params": {}}])
+    assert isinstance(models[0], TabPFN3ReasoningModel)
 
 
 # ---------------------------------------------------------------------------

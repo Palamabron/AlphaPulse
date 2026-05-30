@@ -93,7 +93,12 @@ class EnsembleStrategy:
             w = self._weights if self._weights is not None else np.ones(n_cols) / n_cols
             return pred_matrix @ w
 
-        if self.method == "stacking" and self._meta_learner is not None:
+        if self.method == "stacking":
+            if self._meta_learner is None:
+                raise RuntimeError(
+                    "Stacking meta-learner is not fitted. "
+                    "Call fit() with validation predictions and targets first."
+                )
             if self._meta_learner_type == "xgboost":
                 import xgboost as xgb
 

@@ -1,4 +1,4 @@
-from .base import BasePreprocessor
+from .base import BasePreprocessor, TrainEvalPreprocessor
 from .compression import PCAPreprocessor, TruncatedSVDPreprocessor
 from .factory import PreprocessorFactory
 from .feature_selection import LGBMImportanceSelector, VarianceFeatureSelector
@@ -17,6 +17,7 @@ __all__ = [
     "PreprocessorFactory",
     "RobustScalerPreprocessor",
     "StandardScalerPreprocessor",
+    "TrainEvalPreprocessor",
     "TruncatedSVDPreprocessor",
     "VarianceFeatureSelector",
 ]

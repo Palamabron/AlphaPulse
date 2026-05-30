@@ -1,13 +1,10 @@
 """Run a versioned experiment YAML/JSON (Experiment v1)."""
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import tyro
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def main(

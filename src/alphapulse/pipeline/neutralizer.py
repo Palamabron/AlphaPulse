@@ -5,6 +5,15 @@ from scipy.optimize import minimize_scalar
 from ..evaluation.metrics import era_sharpe
 
 
+def _numeric_features(features: pd.DataFrame | np.ndarray) -> np.ndarray:
+    if isinstance(features, pd.DataFrame):
+        numeric = features.select_dtypes(include=[np.number])
+        if numeric.shape[1] == 0:
+            raise ValueError("FeatureNeutralizer: no numeric feature columns found.")
+        return np.asarray(numeric.values, dtype=np.float64)
+    return np.asarray(features, dtype=np.float64)
+
+
 class FeatureNeutralizer:
     def __init__(self, proportion: float = 0.5) -> None:
         if not 0.0 <= proportion <= 1.0:
@@ -40,11 +49,7 @@ class FeatureNeutralizer:
         eras: pd.Series | None = None,
     ) -> np.ndarray:
         pred_arr = np.asarray(predictions, dtype=np.float64)
-        feat_arr = (
-            np.asarray(features.values, dtype=np.float64)
-            if hasattr(features, "values")
-            else np.asarray(features, dtype=np.float64)
-        )
+        feat_arr = _numeric_features(features)
 
         if eras is None:
             return self._neutralize_array(pred_arr, feat_arr, self.proportion)
@@ -69,11 +74,7 @@ class FeatureNeutralizer:
         bounds: tuple[float, float] = (0.0, 1.0),
     ) -> float:
         pred_arr = np.asarray(predictions, dtype=np.float64)
-        feat_arr = (
-            np.asarray(features.values, dtype=np.float64)
-            if hasattr(features, "values")
-            else np.asarray(features, dtype=np.float64)
-        )
+        feat_arr = _numeric_features(features)
         era_vals = np.asarray(eras)
 
         def neg_sharpe(p: float) -> float:

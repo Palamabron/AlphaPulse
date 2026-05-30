@@ -1,11 +1,16 @@
+"""Numerai EDA Dashboard — main entry point.
+
+Run with:  ``streamlit run eda/app.py``
+"""
+
 import json
 import os
-import sys
 
 import pandas as pd
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pyarrow.parquet as pq
 import streamlit as st
-from utils.config import (
+
+from eda.utils.config import (
     APP_ICON,
     APP_TITLE,
     DATASET_VERSION,
@@ -13,17 +18,12 @@ from utils.config import (
     LAYOUT,
     TRAIN_DATA_PATH,
 )
-from utils.data_loader import load_numerai_data
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, current_dir)
-
+from eda.utils.data_loader import load_numerai_data
 
 lang = st.sidebar.radio("🌐 Language / Język", ["English", "Polski"], index=1)
 
 
 def translate_text(en: str, pl: str) -> str:
-    """Translation helper function"""
     return en if lang == "English" else pl
 
 
@@ -56,7 +56,6 @@ st.markdown(
 
 @st.cache_data
 def load_feature_sets() -> dict[str, list[str]]:
-    """Load feature sets with sizes"""
     try:
         with open(FEATURES_JSON_PATH, encoding="utf-8") as f:
             features_json = json.load(f)
@@ -80,7 +79,6 @@ n_big = len(feature_sets_data.get("all", feature_sets_data.get("big", [])))
 
 @st.cache_data
 def get_available_targets(data_path: str) -> list[str]:
-    """Load sample and detect all target columns using PyArrow metadata"""
     try:
         pf = pq.ParquetFile(data_path)
         all_cols = pf.schema.names
@@ -134,7 +132,6 @@ if (
     ):
         try:
             train, feature_set, messages = load_numerai_data(
-                str(TRAIN_DATA_PATH),
                 feature_set_name=feature_set_choice,
                 subsample_eras=True,
                 selected_target=selected_target,
@@ -199,7 +196,6 @@ all_targets = st.session_state.get("all_targets", available_targets)
 
 
 def sanity_check_features(df: pd.DataFrame, features: list[str]) -> list[str]:
-    """Check if features are discrete (only values 0, 0.25, 0.5, 0.75, 1.0)"""
     continuous = []
     for feat in features:
         if feat in df.columns:
@@ -213,7 +209,6 @@ continuous_features = sanity_check_features(train, feature_set)
 
 
 def get_data_size_mb(path: str) -> float:
-    """Get file size in MB"""
     return os.path.getsize(path) / (1024**2)
 
 

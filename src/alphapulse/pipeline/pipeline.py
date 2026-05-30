@@ -7,9 +7,17 @@ import pandas as pd
 
 from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
-from ..preprocessors.base import BasePreprocessor
+from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
 from .ensemble import EnsembleStrategy
 from .neutralizer import FeatureNeutralizer
+from .row_utils import (
+    filter_invalid_rows,
+    filter_nan_rows,
+    invalid_row_mask,
+    protected_metadata_frame,
+    reattach_protected_columns,
+    safe_median,
+)
 
 
 class Pipeline:
@@ -47,11 +55,18 @@ class Pipeline:
         neutralize_proportion: float = 0.0,
         neutralize_features: list[str] | None = None,
     ) -> None:
+        if model is not None and models is not None:
+            raise ValueError("Provide either model or models, not both.")
         self.preprocessors = preprocessors
-        self.model = model
-        self.models = (
-            models if models is not None else ([model] if model is not None else [])
-        )
+        self.model: BaseModel | None
+        if model is not None:
+            self.model = model
+            self.models = [model]
+        elif models is not None:
+            self.model = None
+            self.models = models
+        else:
+            raise ValueError("Either model or models must be provided.")
         if not self.models:
             raise ValueError("Either model or models must be provided.")
         self.feature_columns = feature_columns
@@ -95,50 +110,42 @@ class Pipeline:
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
 
-        # Filter invalid values (NaN, inf) from input data and targets before preprocessing
-        X_invalid_mask = X.isna().any(axis=1) | np.isinf(X.select_dtypes(include=[np.number])).any(axis=1)
-        y_invalid_mask = y.isna() | np.isinf(y)
-        combined_invalid_mask = X_invalid_mask | y_invalid_mask
+        X, y = filter_invalid_rows(X, y)
+        if len(X) == 0:
+            raise ValueError("No valid training rows after filtering invalid values")
 
-        if combined_invalid_mask.any():
-            valid_mask = ~combined_invalid_mask
-            X = X[valid_mask]
-            y = y[valid_mask]
-
+        era_meta = protected_metadata_frame(X)
         X_fit = X
         for pp in self.preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.train()
             pp.fit(X_fit, y)
             X_fit = pp.transform(X_fit)
+            X_fit = reattach_protected_columns(X_fit, era_meta)
 
-        # Filter NaN values after preprocessing to prevent training errors
-        if X_fit.isna().any().any():
-            nan_mask = ~X_fit.isna().any(axis=1)
-            X_fit = X_fit[nan_mask]
-            y = y[nan_mask]
+        X_fit, y = filter_nan_rows(X_fit, y)
+        if len(X_fit) == 0:
+            raise ValueError("No valid training rows after preprocessing")
 
         X_val_t: pd.DataFrame | None = None
         if X_val is not None:
-            # Filter invalid values from validation data and targets before preprocessing
-            val_X_invalid_mask = X_val.isna().any(axis=1) | np.isinf(X_val.select_dtypes(include=[np.number])).any(axis=1)
-            val_y_invalid_mask = y_val.isna() | np.isinf(y_val) if y_val is not None else pd.Series([False] * len(X_val))
-            val_combined_invalid_mask = val_X_invalid_mask | val_y_invalid_mask
+            X_val, y_val = filter_invalid_rows(X_val, y_val)
+            if len(X_val) == 0:
+                X_val_t = None
+                y_val = None
+            else:
+                val_era_meta = protected_metadata_frame(X_val)
+                X_val_t = X_val
+                for pp in self.preprocessors:
+                    if isinstance(pp, TrainEvalPreprocessor):
+                        pp.eval()
+                    X_val_t = pp.transform(X_val_t)
+                    X_val_t = reattach_protected_columns(X_val_t, val_era_meta)
 
-            if val_combined_invalid_mask.any():
-                val_valid_mask = ~val_combined_invalid_mask
-                X_val = X_val[val_valid_mask]
-                if y_val is not None:
-                    y_val = y_val[val_valid_mask]
-
-            X_val_t = X_val
-            for pp in self.preprocessors:
-                X_val_t = pp.transform(X_val_t)
-
-            # Filter NaN values in validation set after preprocessing
-            if X_val_t.isna().any().any():
-                val_nan_mask = ~X_val_t.isna().any(axis=1)
-                X_val_t = X_val_t[val_nan_mask]
-                if y_val is not None:
-                    y_val = y_val[val_nan_mask]
+                X_val_t, y_val = filter_nan_rows(X_val_t, y_val)
+                if len(X_val_t) == 0:
+                    X_val_t = None
+                    y_val = None
 
         if len(self.models) == 1:
             metrics = self.models[0].train(
@@ -164,6 +171,21 @@ class Pipeline:
 
         return metrics
 
+    def _preprocess(
+        self, X: pd.DataFrame, era_meta: pd.DataFrame | None
+    ) -> pd.DataFrame:
+        X_t = X
+        for pp in self.preprocessors:
+            X_t = pp.transform(X_t)
+            X_t = reattach_protected_columns(X_t, era_meta)
+        return X_t
+
+    def _infer(self, X_t: pd.DataFrame) -> np.ndarray:
+        if len(self.models) == 1:
+            return self.models[0].predict(X_t)
+        preds = np.column_stack([m.predict(X_t) for m in self.models])
+        return self._ensemble.combine(preds)
+
     def predict(
         self,
         X: pd.DataFrame,
@@ -183,63 +205,47 @@ class Pipeline:
         """
         X_orig = X
 
-        # Identify invalid rows (NaN or inf) before preprocessing
-        input_invalid_mask = X.isna().any(axis=1) | np.isinf(X.select_dtypes(include=[np.number])).any(axis=1)
+        for pp in self.preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.eval()
+
+        input_invalid_mask = invalid_row_mask(X)
+
+        if input_invalid_mask.all():
+            return np.full(len(X), 0.0)
 
         if input_invalid_mask.any():
-            # Process only valid rows
             valid_mask = ~input_invalid_mask
             X_valid = X[valid_mask]
-
-            X_t = X_valid
-            for pp in self.preprocessors:
-                X_t = pp.transform(X_t)
-
-            # Check for NaN after preprocessing
-            if X_t.isna().any().any():
-                post_nan_mask = ~X_t.isna().any(axis=1)
-                X_t = X_t[post_nan_mask]
-                combined_valid_mask_indices = valid_mask.copy()
-                valid_indices = np.where(valid_mask)[0]
-                invalid_post_processing = valid_indices[~post_nan_mask]
-                combined_valid_mask_indices[invalid_post_processing] = False
-            else:
-                combined_valid_mask_indices = valid_mask
-
-            if len(self.models) == 1:
-                valid_preds = self.models[0].predict(X_t)
-            else:
-                preds = np.column_stack([m.predict(X_t) for m in self.models])
-                valid_preds = self._ensemble.combine(preds)
-
-            # Create full predictions array with invalid rows filled with median
-            raw_preds = np.full(len(X), np.median(valid_preds))
-            raw_preds[combined_valid_mask_indices] = valid_preds
         else:
-            # All rows valid - normal path
-            X_t = X
-            for pp in self.preprocessors:
-                X_t = pp.transform(X_t)
+            valid_mask = None
+            X_valid = X
 
-            # Check for NaN after preprocessing
-            if X_t.isna().any().any():
-                nan_mask = ~X_t.isna().any(axis=1)
-                X_t_valid = X_t[nan_mask]
+        era_meta = protected_metadata_frame(X_valid)
+        X_t = self._preprocess(X_valid, era_meta)
 
-                if len(self.models) == 1:
-                    valid_preds = self.models[0].predict(X_t_valid)
-                else:
-                    preds = np.column_stack([m.predict(X_t_valid) for m in self.models])
-                    valid_preds = self._ensemble.combine(preds)
+        post_nan_mask = ~X_t.isna().any(axis=1) if X_t.isna().any().any() else None
+        if post_nan_mask is not None:
+            X_t = X_t[post_nan_mask]
 
-                raw_preds = np.full(len(X), np.median(valid_preds))
-                raw_preds[nan_mask] = valid_preds
+        if len(X_t) == 0:
+            return np.full(len(X), 0.0)
+
+        valid_preds = self._infer(X_t)
+
+        if valid_mask is None and post_nan_mask is None:
+            raw_preds = valid_preds
+        else:
+            raw_preds = np.full(len(X), safe_median(valid_preds))
+            if valid_mask is not None and post_nan_mask is not None:
+                combined = valid_mask.copy()
+                valid_indices = np.where(valid_mask)[0]
+                combined[valid_indices[~post_nan_mask]] = False
+                raw_preds[combined] = valid_preds
+            elif valid_mask is not None:
+                raw_preds[valid_mask] = valid_preds
             else:
-                if len(self.models) == 1:
-                    raw_preds = self.models[0].predict(X_t)
-                else:
-                    preds = np.column_stack([m.predict(X_t) for m in self.models])
-                    raw_preds = self._ensemble.combine(preds)
+                raw_preds[post_nan_mask] = valid_preds
 
         if self._neutralizer is None:
             return raw_preds
@@ -249,7 +255,7 @@ class Pipeline:
         )
         available_cols = [c for c in neutral_cols if c in X_orig.columns]
         if not available_cols:
-            return raw_preds
+            return rank_normalize(raw_preds)
 
         neutralized = self._neutralizer.neutralize(
             raw_preds,
@@ -279,17 +285,20 @@ class Pipeline:
         feature_columns = self.feature_columns or []
         blend_weight = self.benchmark_blend_weight
         bench_col = benchmark_col
+        use_neutralization = pipeline._neutralizer is not None
 
         def predict(
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
             X = live_features[feature_columns]
-            raw_preds = pipeline.predict(X)
-            if pipeline._neutralizer is None:
-                ranked = rank_normalize(raw_preds)
-            else:
-                ranked = raw_preds
+            eras = (
+                live_features["era"]
+                if use_neutralization and "era" in live_features.columns
+                else None
+            )
+            raw_preds = pipeline.predict(X, eras=eras)
+            ranked = rank_normalize(raw_preds)
 
             if (
                 blend_weight > 0.0

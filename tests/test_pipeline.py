@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from alphapulse.evaluation import Backtester
+from alphapulse.evaluation.metrics import rank_normalize
 from alphapulse.models import XGBoostModel
 from alphapulse.pipeline import Pipeline
 from alphapulse.preprocessors import StandardScalerPreprocessor
@@ -106,3 +107,69 @@ def test_pipeline_weighted_ensemble(toy_data: tuple[pd.DataFrame, pd.Series]) ->
     preds = pipeline.predict(X)
     assert preds.shape == (len(X),)
     assert isinstance(preds, np.ndarray)
+
+
+def test_pipeline_model_and_models_mutually_exclusive(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    X, y = toy_data
+    model = XGBoostModel(
+        params={
+            "max_depth": 2,
+            "learning_rate": 0.1,
+            "tree_method": "hist",
+            "objective": "reg:squarederror",
+        }
+    )
+    with pytest.raises(ValueError, match="model or models"):
+        Pipeline(
+            preprocessors=[StandardScalerPreprocessor()],
+            model=model,
+            models=[model],
+        )
+
+
+def test_pipeline_single_model_normalizes_to_list(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    X, y = toy_data
+    model = XGBoostModel(
+        params={
+            "max_depth": 2,
+            "learning_rate": 0.1,
+            "tree_method": "hist",
+            "objective": "reg:squarederror",
+        }
+    )
+    pipeline = Pipeline(
+        preprocessors=[StandardScalerPreprocessor()],
+        model=model,
+    )
+    assert pipeline.models == [model]
+    pipeline.fit(X, y, n_rounds=5)
+    assert pipeline.predict(X).shape == (len(X),)
+
+
+def test_neutralization_fallback_rank_normalizes(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    X, y = toy_data
+    pipeline = Pipeline(
+        preprocessors=[StandardScalerPreprocessor()],
+        model=XGBoostModel(
+            params={
+                "max_depth": 2,
+                "learning_rate": 0.1,
+                "tree_method": "hist",
+                "objective": "reg:squarederror",
+            }
+        ),
+        neutralize_proportion=0.5,
+        neutralize_features=["missing_col"],
+    )
+    pipeline.fit(X, y, n_rounds=5)
+    preds = pipeline.predict(X)
+    ranked = rank_normalize(preds)
+    np.testing.assert_allclose(preds, ranked, rtol=1e-5)
+    assert preds.min() >= 0.0
+    assert preds.max() <= 1.0

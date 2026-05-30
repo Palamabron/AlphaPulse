@@ -1,9 +1,4 @@
-"""
-Feature Analysis Page - Individual feature exploration
-"""
-
-import os
-import sys
+"""Feature Analysis Page — Individual feature exploration."""
 
 import numpy as np
 import pandas as pd
@@ -11,10 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
-sys.path.insert(0, parent_dir)
 
 st.set_page_config(page_title="Analiza Cech", page_icon="🔍", layout="wide")
 
@@ -27,7 +18,6 @@ feature_set = st.session_state["feature_set"]
 
 
 def is_discrete_feature(series: pd.Series) -> bool:
-    """Check if feature has only discrete values (0, 0.25, 0.5, 0.75, 1.0)"""
     unique_vals = series.dropna().unique()
     return set(unique_vals).issubset({0.0, 0.25, 0.5, 0.75, 1.0})
 
@@ -41,11 +31,14 @@ Szczegółowa analiza indywidualnych cech i ich relacji z target.
 st.sidebar.header("⚙️ Wybór Cech")
 
 analysis_mode = st.sidebar.radio(
-    "Tryb analizy:", ["Pojedyncza cecha", "Porównanie cech", "Batch analysis"]
+    "Tryb analizy:",
+    ["Pojedyncza cecha", "Porównanie cech", "Batch analysis"],
 )
 
 if analysis_mode == "Pojedyncza cecha":
-    selected_feature = st.sidebar.selectbox("Wybierz cechę:", feature_set, index=0)
+    selected_feature = st.sidebar.selectbox(
+        "Wybierz cechę:", feature_set, index=0
+    )
 
     st.header(f"📊 Analiza cechy: `{selected_feature}`")
 
@@ -55,9 +48,13 @@ if analysis_mode == "Pojedyncza cecha":
     if is_discrete:
         st.success("✅ Cecha dyskretna (wartości: 0, 0.25, 0.5, 0.75, 1.0)")
     else:
-        st.warning("⚠️ Cecha ciągła (wykryto wartości spoza zestawu dyskretnego)")
+        st.warning(
+            "⚠️ Cecha ciągła (wykryto wartości spoza zestawu dyskretnego)"
+        )
 
-    col_mean, col_median, col_std_dev, col_missing, col_correlation = st.columns(5)
+    col_mean, col_median, col_std_dev, col_missing, col_correlation = (
+        st.columns(5)
+    )
 
     with col_mean:
         st.metric("Średnia", f"{feature_data.mean():.4f}")
@@ -122,7 +119,9 @@ if analysis_mode == "Pojedyncza cecha":
                 labels={selected_feature: "Wartość cechy"},
             )
             fig.update_layout(
-                xaxis_title="Wartość cechy", yaxis_title="Liczba wystąpień", height=400
+                xaxis_title="Wartość cechy",
+                yaxis_title="Liczba wystąpień",
+                height=400,
             )
 
         st.plotly_chart(fig, width="stretch")
@@ -144,7 +143,9 @@ if analysis_mode == "Pojedyncza cecha":
 
             st.dataframe(stats_df, width="stretch", height=400)
 
-            entropy = -(value_pct / 100 * np.log2(value_pct / 100 + 1e-10)).sum()
+            entropy = -(
+                value_pct / 100 * np.log2(value_pct / 100 + 1e-10)
+            ).sum()
             st.metric(
                 "Entropia",
                 f"{entropy:.4f}",
@@ -171,14 +172,19 @@ if analysis_mode == "Pojedyncza cecha":
     st.subheader("Relacja z Target (znormalizowany zwrot z akcji)")
 
     if is_discrete:
-        tab1, tab2, tab3 = st.tabs(["Boxplot", "Violin Plot", "Statystyki per wartość"])
+        tab1, tab2, tab3 = st.tabs(
+            ["Boxplot", "Violin Plot", "Statystyki per wartość"]
+        )
 
         with tab1:
             fig = px.box(
                 train,
                 x=selected_feature,
                 y="target",
-                title=f"Rozkład Target dla wartości cechy {selected_feature}",
+                title=(
+                    f"Rozkład Target dla wartości cechy "
+                    f"{selected_feature}"
+                ),
                 labels={
                     selected_feature: "Wartość cechy",
                     "target": "Target (zwrot z akcji)",
@@ -187,7 +193,9 @@ if analysis_mode == "Pojedyncza cecha":
                 color_discrete_sequence=px.colors.sequential.Viridis,
             )
             fig.update_layout(height=500, showlegend=False)
-            fig.update_yaxes(title_text="Target (znormalizowany zwrot z akcji)")
+            fig.update_yaxes(
+                title_text="Target (znormalizowany zwrot z akcji)"
+            )
             st.plotly_chart(fig, width="stretch")
 
         with tab2:
@@ -195,7 +203,10 @@ if analysis_mode == "Pojedyncza cecha":
                 train,
                 x=selected_feature,
                 y="target",
-                title=f"Rozkład Target dla wartości cechy {selected_feature}",
+                title=(
+                    f"Rozkład Target dla wartości cechy "
+                    f"{selected_feature}"
+                ),
                 labels={
                     selected_feature: "Wartość cechy",
                     "target": "Target (zwrot z akcji)",
@@ -205,7 +216,9 @@ if analysis_mode == "Pojedyncza cecha":
                 points="outliers",
             )
             fig.update_layout(height=500, showlegend=False)
-            fig.update_yaxes(title_text="Target (znormalizowany zwrot z akcji)")
+            fig.update_yaxes(
+                title_text="Target (znormalizowany zwrot z akcji)"
+            )
             st.plotly_chart(fig, width="stretch")
 
         with tab3:
@@ -243,7 +256,9 @@ if analysis_mode == "Pojedyncza cecha":
                 },
                 text="Średnia Target",
             )
-            fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+            fig.update_traces(
+                texttemplate="%{text:.6f}", textposition="outside"
+            )
             fig.add_hline(
                 y=train["target"].mean(),
                 line_dash="dash",
@@ -261,14 +276,18 @@ if analysis_mode == "Pojedyncza cecha":
             "tylko Violin Plot i statystyki (boxplot pominięty)"
         )
 
-        tab1, tab2 = st.tabs(["Violin Plot", "Statystyki per binowany zakres"])
+        tab1, tab2 = st.tabs(
+            ["Violin Plot", "Statystyki per binowany zakres"]
+        )
 
         with tab1:
             fig = px.violin(
                 train,
                 x=selected_feature,
                 y="target",
-                title=f"Rozkład Target dla cechy {selected_feature}",
+                title=(
+                    f"Rozkład Target dla cechy {selected_feature}"
+                ),
                 labels={
                     selected_feature: "Wartość cechy",
                     "target": "Target (zwrot z akcji)",
@@ -277,7 +296,9 @@ if analysis_mode == "Pojedyncza cecha":
                 points="outliers",
             )
             fig.update_layout(height=500)
-            fig.update_yaxes(title_text="Target (znormalizowany zwrot z akcji)")
+            fig.update_yaxes(
+                title_text="Target (znormalizowany zwrot z akcji)"
+            )
             st.plotly_chart(fig, width="stretch")
 
         with tab2:
@@ -309,13 +330,18 @@ if analysis_mode == "Pojedyncza cecha":
     st.subheader("Zachowanie w czasie (Ery)")
 
     feature_era = (
-        train.groupby("era")[selected_feature].agg(["mean", "std"]).reset_index()
+        train.groupby("era")[selected_feature]
+        .agg(["mean", "std"])
+        .reset_index()
     )
 
     fig = make_subplots(
         rows=2,
         cols=1,
-        subplot_titles=("Średnia wartość per Era", "Zmienność per Era"),
+        subplot_titles=(
+            "Średnia wartość per Era",
+            "Zmienność per Era",
+        ),
         shared_xaxes=True,
         vertical_spacing=0.12,
     )
@@ -354,8 +380,12 @@ if analysis_mode == "Pojedyncza cecha":
     )
 
     fig.update_xaxes(title_text="Era", row=2, col=1, tickangle=45)
-    fig.update_yaxes(title_text="Średnia wartość cechy", row=1, col=1)
-    fig.update_yaxes(title_text="Odchylenie standardowe", row=2, col=1)
+    fig.update_yaxes(
+        title_text="Średnia wartość cechy", row=1, col=1
+    )
+    fig.update_yaxes(
+        title_text="Odchylenie standardowe", row=2, col=1
+    )
 
     fig.update_layout(height=700, showlegend=False)
 
@@ -366,8 +396,8 @@ if analysis_mode == "Pojedyncza cecha":
     era_correlations = []
     for era in train["era"].unique():
         era_data = train[train["era"] == era]
-        corr = era_data[[selected_feature, "target"]].corr().iloc[0, 1]
-        era_correlations.append({"era": era, "correlation": corr})
+        era_corr = era_data[[selected_feature, "target"]].corr().iloc[0, 1]
+        era_correlations.append({"era": era, "correlation": era_corr})
 
     era_corr_df = pd.DataFrame(era_correlations)
 
@@ -385,7 +415,10 @@ if analysis_mode == "Pojedyncza cecha":
 
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
     fig.add_hline(
-        y=corr, line_dash="dash", line_color="red", annotation_text="Korelacja globalna"
+        y=corr,
+        line_dash="dash",
+        line_color="red",
+        annotation_text="Korelacja globalna",
     )
 
     fig.update_layout(
@@ -401,16 +434,28 @@ if analysis_mode == "Pojedyncza cecha":
     col_mean, col_median, col_std_dev = st.columns(3)
 
     with col_mean:
-        st.metric("Średnia Korelacja", f"{era_corr_df['correlation'].mean():.6f}")
+        st.metric(
+            "Średnia Korelacja",
+            f"{era_corr_df['correlation'].mean():.6f}",
+        )
     with col_median:
-        st.metric("Std Korelacji", f"{era_corr_df['correlation'].std():.6f}")
+        st.metric(
+            "Std Korelacji",
+            f"{era_corr_df['correlation'].std():.6f}",
+        )
     with col_std_dev:
-        stability = (era_corr_df["correlation"] > 0).sum() / len(era_corr_df) * 100
+        stability = (
+            (era_corr_df["correlation"] > 0).sum()
+            / len(era_corr_df)
+            * 100
+        )
         st.metric("% Er z dodatnią korelacją", f"{stability:.1f}%")
 
 elif analysis_mode == "Porównanie cech":
     compare_features = st.sidebar.multiselect(
-        "Wybierz cechy do porównania (2-5):", feature_set, default=feature_set[:3]
+        "Wybierz cechy do porównania (2-5):",
+        feature_set,
+        default=feature_set[:3],
     )
 
     if len(compare_features) < 2:
@@ -430,13 +475,15 @@ elif analysis_mode == "Porównanie cech":
         feature_name = feat[0] if isinstance(feat, list) else feat
         normalized_features.append(feature_name)
         feature_types[feature_name] = (
-            "Dyskretna" if is_discrete_feature(train[feature_name]) else "Ciągła"
+            "Dyskretna"
+            if is_discrete_feature(train[feature_name])
+            else "Ciągła"
         )
     st.subheader("Statystyki porównawcze")
     comparison_stats = []
 
     for feature_name in normalized_features:
-        corr = train[[feature_name, "target"]].corr().iloc[0, 1]
+        feat_corr = train[[feature_name, "target"]].corr().iloc[0, 1]
         comparison_stats.append(
             {
                 "Cecha": feature_name,
@@ -444,8 +491,8 @@ elif analysis_mode == "Porównanie cech":
                 "Mean": train[feature_name].mean(),
                 "Std": train[feature_name].std(),
                 "Missing": train[feature_name].isnull().sum(),
-                "Korelacja": corr,
-                "Abs_Korelacja": abs(corr),
+                "Korelacja": feat_corr,
+                "Abs_Korelacja": abs(feat_corr),
             }
         )
 
@@ -462,18 +509,28 @@ elif analysis_mode == "Porównanie cech":
 
     st.divider()
 
-    discrete_features = [f for f in compare_features if feature_types[f] == "Dyskretna"]
-    continuous_features = [f for f in compare_features if feature_types[f] == "Ciągła"]
+    discrete_features = [
+        f for f in compare_features if feature_types[f] == "Dyskretna"
+    ]
+    continuous_features = [
+        f for f in compare_features if feature_types[f] == "Ciągła"
+    ]
 
     if discrete_features:
         st.subheader("Porównanie rozkładów - Cechy Dyskretne")
 
         comparison_data = []
         for feature in discrete_features:
-            value_counts = train[feature].value_counts(normalize=True).sort_index()
+            value_counts = (
+                train[feature].value_counts(normalize=True).sort_index()
+            )
             for value, pct in value_counts.items():
                 comparison_data.append(
-                    {"Cecha": feature, "Wartość": value, "Procent": pct * 100}
+                    {
+                        "Cecha": feature,
+                        "Wartość": value,
+                        "Procent": pct * 100,
+                    }
                 )
 
         comp_dist_df = pd.DataFrame(comparison_data)
@@ -485,10 +542,15 @@ elif analysis_mode == "Porównanie cech":
             color="Cecha",
             barmode="group",
             title="Rozkład wartości - Cechy Dyskretne",
-            labels={"Procent": "Procent (%)", "Wartość": "Wartość cechy"},
+            labels={
+                "Procent": "Procent (%)",
+                "Wartość": "Wartość cechy",
+            },
             height=500,
         )
-        fig.update_layout(xaxis_title="Wartość cechy", yaxis_title="Procent (%)")
+        fig.update_layout(
+            xaxis_title="Wartość cechy", yaxis_title="Procent (%)"
+        )
 
         st.plotly_chart(fig, width="stretch")
 
@@ -505,7 +567,9 @@ elif analysis_mode == "Porównanie cech":
                 labels={feature: "Wartość cechy"},
             )
             fig.update_layout(
-                xaxis_title="Wartość cechy", yaxis_title="Liczba wystąpień", height=400
+                xaxis_title="Wartość cechy",
+                yaxis_title="Liczba wystąpień",
+                height=400,
             )
             st.plotly_chart(fig, width="stretch")
 
@@ -523,10 +587,15 @@ elif analysis_mode == "Porównanie cech":
         color_continuous_midpoint=0,
         text="Korelacja",
     )
-    fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+    fig.update_traces(
+        texttemplate="%{text:.6f}", textposition="outside"
+    )
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
     fig.update_xaxes(tickangle=45)
-    fig.update_layout(xaxis_title="Cecha", yaxis_title="Wartość korelacji z Target")
+    fig.update_layout(
+        xaxis_title="Cecha",
+        yaxis_title="Wartość korelacji z Target",
+    )
 
     st.plotly_chart(fig, width="stretch")
 
@@ -535,7 +604,9 @@ elif analysis_mode == "Porównanie cech":
     st.subheader("Target (zwrot z akcji) per wartość cechy")
 
     for feature in compare_features:
-        with st.expander(f"📊 {feature} ({feature_types[feature]})"):
+        with st.expander(
+            f"📊 {feature} ({feature_types[feature]})"
+        ):
             col_mean, col_median = st.columns(2)
 
             with col_mean:
@@ -545,11 +616,16 @@ elif analysis_mode == "Porównanie cech":
                         x=feature,
                         y="target",
                         title=f"Target vs {feature}",
-                        labels={feature: "Wartość cechy", "target": "Target (zwrot)"},
+                        labels={
+                            feature: "Wartość cechy",
+                            "target": "Target (zwrot)",
+                        },
                         color=feature,
                     )
                     fig.update_layout(height=400, showlegend=False)
-                    fig.update_yaxes(title_text="Target (zwrot z akcji)")
+                    fig.update_yaxes(
+                        title_text="Target (zwrot z akcji)"
+                    )
                     st.plotly_chart(fig, width="stretch")
                 else:
                     st.info("Boxplot pominięty dla cechy ciągłej")
@@ -557,7 +633,9 @@ elif analysis_mode == "Porównanie cech":
             with col_median:
                 if feature_types[feature] == "Dyskretna":
                     target_by_feat = (
-                        train.groupby(feature)["target"].mean().reset_index()
+                        train.groupby(feature)["target"]
+                        .mean()
+                        .reset_index()
                     )
                 else:
                     train["temp_binned"] = pd.qcut(
@@ -567,7 +645,9 @@ elif analysis_mode == "Porównanie cech":
                         duplicates="drop",
                     )
                     target_by_feat = (
-                        train.groupby("temp_binned")["target"].mean().reset_index()
+                        train.groupby("temp_binned")["target"]
+                        .mean()
+                        .reset_index()
                     )
                     target_by_feat.columns = [feature, "target"]
 
@@ -582,7 +662,10 @@ elif analysis_mode == "Porównanie cech":
                     },
                     text="target",
                 )
-                fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+                fig.update_traces(
+                    texttemplate="%{text:.6f}",
+                    textposition="outside",
+                )
                 fig.add_hline(
                     y=train["target"].mean(),
                     line_dash="dash",
@@ -590,7 +673,9 @@ elif analysis_mode == "Porównanie cech":
                     annotation_text="Średnia globalna",
                 )
                 fig.update_layout(height=400)
-                fig.update_yaxes(title_text="Średnia Target (zwrot z akcji)")
+                fig.update_yaxes(
+                    title_text="Średnia Target (zwrot z akcji)"
+                )
                 st.plotly_chart(fig, width="stretch")
 
     st.divider()
@@ -614,7 +699,11 @@ elif analysis_mode == "Porównanie cech":
 
 else:
     num_features_batch = st.sidebar.slider(
-        "Liczba cech do analizy:", 10, min(100, len(feature_set)), 30, 10
+        "Liczba cech do analizy:",
+        10,
+        min(100, len(feature_set)),
+        30,
+        10,
     )
 
     batch_features = feature_set[:num_features_batch]
@@ -626,20 +715,32 @@ else:
     with st.spinner("Obliczanie statystyk..."):
         batch_stats = []
 
-        selected_target = st.session_state.get("selected_target", "target")
-        if isinstance(selected_target, list | tuple | np.ndarray | pd.Index):
+        selected_target = st.session_state.get(
+            "selected_target", "target"
+        )
+        if isinstance(
+            selected_target, list | tuple | np.ndarray | pd.Index
+        ):
             if len(selected_target) > 0:
                 selected_target = selected_target[0]
             else:
                 selected_target = "target"
         for feature in batch_features:
             feature_data = train[feature]
-            corr = train[[feature, selected_target]].corr().iloc[0, 1]
+            batch_corr = (
+                train[[feature, selected_target]].corr().iloc[0, 1]
+            )
 
             value_counts = feature_data.value_counts(normalize=True)
-            entropy = -(value_counts * np.log2(value_counts + 1e-10)).sum()
+            entropy = -(
+                value_counts * np.log2(value_counts + 1e-10)
+            ).sum()
 
-            feat_type = "Dyskretna" if is_discrete_feature(feature_data) else "Ciągła"
+            feat_type = (
+                "Dyskretna"
+                if is_discrete_feature(feature_data)
+                else "Ciągła"
+            )
 
             batch_stats.append(
                 {
@@ -650,8 +751,8 @@ else:
                     "Missing": feature_data.isnull().sum(),
                     "Unique_Values": feature_data.nunique(),
                     "Entropy": entropy,
-                    "Korelacja": corr,
-                    "Abs_Korelacja": abs(corr),
+                    "Korelacja": batch_corr,
+                    "Abs_Korelacja": abs(batch_corr),
                 }
             )
 
@@ -666,7 +767,10 @@ else:
 
     st.dataframe(
         batch_df.style.background_gradient(
-            subset=["Korelacja"], cmap="RdYlGn", vmin=-0.1, vmax=0.1
+            subset=["Korelacja"],
+            cmap="RdYlGn",
+            vmin=-0.1,
+            vmax=0.1,
         ),
         width="stretch",
         height=400,
@@ -683,7 +787,11 @@ else:
     st.divider()
 
     tab1, tab2, tab3 = st.tabs(
-        ["Rozkład korelacji", "Mean vs Std", "Entropia vs Korelacja"]
+        [
+            "Rozkład korelacji",
+            "Mean vs Std",
+            "Entropia vs Korelacja",
+        ]
     )
 
     with tab1:
@@ -696,7 +804,10 @@ else:
             labels={"Korelacja": "Wartość korelacji"},
         )
         fig.add_vline(x=0, line_dash="dash", line_color="red")
-        fig.update_layout(xaxis_title="Wartość korelacji", yaxis_title="Liczba cech")
+        fig.update_layout(
+            xaxis_title="Wartość korelacji",
+            yaxis_title="Liczba cech",
+        )
         st.plotly_chart(fig, width="stretch")
 
     with tab2:
@@ -708,11 +819,15 @@ else:
             color="Abs_Korelacja",
             size="Abs_Korelacja",
             title="Mean vs Standard Deviation",
-            labels={"Mean": "Średnia wartość", "Std": "Odchylenie standardowe"},
+            labels={
+                "Mean": "Średnia wartość",
+                "Std": "Odchylenie standardowe",
+            },
             color_continuous_scale="Viridis",
         )
         fig.update_layout(
-            xaxis_title="Średnia wartość", yaxis_title="Odchylenie standardowe"
+            xaxis_title="Średnia wartość",
+            yaxis_title="Odchylenie standardowe",
         )
         st.plotly_chart(fig, width="stretch")
 
@@ -732,7 +847,8 @@ else:
             color_continuous_scale="Plasma",
         )
         fig.update_layout(
-            xaxis_title="Entropia", yaxis_title="Wartość bezwzględna korelacji"
+            xaxis_title="Entropia",
+            yaxis_title="Wartość bezwzględna korelacji",
         )
         st.plotly_chart(fig, width="stretch")
 
@@ -756,7 +872,9 @@ else:
             color="Korelacja",
             color_continuous_scale="Blues",
         )
-        fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+        fig.update_traces(
+            texttemplate="%{text:.6f}", textposition="outside"
+        )
         fig.update_layout(height=600)
         fig.update_xaxes(title_text="Wartość korelacji")
         st.plotly_chart(fig, width="stretch")
@@ -775,7 +893,9 @@ else:
             color="Korelacja",
             color_continuous_scale="Reds",
         )
-        fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
+        fig.update_traces(
+            texttemplate="%{text:.6f}", textposition="outside"
+        )
         fig.update_layout(height=600)
         fig.update_xaxes(title_text="Wartość korelacji")
         st.plotly_chart(fig, width="stretch")

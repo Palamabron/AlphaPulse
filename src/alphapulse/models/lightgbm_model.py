@@ -4,7 +4,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .base import BaseModel
+from .base import BaseModel, _numeric
 
 
 class LightGBMModel(BaseModel):
@@ -54,9 +54,9 @@ class LightGBMModel(BaseModel):
             else self.early_stopping_rounds
         )
 
-        feat_train = X_train.select_dtypes(include=[np.number])
+        feat_train = _numeric(X_train)
         if feat_train.shape[1] == 0:
-            raise ValueError("LightGBMModel: no numeric feature columns found.")
+            raise ValueError(f"{self.name}: no numeric feature columns found.")
 
         dtrain = lgb.Dataset(feat_train, label=y_train, free_raw_data=False)
 
@@ -69,7 +69,7 @@ class LightGBMModel(BaseModel):
         valid_names = ["train"]
 
         if X_val is not None and y_val is not None:
-            feat_val = X_val.select_dtypes(include=[np.number])
+            feat_val = _numeric(X_val)
             dval = lgb.Dataset(
                 feat_val, label=y_val, reference=dtrain, free_raw_data=False
             )
@@ -96,18 +96,15 @@ class LightGBMModel(BaseModel):
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        if not self.is_trained or self.model is None:
-            raise ValueError("Model is not trained!")
-
-        feat = X.select_dtypes(include=[np.number])
+        self._require_trained()
+        feat = _numeric(X)
         return np.asarray(
             self.model.predict(feat, num_iteration=self.model.best_iteration),
             dtype=np.float64,
         )
 
     def save(self, path: Path) -> None:
-        if self.model is None:
-            raise ValueError("Cannot save untrained model")
+        self._require_trained()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save_model(str(path))
