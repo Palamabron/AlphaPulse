@@ -14,6 +14,7 @@ VALID_MODELS = [
     "TabPFN3",
     "TabPFN3Reasoning",
     "TabICL",
+    "SyntheticDataAugmenter",
 ]
 VALID_PREPROCESSORS = [
     "StandardScaler",
@@ -24,6 +25,7 @@ VALID_PREPROCESSORS = [
     "VarianceSelector",
     "LGBMImportanceSelector",
     "GaussianNoise",
+    "EraStableSelector",
 ]
 VALID_ENSEMBLE_METHODS = ["single", "weighted", "stacking"]
 MAX_MODELS = 4

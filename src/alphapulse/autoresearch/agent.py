@@ -19,7 +19,31 @@ from .state import ResearchState
 _SYSTEM_PROMPT = f"""You are an expert ML researcher specializing in Numerai stock market prediction.
 
 You are running an automated research loop. Analyze the trial history and decide \
-what single pipeline change to make next to maximize the validation Sharpe ratio.
+what single pipeline change to make next to maximize the **Numerai payout score**.
+
+## Numerai Payout Formula
+payout_score = 0.75 * CORR_sharpe + 2.25 * MMC_sharpe
+
+where:
+- CORR_sharpe = Sharpe ratio of per-era Spearman correlations (consistency of raw predictions)
+- MMC_sharpe = Sharpe ratio of per-era Meta Model Contribution (originality vs. the crowd)
+
+When optimizing, consider both objectives. The Pareto front shows configs that are \
+non-dominated on (CORR_sharpe, MMC_sharpe). MMC rewards models that are different \
+from the Numerai meta model — diversity matters more than raw accuracy.
+
+## Tactics for each objective
+**To push CORR_sharpe:**
+- Add/tune gradient boosting models (XGBoost, LightGBM, CatBoost)
+- Use PackboostModel to focus on worst-performing eras
+- Use EraEnsembleModel for era-specific sub-models
+- Reduce neutralization proportion
+
+**To push MMC_sharpe (originality):**
+- Increase neutralization proportion (0.3–0.7) — removes common factor exposure
+- Add models from different families (Ridge, RandomForest alongside GBMs)
+- Use EraStableSelector to focus on uniquely informative features
+- Stacking with diverse base learners
 
 ## Pipeline Config Format
 ```json
@@ -43,6 +67,8 @@ what single pipeline change to make next to maximize the validation Sharpe ratio
 - LightGBM: num_leaves (16–127), learning_rate (0.005–0.05), min_child_samples (100–500), colsample_bytree (0.3–0.8)
 - CatBoost: depth (4–8), learning_rate (0.01–0.1), l2_leaf_reg (1–10)
 - Packboost: n_worst_eras (3–10), boost_weight (0.1–0.5), n_rounds_base (300–1000), n_rounds_boost (100–300)
+- Ridge: alpha (1–1000) — linear model, very different from tree models
+- RandomForest/ExtraTrees: n_estimators (100–500), min_samples_leaf (50–500)
 
 ## Available Preprocessors: {", ".join(VALID_PREPROCESSORS)}
 - StandardScaler/RobustScaler: no important params
@@ -50,23 +76,19 @@ what single pipeline change to make next to maximize the validation Sharpe ratio
 - PCA/TruncatedSVD: n_components (int or float 0–1)
 - VarianceSelector: keep_fraction (0.5–0.95), mode "quantile"
 - LGBMImportanceSelector: keep_fraction (0.5–0.9)
+- EraStableSelector: keep_fraction (0.3–0.7), stability_weight (0–1) — selects features stable across eras
 
 ## Ensemble Methods: {", ".join(VALID_ENSEMBLE_METHODS)}
 - single: one model only
 - weighted: ensemble_params = {{"weights": [w1, w2, ...]}} — must sum to 1.0
 - stacking: ensemble_params = {{"meta_learner": "ridge" or "xgboost"}}
 
-## Scoring
-Primary: **sharpe** (mean per-era Spearman correlation ÷ std). Higher = better.
-Typical good Sharpe on Numerai v5.2: 0.3–0.8.
-
 ## Strategy
-- Trials 1–5: Explore broadly (different model types, CatBoost, ensemble combos).
-- Trials 6–15: Build diverse ensembles combining different model families.
-- Trials 15+: Exploit — tune hyperparams around the best config found.
-- If stuck (no improvement in 5+ trials): use try_random_config.
-- Neutralization (0.2–0.5) can reduce era noise and improve Sharpe consistency.
-- Stacking with ridge often beats weighted averaging when models are diverse.
+- Trials 1–5: Explore broadly. Try CORR-focused config AND an MMC-focused config.
+- Trials 6–15: Build diverse ensembles. Mix tree models with Ridge/RF for originality.
+- Trials 15+: Expand the Pareto front. If CORR is high but MMC is low, add neutralization. If MMC is high but CORR is low, add stronger GBMs.
+- If stuck (no payout improvement in 5+ trials): use try_random_config.
+- Neutralization (0.2–0.5) typically improves MMC at slight cost to CORR.
 
 ## Response Format
 You MUST respond with ONLY a valid JSON object — no prose, no markdown fences.
@@ -76,6 +98,7 @@ The JSON must have exactly these keys:
                     try_random_config]
   "params": dict of action-specific parameters (see below)
   "reasoning": short explanation of why you chose this action
+  "target_objective": one of ["corr", "mmc", "balanced"] — which axis you are targeting
 
 ### Action params:
 tune_model_params:   {{"model_index": int, "param_updates": {{...}}}}
@@ -88,7 +111,7 @@ set_neutralization:  {{"proportion": float}}
 try_random_config:   {{}}
 
 Example valid response:
-{{"action": "add_model", "params": {{"model_type": "CatBoost", "params": {{"depth": 6, "learning_rate": 0.05}}}}, "reasoning": "Adding CatBoost to increase ensemble diversity; LightGBM alone is plateauing."}}"""
+{{"action": "set_neutralization", "params": {{"proportion": 0.4}}, "reasoning": "CORR is strong but MMC is low; adding neutralization should improve originality.", "target_objective": "mmc"}}"""
 
 
 @dataclass
@@ -96,6 +119,7 @@ class MutationDecision:
     action_name: str
     action_kwargs: dict[str, Any]
     reasoning: str
+    target_objective: str = "balanced"
 
 
 def _format_history(state: ResearchState, max_trials: int = 30) -> str:
@@ -104,26 +128,44 @@ def _format_history(state: ResearchState, max_trials: int = 30) -> str:
         return "No trials completed yet."
 
     lines = [
-        f"{'Trial':>6} | {'Sharpe':>7} | {'Corr':>7} | {'Models':<35} | Action",
-        "-" * 90,
+        f"{'Trial':>6} | {'Sharpe':>7} | {'MMC_S':>7} | {'Payout':>7} | {'Models':<30} | Action",
+        "-" * 95,
     ]
     for t in trials:
         models_str = "+".join(t.model_types)
-        corr = t.metrics.get("mean_per_era_correlation", 0.0)
+        mmc_s = f"{t.mmc_sharpe:>7.4f}" if t.mmc_sharpe is not None else "    N/A"
+        payout = f"{t.payout_score:>7.4f}" if t.payout_score is not None else "    N/A"
         err = " [ERR]" if t.error else ""
         lines.append(
-            f"{t.trial_number:>6} | {t.sharpe:>7.4f} | {corr:>7.4f} | "
-            f"{models_str:<35} | {t.action_taken}{err}"
+            f"{t.trial_number:>6} | {t.sharpe:>7.4f} | {mmc_s} | {payout} | "
+            f"{models_str:<30} | {t.action_taken}{err}"
         )
 
     if state.best_trial:
         b = state.best_trial
+        payout_str = (
+            f", payout={b.payout_score:.4f}" if b.payout_score is not None else ""
+        )
+        mmc_str = f", mmc_sharpe={b.mmc_sharpe:.4f}" if b.mmc_sharpe is not None else ""
         lines.append(
-            f"\nBEST → trial #{b.trial_number}: sharpe={b.sharpe:.4f}, "
-            f"corr={b.metrics.get('mean_per_era_correlation', 0.0):.4f}, "
-            f"models={'+'.join(b.model_types)}"
+            f"\nBEST → trial #{b.trial_number}: corr_sharpe={b.sharpe:.4f}"
+            f"{mmc_str}{payout_str}, models={'+'.join(b.model_types)}"
         )
         lines.append(f"Best config:\n{json.dumps(b.config, indent=2)}")
+
+    pareto = state.pareto_front.members
+    if pareto:
+        lines.append(
+            f"\nPARETO FRONT ({len(pareto)} configs — non-dominated on CORR+MMC):"
+        )
+        lines.append(f"{'Trial':>6} | {'CORR_S':>7} | {'MMC_S':>7} | {'Payout':>7}")
+        lines.append("-" * 40)
+        for m in sorted(pareto, key=lambda t: t.sharpe, reverse=True):
+            mmc_s = f"{m.mmc_sharpe:>7.4f}" if m.mmc_sharpe is not None else "    N/A"
+            payout = (
+                f"{m.payout_score:>7.4f}" if m.payout_score is not None else "    N/A"
+            )
+            lines.append(f"{m.trial_number:>6} | {m.sharpe:>7.4f} | {mmc_s} | {payout}")
 
     lines.append(f"\nCurrent config:\n{json.dumps(state.current_config, indent=2)}")
     return "\n".join(lines)
@@ -188,11 +230,13 @@ def decide_next_action(
             action_name = decision.get("action", "try_random_config")
             action_kwargs = decision.get("params", {})
             reasoning = decision.get("reasoning", "")
+            target_objective = decision.get("target_objective", "balanced")
 
             return MutationDecision(
                 action_name=action_name,
                 action_kwargs=action_kwargs,
                 reasoning=reasoning,
+                target_objective=str(target_objective),
             )
         except (subprocess.TimeoutExpired, RuntimeError, ValueError) as exc:
             last_error = exc

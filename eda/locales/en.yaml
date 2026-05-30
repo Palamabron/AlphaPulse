@@ -1,0 +1,180 @@
+# English translations for AlphaPulse EDA Dashboard
+# Format: Use dot notation for nested keys (e.g., common.download_csv)
+
+# Common UI elements
+common:
+  download_csv: "Download CSV"
+  loading: "Loading..."
+  error: "Error"
+  warning: "Warning"
+  success: "Success"
+  info: "Info"
+
+# Language selector
+language:
+  label: "Language / Język"
+  english: "English"
+  polish: "Polski"
+
+# Main app
+app:
+  title: "AlphaPulse EDA Dashboard"
+  subtitle: "Numerai {version} — Exploratory Data Analysis Dashboard"
+  data_not_loaded: "⚠️ Data not loaded. Go to the main page."
+
+# Dataset configuration
+dataset:
+  header: "Dataset Configuration"
+  active_target: "Active Target"
+  select_target: "Select target:"
+  select_target_help: "Choose which target to analyze across all pages"
+  active_label: "Active: **{target}**"
+  feature_set_label: "Feature set:"
+  feature_set_help: "Small: {small} features, Medium: {medium} features, All: {all} features"
+  loading_data: "Loading Numerai {version} data..."
+  data_loaded: "Data loaded — target: {target}"
+  target_not_found: "Target '{target}' not found in data."
+  available_targets: "Available targets: {targets}"
+
+# Dataset overview
+overview:
+  header: "Dataset Overview"
+  rows: "Rows"
+  features: "Features (current set)"
+  missing_data: "Missing data"
+  data_file_size: "Data file size (MB)"
+
+# Target information
+target_info:
+  header: "Target Information"
+  active_target: "Active target"
+  available_targets: "Available targets"
+  available_targets_help: "Total number of target columns in the dataset"
+  target_mean: "Target mean"
+  show_all_targets: "Show all available targets"
+  currently_active: "> = currently active target. Select a different target in the sidebar."
+
+# Feature sets
+feature_sets:
+  header: "Feature Set Sizes"
+  small: "Small (~20%)"
+  medium: "Medium (~50%)"
+  all: "All (100%)"
+
+# Sanity check
+sanity:
+  header: "Sanity Check — Feature Values"
+  discrete_features: "Discrete features"
+  discrete_help: "Features whose values are exclusively {0, 0.25, 0.5, 0.75, 1.0}"
+  continuous_features: "Continuous features"
+  continuous_help: "Features with values outside the discrete set — unexpected for Numerai v5"
+  continuous_detected: "{count} continuous feature(s) detected (expected discrete values: 0, 0.25, 0.5, 0.75, 1.0)."
+  show_continuous: "Show continuous features"
+  and_more: "... and {count} more."
+  all_discrete: "All features are discrete with expected values (0, 0.25, 0.5, 0.75, 1.0)."
+  show_discrete: "Show discrete features"
+  properly_discrete: "{count} features are properly discrete."
+  no_discrete: "No discrete features found."
+
+# Navigation
+navigation:
+  header: "Navigation"
+  description: |
+    Use the **sidebar** to navigate to different analysis pages:
+
+    1. **Target Analysis** — distribution and stability of the target variable
+    2. **Feature Analysis** — individual feature exploration and era behaviour
+    3. **Correlations** — feature-to-target and inter-feature correlation analysis
+    4. **Era Analysis** — temporal patterns and feature stability over eras
+    5. **Feature Distributions** — value distribution statistics and uniformity tests
+    6. **Feature Importance** — Pearson and LightGBM importance rankings
+    7. **Clustering** — hierarchical clustering to identify redundant feature groups
+    8. **HPO Analysis** — visualise results from a hyperparameter optimisation run
+
+# Data preview
+preview:
+  data_preview: "Data preview (first 10 rows)"
+  quick_stats: "Quick statistics"
+  caption: "Numerai {version} EDA Dashboard — currently analyzing: {target}"
+
+# HPO Analysis page
+hpo:
+  title: "🔬 HPO Results Analysis"
+  description: "Load `all_trials.json` from the `artifacts/` directory to analyze hyperparameter optimization results."
+  data_source: "📁 Data Source"
+  path_label: "Path to all_trials.json"
+  path_help: "Relative or absolute path to all_trials.json file."
+  min_sharpe_label: "Min. sharpe (filter invalid trials)"
+  file_not_found: "File not found: `{path}`. Provide a valid path in the sidebar."
+  error_loading: "Error loading data: {error}"
+  no_valid_trials: "No valid trials after filtering."
+
+  # Summary
+  summary: "📊 Summary"
+  num_trials: "Number of trials"
+  best_sharpe: "Best Sharpe"
+  median_sharpe: "Median Sharpe"
+  best_model: "Best model"
+  best_ensemble: "Best ensemble method"
+
+  # Trial history
+  trial_history: "📈 Trial History"
+  trial_sharpe: "Trial Sharpe"
+  best_sharpe_cumulative: "Best Sharpe (cumulative)"
+  trial_number: "Trial number"
+  trial_hover: "Trial %{x}<br>Sharpe: %{y:.4f}<br>Models: %{text}"
+
+  # Model comparison
+  model_comparison: "🤖 Model Types & Preprocessors Comparison"
+  sharpe_by_model: "Sharpe by model type"
+  sharpe_distribution: "Sharpe distribution for each model type"
+  model_type: "Model type"
+  packboost_impact: "Packboost preprocessor impact"
+  sharpe_with_without_packboost: "Sharpe with and without Packboost"
+  with_packboost: "With Packboost"
+  without_packboost: "Without Packboost"
+
+  # Ensemble & neutralization
+  ensemble_method: "Ensemble method"
+  sharpe_by_ensemble: "Sharpe by ensemble method"
+  method: "Method"
+  neutralization_impact: "Neutralization impact"
+  sharpe_with_without_neutralization: "Sharpe with and without prediction neutralization"
+  with_neutralization: "With neutralization"
+  without_neutralization: "Without neutralization"
+
+  # Sub-models
+  nsubs_impact: "🔢 Impact of sub-model count (n_subs)"
+  sharpe_vs_nsubs: "Sharpe vs. EraEnsemble sub-model count"
+  average: "Average"
+
+  # Hyperparameters
+  hyperparams_impact: "📉 Impact of numeric hyperparameters"
+  no_xgboost: "No XGBoost trials found."
+  no_lightgbm: "No LightGBM trials found."
+
+  # Parallel categories
+  parallel_categories: "🔗 Parallel Categories Diagram"
+  parallel_description: "Sankey-style diagram showing configuration flows to best Sharpe. Path width reflects number of trials."
+  yes: "yes"
+  no: "no"
+  top_25: "Top 25%"
+  remaining: "Remaining"
+  neutralization: "Neutralization"
+  parallel_title: "Parallel categories: configurations → Sharpe"
+
+  # Metrics correlation
+  metrics_correlation: "📐 Metrics Correlation with Sharpe"
+  correlation_matrix: "Metrics correlation matrix"
+
+  # Leaderboard
+  leaderboard: "🏆 Results Leaderboard — top trials"
+  num_trials_display: "Number of trials to display"
+  download_leaderboard: "📥 Download leaderboard as CSV"
+
+# Error messages
+errors:
+  column_not_found: "Column '{column}' not found in data."
+  computation_error: "Computation error: {error}"
+  unexpected_error: "Unexpected error: {error}"
+  unexpected_clustering_error: "Unexpected error during clustering: {error}"

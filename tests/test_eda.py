@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+streamlit = pytest.importorskip("streamlit", reason="streamlit not installed")
+
 
 def test_config_imports_and_defaults() -> None:
     from eda.utils.config import (

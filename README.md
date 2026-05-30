@@ -28,6 +28,23 @@ Numerai is a global data science tournament where you build ML models to predict
 
 -----
 
+## About Numerai
+
+Numerai is a crowd-sourced hedge fund and the world's largest stock-market ML tournament. Data scientists worldwide build models to predict stock returns; Numerai combines these predictions into a meta-model for real hedge fund trading.
+
+**Key Concepts:**
+- **Dataset:** Obfuscated tabular data where each row represents a stock at a point in time
+- **Era:** Time period (typically a week) grouping correlated observations
+- **Target:** 20-day forward stock-specific alpha (returns neutral to market/sector)
+- **Scoring:** Correlation (CORR), Meta Model Contribution (MMC), and Sharpe ratio
+- **Staking:** Stake NMR cryptocurrency on your model — positive performance earns, negative burns
+
+AlphaPulse streamlines the entire workflow from data download through model training, validation, and weekly submission.
+
+For more details, see: https://numer.ai
+
+-----
+
 ## Installation & Setup
 
 ### Local Development
@@ -35,13 +52,29 @@ Numerai is a global data science tournament where you build ML models to predict
 **Requirements:** Python 3.12+, Git, [uv](https://github.com/astral-sh/uv).
 
 ```bash
-# Install dependencies (including dev extras)
+# Core dependencies (required)
 uv sync --extra dev
+
+# Optional: Add specific feature sets
+uv sync --extra hpo              # HPO with Ray Tune
+uv sync --extra deep             # Deep learning models (pytorch_tabular)
+uv sync --extra foundation       # TabPFN, TabICL foundation models
+uv sync --extra eda              # EDA dashboard dependencies
+
+# Install all extras at once
+uv sync --all-extras
 
 # Install Git hooks
 pre-commit install
 pre-commit run --all-files
 ```
+
+**Dependency Groups:**
+- `dev` — Development tools: ruff, mypy, pytest, pre-commit
+- `hpo` — Hyperparameter optimization: ray[tune], optuna (advanced)
+- `deep` — Deep learning: pytorch_tabular, torch
+- `foundation` — Foundation models: tabpfn, tabicl
+- `eda` — Dashboard: streamlit, plotly, scikit-learn
 
 ### Common Dev Commands
 
@@ -60,6 +93,32 @@ uv run pytest tests/ -v --tb=short
 uv add tenacity loguru
 uv remove tenacity
 ```
+
+### Make Targets (Quality Tooling)
+
+AlphaPulse provides Make targets for common development tasks:
+
+```bash
+# Code Quality
+make fmt          # Format code with ruff (imports + format)
+make lint         # Lint code with ruff (check + format --check)
+make types        # Run mypy type checking
+make test         # Run pytest with coverage
+make check        # Run all checks: lint + types + test + deadcode
+make deadcode     # Find unused code with vulture
+
+# EDA Module
+make eda-lint     # Lint EDA dashboard code (standalone check)
+
+# Notebooks
+make nb-format    # Format notebooks with nbqa
+make nb-lint      # Lint notebooks with nbqa
+
+# Git Hooks
+make precommit    # Run pre-commit hooks on all files
+```
+
+**Note:** EDA module (`eda/`) is excluded from `make check`, `make types`, and `make test`. Use `make eda-lint` for EDA quality checks.
 
 ### Rebuild Environment
 
@@ -176,6 +235,76 @@ uv run python scripts/export_numerai_pickle.py \
 **From a YAML Experiment:**
 Prefer using `scripts/run_test_pipeline.py` or the specific export scripts currently in the [Roadmap](#roadmap).
 
+### 7. Live Inference (Production Predictions)
+
+Run your trained model on live tournament data to generate predictions:
+
+```bash
+uv run python scripts/live_inference.py \
+  --model-path artifacts/competition_pickle/predict.pkl \
+  --data-dir data/v5.2 \
+  --output-path artifacts/live/predictions.csv
+```
+
+**Parameters:**
+- `--model-path`: Path to the exported `predict.pkl` (from step 6)
+- `--data-dir`: Directory containing `live.parquet` (download fresh data before each round)
+- `--output-path`: Where to save the submission CSV
+- `--benchmark-col`: Benchmark column name (default: `v2_equivalent_return`)
+- `--validate`: Run submission format validation (default: `true`)
+
+**Output:** CSV file with `id` and `prediction` columns ready for submission.
+
+### 8. Submit Predictions to Numerai
+
+Upload your predictions to the tournament:
+
+```bash
+uv run python scripts/submit_predictions.py \
+  --predictions-path artifacts/live/predictions.csv \
+  --model-name my_model_name
+```
+
+**Prerequisites:**
+- Set `NUMERAI_PUBLIC_API_KEY` and `NUMERAI_PRIVATE_API_KEY` in environment or `.env`
+- Install numerapi: `pip install numerapi` (or add to pyproject.toml)
+
+**Parameters:**
+- `--predictions-path`: Path to the CSV from step 7
+- `--model-name`: Your model name as it appears in the Numerai dashboard
+- `--tournament`: Tournament identifier (default: `numerai`)
+- `--validate`: Run format validation before upload (default: `true`)
+
+The script will:
+1. Validate submission format
+2. Look up your model ID
+3. Upload predictions for the current round
+4. Return submission ID for tracking
+
+### Complete Production Workflow
+
+End-to-end flow for weekly tournament submissions:
+
+```bash
+# 1. Download latest data (do this each week before the deadline)
+uv run python scripts/download_dataset.py \
+  --dataset-version v5.2 \
+  --output-dir data
+
+# 2. Run live inference with your trained model
+uv run python scripts/live_inference.py \
+  --model-path artifacts/competition_pickle/predict.pkl \
+  --data-dir data/v5.2 \
+  --output-path artifacts/live/predictions.csv
+
+# 3. Submit to Numerai
+uv run python scripts/submit_predictions.py \
+  --predictions-path artifacts/live/predictions.csv \
+  --model-name my_model_name
+```
+
+**Note:** Steps 2-3 can be automated with a cron job or CI/CD pipeline for hands-free weekly submissions.
+
 -----
 
 ## Configuring Experiments (Experiment v1 YAML)
@@ -225,8 +354,15 @@ evaluation:
     - **Gradient Boosting:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`
     - **Tree Ensembles:** `RandomForest`, `ExtraTrees`
     - **Linear:** `Ridge`
-    - **Foundation Models:** `TabPFN`, `TabICL` (tabular foundation models)
-    - **Meta Models:** `EraEnsemble` (era-specific ensemble), `SyntheticDataAugmenter` (diffusion-based augmentation)
+    - **Foundation Models:**
+      - `TabPFN` — TabPFN v2 in-context learning (n_estimators=8)
+      - `TabPFN3` — TabPFN v3 local OSS (model_path="auto", n_estimators=8)
+      - `TabPFN3Reasoning` — TabPFN v3 API with reasoning (thinking_mode=true, thinking_effort="medium")
+      - `TabICL` — TabICL v2 in-context learning (n_estimators=8, kv_cache=false)
+    - **Deep Learning:** `TabularDL` — pytorch_tabular wrapper (architecture: "ft_transformer"|"mlp")
+    - **Meta Models:**
+      - `EraEnsemble` — V3X-style era partitioning with Ridge meta-learner (n_subs=10)
+      - `SyntheticDataAugmenter` — Diffusion-based data augmentation from elite rows (top_fraction=0.10, n_synthetic=500)
   * **Ensembling:** `single`, `weighted`, or `stacking` (Meta-learners: `ridge` or `xgboost`).
 
 -----
@@ -245,6 +381,97 @@ train.X       # feature DataFrame
 train.y       # target Series
 train.era     # era Series (or None)
 train.n_rows, train.n_features
+```
+
+-----
+
+## EDA Dashboard
+
+AlphaPulse includes a standalone Streamlit dashboard for exploratory data analysis of Numerai datasets. The dashboard provides interactive visualizations and statistical analysis with English/Polish bilingual support.
+
+### Installation
+
+Install EDA dependencies:
+
+```bash
+uv sync --extra eda
+```
+
+### Running the Dashboard
+
+```bash
+streamlit run eda/app.py
+```
+
+The dashboard will start at http://localhost:8501 by default.
+
+### Configuration
+
+Configure via environment variables:
+
+```bash
+export ALPHAPULSE_DATA_DIR=data/v5.2           # Path to data directory
+export ALPHAPULSE_DATASET_VERSION=v5.2         # Dataset version string
+```
+
+Or create a `.env` file in the project root.
+
+### Available Analysis Pages
+
+The dashboard provides 8 specialized analysis modules:
+
+1. **Target Analysis** — Target variable distribution, era-wise statistics, stability metrics, ridgeplots
+2. **Feature Analysis** — Single/multi-feature exploration, correlation tracking, temporal behavior, batch analysis
+3. **Correlations** — Feature-target correlations, inter-feature correlation matrices, network graphs
+4. **Era Analysis** — Temporal patterns, era statistics, rolling metrics, feature stability over time
+5. **Feature Distributions** — Distribution statistics, chi-square uniformity tests, entropy calculations
+6. **Feature Importance** — Pearson correlation and LightGBM importance rankings with visualization
+7. **Clustering** — Hierarchical clustering, dendrograms, redundancy detection, correlation heatmaps
+8. **HPO Analysis** — Hyperparameter optimization results visualization (loads `all_trials.json` from artifacts)
+
+### Features
+
+- **Multi-target support** — Select any target column from the dataset
+- **Feature set selection** — Choose between small (~20%), medium (~50%), or all (100%) features
+- **Bilingual interface** — Toggle between English and Polish
+- **Data validation** — Sanity checks for discrete vs continuous features
+- **Interactive visualizations** — Plotly-based charts with zoom, pan, and export
+- **Data export** — Download analysis results as CSV
+- **Caching** — Efficient data loading and computation caching for large datasets
+
+### Dashboard Structure
+
+```
+eda/
+├── app.py                  # Main entry point
+├── pages/                  # Analysis modules
+│   ├── target_analysis.py
+│   ├── feature_analysis.py
+│   ├── correlations.py
+│   ├── era_analysis.py
+│   ├── feature_distributions.py
+│   ├── feature_importance.py
+│   ├── clustering.py
+│   └── hpo_analysis.py
+└── utils/                  # Utilities
+    ├── config.py           # Path resolution and constants
+    ├── data_loader.py      # NumeraiDataLoader wrapper
+    ├── i18n.py             # Translation helper
+    └── common.py           # Shared analysis utilities
+```
+
+### Development
+
+The EDA module is self-contained and excluded from the main quality checks:
+
+```bash
+# Lint EDA code
+make eda-lint
+
+# The EDA module is excluded from:
+# - mypy type checking
+# - pytest coverage
+# - Main make check pipeline
 ```
 
 -----
@@ -288,23 +515,26 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 
 -----
 
-## Recent Additions (v0.1.0)
-
-✅ **AutoResearch Loop:** Claude agent-driven research with automated mutation strategies
-✅ **New Foundation Models:** TabPFN and TabICL support for tabular data
-✅ **Enhanced Model Suite:** EraEnsemble, SyntheticDataAugmenter, and expanded sklearn models
-✅ **Advanced Pipeline Features:** Multi-target, multi-head, and feature neutralization support
-✅ **Robust Data Handling:** Automatic NaN/inf filtering in pipeline fit and predict
-✅ **Ensemble Optimizer:** Automated ensemble weight optimization
-
 ## Roadmap
 
-1.  **Payout Optimization:** Integrate Numerai payout-style scoring directly into HPO and experiment selection.
-2.  **Config Tooling:** Add a helper to automatically convert `features.json` sets into YAML `features.groups`.
-3.  **Unified Export:** Create a dedicated "export from YAML" script to bridge the gap between manual experiments and production pickles.
-4.  **Validation:** Improve error messages for feature routing mismatches (e.g., missing columns in a group).
-5.  **Metrics:** Add dedicated tests for MMC (Meta-Model Contribution) and alignment with Numerai benchmark signals.
-6.  **Weights & Biases Integration:** Full logging and visualization support for experiments and AutoResearch.
+**Completed in v0.1.0:**
+- ✅ AutoResearch Loop with Claude agent
+- ✅ Foundation Models (TabPFN, TabICL)
+- ✅ Enhanced Model Suite (EraEnsemble, SyntheticDataAugmenter)
+- ✅ Multi-target and Multi-head Pipelines
+- ✅ Robust NaN/inf Filtering in Pipeline
+- ✅ Ensemble Weight Optimization
+- ✅ Comprehensive EDA Dashboard with HPO Analysis
+
+**Upcoming:**
+1. **Payout Optimization:** Integrate Numerai payout-style scoring into HPO objective
+2. **Config Tooling:** Helper to convert `features.json` sets into YAML `features.groups`
+3. **Unified Export:** Dedicated "export from YAML" script for production pickles
+4. **Validation:** Better error messages for feature routing mismatches
+5. **Metrics:** Dedicated MMC (Meta-Model Contribution) tests and Numerai benchmark alignment
+6. **CI/CD:** Automated weekly submission pipeline with GitHub Actions
+7. **W&B Integration:** Full experiment tracking and visualization (config exists, needs integration)
+8. **Model Registry:** Versioned model storage with performance tracking
 
 -----
 

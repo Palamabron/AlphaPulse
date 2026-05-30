@@ -1,0 +1,180 @@
+# Polish translations for AlphaPulse EDA Dashboard
+# Format: Use dot notation for nested keys (e.g., common.download_csv)
+
+# Common UI elements
+common:
+  download_csv: "Pobierz CSV"
+  loading: "Ładowanie..."
+  error: "Błąd"
+  warning: "Ostrzeżenie"
+  success: "Sukces"
+  info: "Info"
+
+# Language selector
+language:
+  label: "Language / Język"
+  english: "English"
+  polish: "Polski"
+
+# Main app
+app:
+  title: "Dashboard EDA AlphaPulse"
+  subtitle: "Numerai {version} — Dashboard Eksploracyjnej Analizy Danych"
+  data_not_loaded: "⚠️ Dane nie zostały załadowane. Przejdź do strony głównej."
+
+# Dataset configuration
+dataset:
+  header: "Konfiguracja Datasetu"
+  active_target: "Aktywny Target"
+  select_target: "Wybierz target:"
+  select_target_help: "Wybierz który target ma być aktywny do analizy"
+  active_label: "Aktywny: **{target}**"
+  feature_set_label: "Zestaw cech:"
+  feature_set_help: "Mały: {small} cech, Średni: {medium} cech, Wszystkie: {all} cech"
+  loading_data: "Ładowanie danych Numerai {version}..."
+  data_loaded: "Załadowano dane z targetem: {target}"
+  target_not_found: "Target '{target}' nie istnieje w danych."
+  available_targets: "Dostępne targety: {targets}"
+
+# Dataset overview
+overview:
+  header: "Przegląd Datasetu"
+  rows: "Liczba wierszy"
+  features: "Liczba cech (bieżący zestaw)"
+  missing_data: "Brakujące dane"
+  data_file_size: "Rozmiar pliku danych (MB)"
+
+# Target information
+target_info:
+  header: "Informacja o targecie"
+  active_target: "Aktywny target"
+  available_targets: "Dostępne targety"
+  available_targets_help: "Całkowita liczba kolumn targetów w datasecie"
+  target_mean: "Średnia targetu"
+  show_all_targets: "Pokaż wszystkie dostępne targety"
+  currently_active: "> = aktywny target. Wybierz inny target w panelu bocznym."
+
+# Feature sets
+feature_sets:
+  header: "Rozmiary zestawów cech"
+  small: "Mały (~20%)"
+  medium: "Średni (~50%)"
+  all: "Wszystkie (100%)"
+
+# Sanity check
+sanity:
+  header: "Sanity Check — Wartości cech"
+  discrete_features: "Cechy dyskretne"
+  discrete_help: "Cechy zawierające tylko wartości: 0, 0.25, 0.5, 0.75, 1.0"
+  continuous_features: "Cechy ciągłe"
+  continuous_help: "Cechy spoza zestawu dyskretnego — nieoczekiwane dla Numerai v5"
+  continuous_detected: "Wykryto {count} cech ciągłych (oczekiwane wartości dyskretne: 0, 0.25, 0.5, 0.75, 1.0)."
+  show_continuous: "Pokaż cechy ciągłe"
+  and_more: "... i {count} więcej."
+  all_discrete: "Wszystkie cechy są dyskretne z oczekiwanymi wartościami (0, 0.25, 0.5, 0.75, 1.0)."
+  show_discrete: "Pokaż cechy dyskretne"
+  properly_discrete: "{count} cech jest poprawnie dyskretnych."
+  no_discrete: "Nie znaleziono cech dyskretnych."
+
+# Navigation
+navigation:
+  header: "Nawigacja"
+  description: |
+    Użyj **menu bocznego** aby przejść do różnych stron analizy:
+
+    1. **Analiza targetu** — rozkład i stabilność zmiennej docelowej
+    2. **Analiza cech** — indywidualna eksploracja cech i zachowanie w erach
+    3. **Korelacje** — korelacje cech z targetem i między cechami
+    4. **Analiza er** — wzorce temporalne i stabilność cech w czasie
+    5. **Rozkłady cech** — statystyki rozkładów i testy jednostajności
+    6. **Ważność cech** — rankingi ważności Pearson i LightGBM
+    7. **Clustering** — klasteryzacja hierarchiczna do identyfikacji redundantnych cech
+    8. **Analiza HPO** — wizualizacja wyników optymalizacji hiperparametrów
+
+# Data preview
+preview:
+  data_preview: "Podgląd danych (10 wierszy)"
+  quick_stats: "Szybkie statystyki"
+  caption: "Dashboard EDA Numerai {version} — aktualnie analizuję: {target}"
+
+# HPO Analysis page
+hpo:
+  title: "🔬 Analiza wyników HPO"
+  description: "Załaduj plik `all_trials.json` z katalogu `artifacts/` aby przeanalizować wyniki przeszukiwania hiperparametrów."
+  data_source: "📁 Źródło danych"
+  path_label: "Ścieżka do all_trials.json"
+  path_help: "Względna lub bezwzględna ścieżka do pliku all_trials.json."
+  min_sharpe_label: "Min. sharpe (filtr błędnych prób)"
+  file_not_found: "Plik nie znaleziony: `{path}`. Podaj poprawną ścieżkę w panelu bocznym."
+  error_loading: "Błąd ładowania danych: {error}"
+  no_valid_trials: "Brak poprawnych prób po filtracji."
+
+  # Summary
+  summary: "📊 Podsumowanie"
+  num_trials: "Liczba prób"
+  best_sharpe: "Najlepszy Sharpe"
+  median_sharpe: "Mediana Sharpe"
+  best_model: "Najlepszy model"
+  best_ensemble: "Najlepsza metoda ensemble"
+
+  # Trial history
+  trial_history: "📈 Historia prób"
+  trial_sharpe: "Sharpe próby"
+  best_sharpe_cumulative: "Najlepszy Sharpe (narastająco)"
+  trial_number: "Numer próby"
+  trial_hover: "Próba %{x}<br>Sharpe: %{y:.4f}<br>Modele: %{text}"
+
+  # Model comparison
+  model_comparison: "🤖 Porównanie typów modeli i preprocessorów"
+  sharpe_by_model: "Sharpe wg typu modelu"
+  sharpe_distribution: "Rozkład Sharpe dla każdego typu modelu"
+  model_type: "Typ modelu"
+  packboost_impact: "Wpływ Packboost preprocessora"
+  sharpe_with_without_packboost: "Sharpe z i bez Packboost"
+  with_packboost: "Z Packboost"
+  without_packboost: "Bez Packboost"
+
+  # Ensemble & neutralization
+  ensemble_method: "Metoda ensemble"
+  sharpe_by_ensemble: "Sharpe wg metody ensemble"
+  method: "Metoda"
+  neutralization_impact: "Wpływ neutralizacji"
+  sharpe_with_without_neutralization: "Sharpe z i bez neutralizacji predykcji"
+  with_neutralization: "Z neutralizacją"
+  without_neutralization: "Bez neutralizacji"
+
+  # Sub-models
+  nsubs_impact: "🔢 Wpływ liczby sub-modeli (n_subs)"
+  sharpe_vs_nsubs: "Sharpe vs. liczba sub-modeli EraEnsemble"
+  average: "Średnia"
+
+  # Hyperparameters
+  hyperparams_impact: "📉 Wpływ hiperparametrów numerycznych"
+  no_xgboost: "Brak prób z modelem XGBoost."
+  no_lightgbm: "Brak prób z modelem LightGBM."
+
+  # Parallel categories
+  parallel_categories: "🔗 Równoległy wykres kategoryczny"
+  parallel_description: "Wykres typu Sankey pokazujący przepływ konfiguracji do najlepszych Sharpe. Szerokość ścieżki odzwierciedla liczbę prób."
+  yes: "tak"
+  no: "nie"
+  top_25: "Top 25%"
+  remaining: "Pozostałe"
+  neutralization: "Neutralizacja"
+  parallel_title: "Równoległy wykres kategoryczny: konfiguracje → Sharpe"
+
+  # Metrics correlation
+  metrics_correlation: "📐 Korelacja metryk z Sharpe"
+  correlation_matrix: "Macierz korelacji metryk"
+
+  # Leaderboard
+  leaderboard: "🏆 Tabela wyników — top próby"
+  num_trials_display: "Liczba wyświetlanych prób"
+  download_leaderboard: "📥 Pobierz leaderboard jako CSV"
+
+# Error messages
+errors:
+  column_not_found: "Kolumna '{column}' nie znaleziona w danych."
+  computation_error: "Błąd obliczenia: {error}"
+  unexpected_error: "Nieoczekiwany błąd: {error}"
+  unexpected_clustering_error: "Nieoczekiwany błąd podczas klasteryzacji: {error}"

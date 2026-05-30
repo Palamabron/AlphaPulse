@@ -103,6 +103,7 @@ def run_autoresearch(
     seed: int = 42,
     agent_model: str = "claude-sonnet-4-6",
     resume: bool = False,
+    wandb_project: str | None = None,
 ) -> ResearchState:
     """Run the agent-driven research loop.
 
@@ -124,6 +125,21 @@ def run_autoresearch(
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "trials_summary.csv"
     state_path = output_dir / "research_state.json"
+
+    if wandb_project:
+        from ..logging_.wandb_utils import finish_wandb_run, init_wandb_run
+
+        init_wandb_run(
+            project=wandb_project,
+            name=f"autoresearch-{output_dir.name}",
+            config={
+                "max_hours": max_hours,
+                "max_trials": max_trials,
+                "seed": seed,
+                "agent_model": agent_model,
+            },
+        )
+        logger.info("WandB run initialized: project={}", wandb_project)
 
     if resume and state_path.exists():
         state = ResearchState.load(state_path)
@@ -209,6 +225,8 @@ def run_autoresearch(
             action_taken=last_action,
             agent_reasoning=last_reasoning,
             error=error,
+            mmc_sharpe=metrics.get("mmc_sharpe"),
+            payout_score=metrics.get("payout_score"),
         )
         state.add_trial(record)
 
@@ -229,6 +247,20 @@ def run_autoresearch(
 
         state.save(output_dir / "research_state.json")
         _append_csv_row(csv_path, record, write_header=(trial_num == 0))
+
+        if wandb_project and not record.error:
+            from ..logging_.wandb_utils import log_research_step
+
+            log_research_step(
+                trial_number=trial_num,
+                metrics=record.metrics,
+                model_types=record.model_types,
+                action_taken=record.action_taken,
+                elapsed_seconds=record.elapsed_seconds,
+                sharpe=record.sharpe,
+                mmc_sharpe=record.mmc_sharpe,
+                payout_score=record.payout_score,
+            )
 
         trial_num += 1
 
@@ -275,6 +307,12 @@ def run_autoresearch(
     logger.info("Leaderboard saved to: {}", output_dir / "leaderboard.json")
 
     state.save(output_dir / "research_state.json")
+
+    if wandb_project:
+        from ..logging_.wandb_utils import finish_wandb_run
+
+        finish_wandb_run()
+
     return state
 
 
@@ -282,6 +320,8 @@ def _append_csv_row(path: Path, record: TrialRecord, write_header: bool) -> None
     row = {
         "trial_number": record.trial_number,
         "sharpe": record.sharpe,
+        "mmc_sharpe": record.mmc_sharpe if record.mmc_sharpe is not None else "",
+        "payout_score": record.payout_score if record.payout_score is not None else "",
         "mean_per_era_correlation": record.metrics.get("mean_per_era_correlation", ""),
         "std_per_era_correlation": record.metrics.get("std_per_era_correlation", ""),
         "model_types": "+".join(record.model_types),

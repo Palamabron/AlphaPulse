@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,12 +18,17 @@ class NumeraiDataset:
         feature_columns: Ordered list of feature column names.
         target_col: Name of the primary target column.
         split: Which split this represents (e.g. ``"train"``, ``"validation"``).
+        auxiliary_target_cols: Optional list of auxiliary target column names.
+        feature_groups_map: Optional mapping of group name → feature column list
+            from Numerai's native feature group metadata.
     """
 
     df: pd.DataFrame
     feature_columns: list[str]
     target_col: str = "target"
     split: str = ""
+    auxiliary_target_cols: list[str] | None = None
+    feature_groups_map: dict[str, list[str]] | None = None
 
     @property
     def n_rows(self) -> int:
@@ -45,6 +51,13 @@ class NumeraiDataset:
         if "era" in self.df.columns:
             return self.df["era"]
         return None
+
+    @property
+    def y_aux(self) -> pd.DataFrame | None:
+        if not self.auxiliary_target_cols:
+            return None
+        cols = [c for c in self.auxiliary_target_cols if c in self.df.columns]
+        return self.df[cols] if cols else None
 
 
 class NumeraiDataLoader:
@@ -80,12 +93,60 @@ class NumeraiDataLoader:
         if not self.data_dir.is_dir():
             raise FileNotFoundError(f"data_dir does not exist: {self.data_dir}")
 
+    def load_feature_groups(self) -> dict[str, list[str]]:
+        """Load Numerai's native feature group mappings from ``features.json``.
+
+        Numerai's ``features.json`` (v5+) contains a ``"feature_stats"`` or
+        ``"features"`` section with per-feature metadata including group labels.
+        This method extracts group → feature-list mappings.
+
+        Returns:
+            Dict mapping group names to lists of feature column names.
+            Returns an empty dict if the file does not exist or has no group info.
+        """
+        features_path = self.data_dir / "features.json"
+        if not features_path.exists():
+            return {}
+        with open(features_path, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+
+        # v5 format: {"feature_stats": {"feature_xxx": {"group": "intelligence", ...}}}
+        feature_stats = data.get("feature_stats")
+        if isinstance(feature_stats, dict):
+            groups: dict[str, list[str]] = {}
+            for feat_name, feat_meta in feature_stats.items():
+                if not isinstance(feat_meta, dict):
+                    continue
+                group = feat_meta.get("group")
+                if isinstance(group, str):
+                    groups.setdefault(group, []).append(feat_name)
+            if groups:
+                return groups
+
+        # Fallback: look for a top-level "groups" key
+        groups_data = data.get("groups")
+        if isinstance(groups_data, dict):
+            result: dict[str, list[str]] = {}
+            for g, v in groups_data.items():
+                if (
+                    isinstance(g, str)
+                    and isinstance(v, list)
+                    and all(isinstance(x, str) for x in v)
+                ):
+                    result[g] = v
+            return result
+
+        return {}
+
     def load_split(
         self,
         split: str,
         *,
         subsample: float = 1.0,
         seed: int = 42,
+        auxiliary_targets: list[str] | None = None,
     ) -> NumeraiDataset:
         """Load a single parquet split and resolve feature columns.
 
@@ -94,6 +155,10 @@ class NumeraiDataLoader:
                 (``"train"``, ``"validation"``, ``"live"``, or any custom name).
             subsample: Fraction of rows to sample (1.0 = all rows).
             seed: Random seed used when *subsample* < 1.0.
+            auxiliary_targets: Optional list of additional target column names
+                to load alongside the primary target (e.g.
+                ``["target_cyrus_v4_20", "target_nomi_v4_20"]``).
+                Columns that are missing from the file are silently dropped.
 
         Returns:
             A ``NumeraiDataset`` with the loaded DataFrame and resolved
@@ -110,9 +175,13 @@ class NumeraiDataLoader:
 
         feature_names = load_feature_names(self.data_dir, feature_set=self.feature_set)
 
+        extra_cols = [self.target_col, "era", "id"]
+        if auxiliary_targets:
+            extra_cols = list(dict.fromkeys(extra_cols + auxiliary_targets))
+
         if feature_names:
             read_cols: list[str] | None = list(
-                dict.fromkeys(feature_names + [self.target_col, "era", "id"])
+                dict.fromkeys(feature_names + extra_cols)
             )
         else:
             read_cols = None
@@ -132,9 +201,16 @@ class NumeraiDataLoader:
         if 0.0 < subsample < 1.0:
             df = df.sample(frac=subsample, random_state=seed)
 
+        aux_cols_present = (
+            [c for c in auxiliary_targets if c in df.columns]
+            if auxiliary_targets
+            else None
+        )
+
         return NumeraiDataset(
             df=df,
             feature_columns=feature_cols,
             target_col=self.target_col,
             split=split,
+            auxiliary_target_cols=aux_cols_present,
         )

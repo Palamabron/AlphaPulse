@@ -3,11 +3,15 @@
 Supports two modes:
   --local   Random search (no extra dependencies).
   (default) Ray Tune distributed search (requires ``pip install 'alphapulse[hpo]'``).
+
+Pass --wandb-project <name> to log every trial to Weights & Biases.
 """
 
 import json
 import time
+import uuid
 from pathlib import Path
+from typing import Literal
 
 import tyro
 from loguru import logger
@@ -22,6 +26,27 @@ from alphapulse.logging_.leaderboard import (
 )
 
 
+def _load_meta_model_val(data_dir: Path, val_df_index: object) -> object:
+    """Load meta model predictions aligned to validation index, if available."""
+    import numpy as np
+    import pandas as pd
+
+    meta_path = data_dir / "meta_model.parquet"
+    if not meta_path.exists():
+        return None
+    try:
+        meta_df = pd.read_parquet(meta_path)
+        aligned = meta_df.reindex(val_df_index)  # type: ignore[call-overload]
+        col = (
+            "numerai_meta_model"
+            if "numerai_meta_model" in aligned.columns
+            else aligned.columns[0]
+        )
+        return np.asarray(aligned[col].to_numpy(dtype=np.float64))
+    except Exception:
+        return None
+
+
 def _run_local(
     *,
     data_dir: Path,
@@ -30,8 +55,12 @@ def _run_local(
     seed: int,
     num_trials: int,
     output_dir: Path,
+    objective: str = "payout_score",
+    wandb_project: str | None = None,
 ) -> None:
     """Local random-search HPO (no Ray dependency)."""
+    import numpy as np
+
     need_era = True
     X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
         data_dir,
@@ -41,15 +70,23 @@ def _run_local(
         feature_columns=None,
         need_era=need_era,
     )
+    meta_model_preds = _load_meta_model_val(data_dir, X_val.index)
     logger.info(
-        "Data loaded: train={}, val={}, features={}",
+        "Data loaded: train={}, val={}, features={}, meta_model={}",
         X_train.shape,
         X_val.shape,
         len(feature_cols),
+        "yes" if meta_model_preds is not None else "no",
     )
 
+    wandb_group = f"hpo-{uuid.uuid4().hex[:8]}" if wandb_project else None
+    if wandb_project:
+        logger.info(
+            "WandB logging enabled: project={} group={}", wandb_project, wandb_group
+        )
+
     results: list[TrialResult] = []
-    best_sharpe = float("-inf")
+    best_score = float("-inf")
     best_config: dict = {}
 
     for i in range(num_trials):
@@ -65,9 +102,11 @@ def _run_local(
                 era_val=era_val,
                 feature_cols=feature_cols,
                 seed=seed + i,
+                meta_model_preds=meta_model_preds,
             )
             elapsed = time.perf_counter() - t0
             sharpe = metrics.get("sharpe", float("-inf"))
+            trial_score = float(metrics.get(objective, sharpe))
             result = TrialResult(
                 trial_number=i,
                 sharpe=sharpe,
@@ -75,10 +114,14 @@ def _run_local(
                 model_type=flat_config.get("model_1_type", "XGBoost"),
                 elapsed_seconds=elapsed,
                 params=flat_config,
+                corr_sharpe=metrics.get("corr_sharpe", sharpe),
+                mmc_sharpe=metrics.get("mmc_sharpe"),
+                payout_score=metrics.get("payout_score"),
             )
         except Exception as e:
             elapsed = time.perf_counter() - t0
             logger.warning("Trial {} failed: {}", i, e)
+            trial_score = float("-inf")
             result = TrialResult(
                 trial_number=i,
                 sharpe=float("-inf"),
@@ -90,11 +133,17 @@ def _run_local(
             )
 
         results.append(result)
+        payout_str = (
+            f" payout={result.payout_score:.4f}"
+            if result.payout_score is not None
+            else ""
+        )
         logger.info(
-            "Trial {}/{}: sharpe={:.4f} ({:.1f}s){}",
+            "Trial {}/{}: sharpe={:.4f}{} ({:.1f}s){}",
             i + 1,
             num_trials,
             result.sharpe,
+            payout_str,
             result.elapsed_seconds,
             f" [ERROR: {result.error}]" if result.error else "",
         )
@@ -104,15 +153,26 @@ def _run_local(
             current_trial=i,
         )
 
-        if result.sharpe > best_sharpe:
-            best_sharpe = result.sharpe
+        if wandb_project and wandb_group and not result.error:
+            from alphapulse.logging_.wandb_utils import log_hpo_trial
+
+            log_hpo_trial(
+                result=result,
+                flat_config=flat_config,
+                project=wandb_project,
+                group=wandb_group,
+                objective=trial_score,
+            )
+
+        if trial_score > best_score:
+            best_score = trial_score
             best_config = flat_config
 
     output_dir.mkdir(parents=True, exist_ok=True)
     best_path = output_dir / "best_config.json"
     with open(best_path, "w", encoding="utf-8") as f:
         json.dump(best_config, f, indent=2)
-    logger.info("Best sharpe: {:.4f}", best_sharpe)
+    logger.info("Best objective score: {:.4f}", best_score)
     logger.info("Best config saved to: {}", best_path)
 
     all_results_path = output_dir / "all_trials.json"
@@ -137,6 +197,12 @@ def _run_local(
     )
     logger.info("Leaderboard saved to: {}", output_dir / "leaderboard.json")
 
+    if wandb_project and wandb_group:
+        from alphapulse.logging_.wandb_utils import log_hpo_summary_table
+
+        log_hpo_summary_table(results, project=wandb_project, group=wandb_group)
+        logger.info("WandB summary table logged to project={}", wandb_project)
+
 
 def _run_ray(
     *,
@@ -146,6 +212,8 @@ def _run_ray(
     seed: int,
     num_trials: int,
     output_dir: Path,
+    objective: str = "payout_score",
+    wandb_project: str | None = None,
 ) -> None:
     """Ray Tune distributed HPO."""
     try:
@@ -191,15 +259,39 @@ def _run_ray(
         max_report_frequency=30,
     )
 
+    callbacks = []
+    if wandb_project:
+        try:
+            from ray.air.integrations.wandb import WandbLoggerCallback
+
+            wandb_group = f"hpo-ray-{uuid.uuid4().hex[:8]}"
+            callbacks.append(
+                WandbLoggerCallback(
+                    project=wandb_project,
+                    group=wandb_group,
+                    log_config=True,
+                )
+            )
+            logger.info(
+                "WandB Ray callback enabled: project={} group={}",
+                wandb_project,
+                wandb_group,
+            )
+        except ImportError:
+            logger.warning(
+                "ray.air.integrations.wandb not available; skipping WandB logging for Ray mode."
+            )
+
     analysis = tune.run(
         trainable,
         config=param_space,
         num_samples=num_trials,
-        metric="sharpe",
+        metric=objective,
         mode="max",
         progress_reporter=reporter,
         local_dir=str(output_dir / "ray_results"),
         verbose=1,
+        callbacks=callbacks,
     )
 
     best_trial = analysis.best_trial
@@ -210,8 +302,8 @@ def _run_ray(
     with open(best_path, "w", encoding="utf-8") as f:
         json.dump(best_config, f, indent=2, default=str)
     logger.info("Best config saved to: {}", best_path)
-    best_sharpe = analysis.best_result.get("sharpe") if best_trial else "N/A"
-    logger.info("Best sharpe: {}", best_sharpe)
+    best_score = analysis.best_result.get(objective) if best_trial else "N/A"
+    logger.info("Best {}: {}", objective, best_score)
 
     ray.shutdown()
 
@@ -224,10 +316,14 @@ def main(
     num_trials: int = 30,
     output_dir: Path = Path("artifacts/hpo"),
     local: bool = False,
+    objective: Literal["sharpe", "corr_sharpe", "payout_score"] = "payout_score",
+    wandb_project: str | None = None,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
     Use --local for random search without Ray, or omit for Ray Tune.
+    Use --objective to choose the optimization target (default: payout_score).
+    Pass --wandb-project <name> to log every trial to Weights & Biases.
     """
     if local:
         _run_local(
@@ -237,6 +333,8 @@ def main(
             seed=seed,
             num_trials=num_trials,
             output_dir=output_dir,
+            objective=objective,
+            wandb_project=wandb_project,
         )
     else:
         _run_ray(
@@ -246,6 +344,8 @@ def main(
             seed=seed,
             num_trials=num_trials,
             output_dir=output_dir,
+            objective=objective,
+            wandb_project=wandb_project,
         )
 
 

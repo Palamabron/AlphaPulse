@@ -41,11 +41,13 @@ class DataConfig(BaseModel):
     train_subsample: float = Field(1.0, gt=0.0, le=1.0)
     target_col: str = "target"
     seed: int = 42
+    auxiliary_targets: list[str] | None = None
 
 
 class FeatureConfig(BaseModel):
     columns: list[str] | None = None
     groups: dict[str, list[str]] = Field(default_factory=dict)
+    use_numerai_groups: bool = False
 
 
 class PreprocessorStep(BaseModel):
@@ -87,11 +89,19 @@ class NeutralizationConfig(BaseModel):
 
 class EvaluationConfig(BaseModel):
     primary_metric: Literal[
-        "mean_per_era_correlation", "sharpe", "correlation", "corr_sharpe"
+        "mean_per_era_correlation",
+        "sharpe",
+        "correlation",
+        "corr_sharpe",
+        "payout_score",
+        "mmc_sharpe",
     ] = "corr_sharpe"
     era_holdout_last_n: int | None = None
     walk_forward: bool = False
     walk_forward_min_train_eras: int = Field(default=1, ge=1)
+    meta_model_path: str | None = None
+    corr_weight: float = Field(default=0.75, ge=0.0)
+    mmc_weight: float = Field(default=2.25, ge=0.0)
 
 
 class TrainConfig(BaseModel):

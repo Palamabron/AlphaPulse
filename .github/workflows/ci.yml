@@ -25,6 +25,8 @@ jobs:
         uses: astral-sh/setup-uv@v1
         with:
           version: "0.8.15"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Sync dependencies
         run: uv sync --extra dev

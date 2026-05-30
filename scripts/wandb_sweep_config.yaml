@@ -1,0 +1,111 @@
+# WandB Sweep configuration for AlphaPulse HPO
+#
+# Usage:
+#   1. Create the sweep:
+#        wandb sweep scripts/wandb_sweep_config.yaml
+#   2. Start one or more agents (each runs a trial):
+#        wandb agent <SWEEP_ID>
+#   3. View results in the WandB dashboard — parallel coordinates,
+#      parameter importance, and optimization history are auto-generated.
+#
+# The sweep agent calls scripts/hpo_pipeline.py --local for each trial
+# and logs metrics via the --wandb-project flag.
+#
+# For local parallel execution, run multiple agents in separate terminals.
+# For distributed execution, run agents on different machines.
+
+program: scripts/hpo_pipeline.py
+method: bayes           # Bayesian optimization (faster convergence than random)
+metric:
+  goal: maximize
+  name: payout_score    # 0.75*CORR_sharpe + 2.25*MMC_sharpe (requires meta_model.parquet)
+
+# --- Hyperparameter search space ---
+parameters:
+  # Scaler
+  scaler_type:
+    values: [StandardScaler, RobustScaler]
+
+  # Packboost preprocessor
+  use_packboost:
+    values: [true, false]
+  packboost_n_worst_eras:
+    values: [3, 5, 7]
+  packboost_boost_weight:
+    min: 0.1
+    max: 0.5
+    distribution: uniform
+  packboost_n_rounds_base:
+    values: [200, 300, 500]
+  packboost_n_rounds_boost:
+    values: [100, 150, 200]
+
+  # Ensemble size
+  num_models:
+    values: [1, 2, 3]
+
+  # Model types (only model_1 matters when num_models=1)
+  model_1_type:
+    values: [XGBoost, LightGBM, CatBoost, Packboost]
+  model_2_type:
+    values: [XGBoost, LightGBM, CatBoost, Packboost]
+  model_3_type:
+    values: [XGBoost, LightGBM, CatBoost, Packboost]
+
+  # Era-ensemble size
+  n_subs:
+    values: [5, 8, 10, 15]
+
+  # XGBoost params
+  xgb_max_depth:
+    values: [3, 5, 7]
+  xgb_learning_rate:
+    min: 0.001
+    max: 0.1
+    distribution: log_uniform_values
+  xgb_n_rounds:
+    values: [300, 500, 800]
+  xgb_early_stopping:
+    values: [30, 50, 100]
+
+  # LightGBM params
+  lgbm_num_leaves:
+    values: [16, 31, 63, 127]
+  lgbm_learning_rate:
+    min: 0.005
+    max: 0.05
+    distribution: log_uniform_values
+  lgbm_n_rounds:
+    values: [300, 500, 800, 1500]
+  lgbm_min_child_samples:
+    values: [100, 200, 500]
+  lgbm_early_stopping:
+    values: [50, 100]
+
+  # Ensemble method
+  ensemble_method:
+    values: [single, weighted, stacking]
+  stacking_meta_learner:
+    values: [ridge, xgboost]
+
+  # Neutralization
+  use_neutralization:
+    values: [true, false]
+  neutralization_proportion:
+    min: 0.1
+    max: 0.8
+    distribution: uniform
+
+# Fixed CLI flags passed to every agent run
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --local
+  - --num-trials
+  - "1"
+  - --objective
+  - payout_score
+  - --wandb-project
+  - ${wandb_project}
+  - ${args}

@@ -28,7 +28,6 @@ class GaussianNoiseInjector(BasePreprocessor):
             X[self._numeric_cols].std(axis=0).values, dtype=np.float64
         )
         self._feature_std = np.where(self._feature_std < 1e-12, 1.0, self._feature_std)
-        self._training = False
         self.is_fitted = True
         return self
 

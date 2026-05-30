@@ -9,11 +9,16 @@ except ImportError:
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
+AUGMENTER_SAMPLE_PROB = 0.05
 
 
 def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
-    if phase != "phase_a" and rng.random() < FOUNDATION_SAMPLE_PROB:
-        return rng.choice(FOUNDATION_MODELS)
+    if phase != "phase_a":
+        roll = rng.random()
+        if roll < FOUNDATION_SAMPLE_PROB:
+            return rng.choice(FOUNDATION_MODELS)
+        if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
+            return "SyntheticDataAugmenter"
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -100,6 +105,9 @@ def sample_random_config(
         "stacking_meta_learner": rng.choice(["ridge", "xgboost"]),
         "use_neutralization": rng.choice([True, False]),
         "neutralization_proportion": rng.uniform(0.1, 0.8),
+        "augmenter_top_fraction": rng.uniform(0.05, 0.20),
+        "augmenter_n_synthetic": rng.choice([200, 500, 1000]),
+        "augmenter_backend": "auto",
     }
 
 
@@ -245,6 +253,12 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             }
         if t in ("TabPFN", "TabPFN3", "TabICL", "TabPFN3Reasoning"):
             return {}
+        if t == "SyntheticDataAugmenter":
+            return {
+                "top_fraction": flat.get("augmenter_top_fraction", 0.10),
+                "n_synthetic": flat.get("augmenter_n_synthetic", 500),
+                "backend": flat.get("augmenter_backend", "auto"),
+            }
         return {}
 
     tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
