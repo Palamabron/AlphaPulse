@@ -14,6 +14,7 @@ from ..models.sklearn_models import ExtraTreesModel, RandomForestModel, RidgeMod
 from ..models.xgboost_model import XGBoostModel
 from ..preprocessors.base import BasePreprocessor
 from ..preprocessors.compression import PCAPreprocessor, TruncatedSVDPreprocessor
+from ..preprocessors.era_stable import EraStableFeatureSelector
 from ..preprocessors.feature_selection import (
     LGBMImportanceSelector,
     VarianceFeatureSelector,
@@ -179,5 +180,9 @@ PREPROCESSOR_REGISTRY: dict[str, tuple[type[BasePreprocessor], dict[str, Any]]] 
     "GaussianNoise": (
         GaussianNoiseInjector,
         {"sigma": 0.01},
+    ),
+    "EraStableSelector": (
+        EraStableFeatureSelector,
+        {"keep_fraction": 0.5, "stability_weight": 0.5},
     ),
 }

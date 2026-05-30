@@ -7,6 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from eda.utils import translate
+
 st.set_page_config(page_title="Analiza Korelacji", page_icon="🔗", layout="wide")
 
 if "data_loaded" not in st.session_state:
@@ -71,18 +73,46 @@ if corr_type == "Cechy vs Target":
     st.header(f"📊 Korelacja Cech z {selected_target.upper()}")
     st.info(f"Analizuję **{len(feature_set)}** cech względem **{selected_target}**...")
 
-    with st.spinner("Obliczanie korelacji..."):
-        correlations = []
-        target_col = _normalize_col_name(selected_target)
-        for feat in feature_set:
-            feat_col = _normalize_col_name(feat)
-            corr = train[[feat_col, target_col]].corr().iloc[0, 1]
-            correlations.append(
-                {"Cecha": feat_col, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
+    try:
+        with st.spinner("Obliczanie korelacji..."):
+            correlations = []
+            target_col = _normalize_col_name(selected_target)
+            for feat in feature_set:
+                feat_col = _normalize_col_name(feat)
+                corr = train[[feat_col, target_col]].corr().iloc[0, 1]
+                correlations.append(
+                    {"Cecha": feat_col, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
+                )
+            corr_df = pd.DataFrame(correlations).sort_values(
+                "Abs_Korelacja", ascending=False
             )
-        corr_df = pd.DataFrame(correlations).sort_values(
-            "Abs_Korelacja", ascending=False
+    except KeyError as e:
+        lang = st.session_state.get("lang", "English")
+        st.error(
+            translate(
+                f"Column '{e}' not found in data.",
+                f"Kolumna '{e}' nie znaleziona w danych.",
+            )
         )
+        st.stop()
+    except ValueError as e:
+        lang = st.session_state.get("lang", "English")
+        st.error(
+            translate(
+                f"Computation error: {e}",
+                f"Błąd obliczenia: {e}",
+            )
+        )
+        st.stop()
+    except Exception as e:
+        lang = st.session_state.get("lang", "English")
+        st.error(
+            translate(
+                f"Unexpected error: {e}",
+                f"Nieoczekiwany błąd: {e}",
+            )
+        )
+        st.stop()
 
     avg_corr_col, max_positive_col, max_negative_col, threshold_count_col = st.columns(
         4

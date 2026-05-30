@@ -1,9 +1,12 @@
 """Target Analysis Page — Comprehensive target variable exploration."""
 
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+
+from eda.utils import create_download_button
 
 st.set_page_config(page_title="Analiza Target", page_icon="🎯", layout="wide")
 
@@ -73,6 +76,45 @@ with col_q1_q3:
 with col_skew_kurtosis:
     st.metric("Skewness", f"{skewness:.6f}")
     st.metric("Kurtosis", f"{kurtosis:.6f}")
+
+# Create summary dataframe for export
+summary_stats = pd.DataFrame(
+    {
+        "metric": [
+            "mean",
+            "std",
+            "median",
+            "iqr",
+            "min",
+            "max",
+            "q25",
+            "q75",
+            "skewness",
+            "kurtosis",
+        ],
+        "value": [
+            target_stats["mean"],
+            target_stats["std"],
+            target_stats["50%"],
+            target_stats["75%"] - target_stats["25%"],
+            target_stats["min"],
+            target_stats["max"],
+            target_stats["25%"],
+            target_stats["75%"],
+            skewness,
+            kurtosis,
+        ],
+    }
+)
+
+lang = st.session_state.get("lang", "English")
+create_download_button(
+    summary_stats,
+    f"target_summary_{selected_target}.csv",
+    label=None,
+    key="download_target_summary",
+    lang=lang,
+)
 
 st.divider()
 
@@ -301,6 +343,16 @@ with col_median_iqr:
     fig.update_layout(height=400)
     fig.update_yaxes(title_text=f"Std Dev {selected_target}")
     st.plotly_chart(fig, width="stretch")
+
+# Download button for era statistics
+lang = st.session_state.get("lang", "English")
+create_download_button(
+    era_stats_full,
+    f"target_era_stats_{selected_target}.csv",
+    label=None,
+    key="download_target_era_stats",
+    lang=lang,
+)
 
 st.subheader("Kompleksowa analiza w czasie")
 

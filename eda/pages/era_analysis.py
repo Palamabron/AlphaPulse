@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
+from eda.utils import create_download_button
+
 st.set_page_config(page_title="Analiza Era", page_icon="⏰", layout="wide")
 
 if "data_loaded" not in st.session_state:
@@ -126,6 +128,16 @@ with avg_obs_col:
 
 with min_obs_col:
     st.metric("Mediana Obs.", f"{era_stats['count'].median():.0f}")
+
+# Download button for era statistics
+lang = st.session_state.get("lang", "English")
+create_download_button(
+    era_stats,
+    f"era_statistics_{selected_target}.csv",
+    label=None,
+    key="download_era_stats",
+    lang=lang,
+)
 
 st.divider()
 

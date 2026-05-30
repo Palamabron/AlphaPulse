@@ -30,6 +30,7 @@ def main(
     seed: int = 42,
     agent_model: str = "claude-sonnet-4-6",
     resume: bool = False,
+    wandb_project: str | None = None,
 ) -> None:
     """Run the AutoResearch loop.
 
@@ -44,6 +45,7 @@ def main(
         seed: Base random seed.
         agent_model: Claude model for the research agent decisions.
         resume: Resume from existing research_state.json in output_dir.
+        wandb_project: WandB project name. When set, logs all trials to W&B.
     """
     if hours is None and trials is None:
         logger.error("Provide at least one of --hours or --trials.")
@@ -84,6 +86,7 @@ def main(
         seed=seed,
         agent_model=agent_model,
         resume=resume,
+        wandb_project=wandb_project,
     )
 
     n_ok = sum(1 for t in state.trials if t.error is None)
@@ -92,13 +95,26 @@ def main(
         len(state.trials),
         n_ok,
     )
+
+    pareto_path = output_dir / "pareto_front.json"
+    pareto_members = state.pareto_front.to_list()
+    pareto_path.write_text(json.dumps(pareto_members, indent=2))
+    logger.info(
+        "Pareto front ({} configs) saved to {}", len(pareto_members), pareto_path
+    )
+
     if state.best_trial:
         b = state.best_trial
+        payout_str = (
+            f", payout={b.payout_score:.4f}" if b.payout_score is not None else ""
+        )
+        mmc_str = f", mmc_sharpe={b.mmc_sharpe:.4f}" if b.mmc_sharpe is not None else ""
         logger.info(
-            "Best → trial #{}: sharpe={:.4f}, corr={:.4f}, models={}",
+            "Best → trial #{}: corr_sharpe={:.4f}{}{}, models={}",
             b.trial_number,
             b.sharpe,
-            b.metrics.get("mean_per_era_correlation", 0.0),
+            mmc_str,
+            payout_str,
             "+".join(b.model_types),
         )
         logger.info("Outputs saved to: {}", output_dir)

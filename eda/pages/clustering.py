@@ -11,6 +11,7 @@ import streamlit as st
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
 
+from eda.utils import translate
 from eda.utils.config import FEATURES_JSON_PATH
 
 st.set_page_config(page_title="Clustering", page_icon="🔬", layout="wide")
@@ -153,11 +154,39 @@ else:
 
 st.divider()
 
-with st.spinner("Obliczanie macierzy korelacji i linkage..."):
-    corr_matrix = train[selected_features].corr()
-    distance_matrix = 1 - corr_matrix.abs()
-    distance_condensed = squareform(distance_matrix, checks=False)
-    linkage_matrix = hierarchy.linkage(distance_condensed, method=linkage_method)
+try:
+    with st.spinner("Obliczanie macierzy korelacji i linkage..."):
+        corr_matrix = train[selected_features].corr()
+        distance_matrix = 1 - corr_matrix.abs()
+        distance_condensed = squareform(distance_matrix, checks=False)
+        linkage_matrix = hierarchy.linkage(distance_condensed, method=linkage_method)
+except KeyError as e:
+    lang = st.session_state.get("lang", "English")
+    st.error(
+        translate(
+            f"Column '{e}' not found in data.",
+            f"Kolumna '{e}' nie znaleziona w danych.",
+        )
+    )
+    st.stop()
+except ValueError as e:
+    lang = st.session_state.get("lang", "English")
+    st.error(
+        translate(
+            f"Computation error: {e}",
+            f"Błąd obliczenia: {e}",
+        )
+    )
+    st.stop()
+except Exception as e:
+    lang = st.session_state.get("lang", "English")
+    st.error(
+        translate(
+            f"Unexpected error during clustering: {e}",
+            f"Nieoczekiwany błąd podczas klasteryzacji: {e}",
+        )
+    )
+    st.stop()
 
 feature_count_col, avg_corr_col, max_corr_col, method_col = st.columns(4)
 with feature_count_col:

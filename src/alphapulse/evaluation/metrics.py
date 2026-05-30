@@ -110,6 +110,14 @@ def era_sharpe(y_true: pd.Series, y_pred: np.ndarray, eras: pd.Series) -> float:
     return sharpe
 
 
+def _neutralize_vec(p_r: np.ndarray, m_r: np.ndarray) -> np.ndarray:
+    """Remove the component of p_r in the direction of m_r (OLS residual)."""
+    denom = float(m_r @ m_r)
+    if denom > 0.0:
+        return p_r - (float(p_r @ m_r) / denom) * m_r
+    return p_r.copy()
+
+
 def mmc_score(
     y_true: pd.Series,
     y_pred: np.ndarray,
@@ -126,6 +134,20 @@ def mmc_score(
       4. Computing Spearman correlation of residual with target
     Returns the mean over all valid eras.
     """
+    valid = per_era_mmc(y_true, y_pred, meta_model, eras).dropna()
+    return float(valid.mean()) if len(valid) > 0 else float("nan")
+
+
+def per_era_mmc(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    meta_model: np.ndarray,
+    eras: pd.Series,
+) -> pd.Series:
+    """Compute per-era MMC (Meta Model Contribution) values.
+
+    Returns a Series indexed by era with per-era MMC correlation scores.
+    """
     pred_arr = np.asarray(y_pred, dtype=np.float64)
     meta_arr = np.asarray(meta_model, dtype=np.float64)
     y_arr = np.asarray(y_true.to_numpy(dtype=np.float64), dtype=np.float64)
@@ -137,11 +159,12 @@ def mmc_score(
         )
 
     eras_sorted = sorted(pd.unique(e_arr), key=str)
-    era_scores: list[float] = []
+    out: dict[Any, float] = {}
 
     for era in eras_sorted:
         mask = e_arr == era
         if mask.sum() < 2:
+            out[era] = float("nan")
             continue
 
         p = pred_arr[mask]
@@ -150,6 +173,7 @@ def mmc_score(
 
         finite = np.isfinite(p) & np.isfinite(m) & np.isfinite(t)
         if finite.sum() < 2:
+            out[era] = float("nan")
             continue
 
         p = p[finite]
@@ -161,18 +185,147 @@ def mmc_score(
         p_r -= p_r.mean()
         m_r -= m_r.mean()
 
-        denom = float(m_r @ m_r)
-        if denom > 0.0:
-            p_neutral = p_r - (float(p_r @ m_r) / denom) * m_r
-        else:
-            p_neutral = p_r
-
+        p_neutral = _neutralize_vec(p_r, m_r)
         t_r = rankdata(t, method="average").astype(np.float64)
         score = _corr_pearson(p_neutral, t_r)
-        if np.isfinite(score):
-            era_scores.append(score)
+        out[era] = score if np.isfinite(score) else float("nan")
 
-    return float(np.mean(era_scores)) if era_scores else float("nan")
+    return pd.Series(out, dtype=np.float64)
+
+
+def era_sharpe_of_mmc(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    meta_model: np.ndarray,
+    eras: pd.Series,
+) -> float:
+    """Sharpe ratio of per-era MMC values (mean / std)."""
+    per_era = per_era_mmc(y_true, y_pred, meta_model, eras)
+    valid = per_era.dropna()
+    if len(valid) == 0:
+        return float("-inf")
+    std = float(valid.std(ddof=0))
+    if std == 0.0 or not np.isfinite(std):
+        return float("-inf")
+    sharpe = float(valid.mean() / std)
+    return sharpe if np.isfinite(sharpe) else float("-inf")
+
+
+def fnc_score(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    features_df: pd.DataFrame,
+    eras: pd.Series,
+) -> float:
+    """FNC: mean per-era CORR after neutralizing predictions against features.
+
+    Per era:
+      1. Rank-normalize predictions and each feature column.
+      2. Regress predictions on features (OLS) and take residuals.
+      3. Compute Spearman correlation of residuals with target.
+    Returns the mean over valid eras.
+
+    Note: Expensive for large feature sets. Call selectively.
+    """
+    valid = per_era_fnc(y_true, y_pred, features_df, eras).dropna()
+    return float(valid.mean()) if len(valid) > 0 else float("nan")
+
+
+def per_era_fnc(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    features_df: pd.DataFrame,
+    eras: pd.Series,
+) -> pd.Series:
+    """Compute per-era Feature Neutral Correlation values."""
+    pred_arr = np.asarray(y_pred, dtype=np.float64)
+    y_arr = np.asarray(y_true.to_numpy(dtype=np.float64), dtype=np.float64)
+    e_arr = np.asarray(eras.to_numpy())
+    feat_arr = np.asarray(features_df.to_numpy(dtype=np.float64))
+
+    if not (len(pred_arr) == len(y_arr) == len(e_arr) == len(feat_arr)):
+        raise ValueError(
+            "y_true, y_pred, features_df, and eras must have the same length."
+        )
+
+    eras_sorted = sorted(pd.unique(e_arr), key=str)
+    out: dict[Any, float] = {}
+
+    for era in eras_sorted:
+        mask = e_arr == era
+        if mask.sum() < 2:
+            out[era] = float("nan")
+            continue
+
+        p = pred_arr[mask]
+        t = y_arr[mask]
+        F = feat_arr[mask]
+
+        valid_rows = np.isfinite(p) & np.isfinite(t) & np.all(np.isfinite(F), axis=1)
+        if valid_rows.sum() < 2:
+            out[era] = float("nan")
+            continue
+
+        p = p[valid_rows]
+        t = t[valid_rows]
+        F = F[valid_rows]
+
+        p_r = rankdata(p, method="average").astype(np.float64)
+        F_r = np.column_stack(
+            [
+                rankdata(F[:, j], method="average").astype(np.float64)
+                for j in range(F.shape[1])
+            ]
+        )
+        p_r -= p_r.mean()
+        F_r -= F_r.mean(axis=0)
+
+        beta, _, _, _ = np.linalg.lstsq(F_r, p_r, rcond=None)
+        residual = p_r - F_r @ beta
+
+        t_r = rankdata(t, method="average").astype(np.float64)
+        score = _corr_pearson(residual, t_r)
+        out[era] = score if np.isfinite(score) else float("nan")
+
+    return pd.Series(out, dtype=np.float64)
+
+
+def era_sharpe_of_fnc(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    features_df: pd.DataFrame,
+    eras: pd.Series,
+) -> float:
+    """Sharpe ratio of per-era FNC values (mean / std)."""
+    per_era = per_era_fnc(y_true, y_pred, features_df, eras)
+    valid = per_era.dropna()
+    if len(valid) == 0:
+        return float("-inf")
+    std = float(valid.std(ddof=0))
+    if std == 0.0 or not np.isfinite(std):
+        return float("-inf")
+    sharpe = float(valid.mean() / std)
+    return sharpe if np.isfinite(sharpe) else float("-inf")
+
+
+def payout_score(
+    y_true: pd.Series,
+    y_pred: np.ndarray,
+    meta_model_preds: np.ndarray,
+    eras: pd.Series,
+    corr_weight: float = 0.75,
+    mmc_weight: float = 2.25,
+) -> float:
+    """Numerai payout formula: corr_weight * corr_sharpe + mmc_weight * mmc_sharpe.
+
+    Default weights reflect the 0.75*CORR20v2 + 2.25*MMC tournament formula.
+    Both components use Sharpe ratios (mean/std) of per-era scores.
+    """
+    cs = era_sharpe(y_true, y_pred, eras)
+    ms = era_sharpe_of_mmc(y_true, y_pred, meta_model_preds, eras)
+    cs_val = cs if np.isfinite(cs) else 0.0
+    ms_val = ms if np.isfinite(ms) else 0.0
+    return corr_weight * cs_val + mmc_weight * ms_val
 
 
 def era_correlation_metrics(
@@ -219,21 +372,52 @@ def calculate_metrics(
     y_true: pd.Series,
     y_pred: np.ndarray,
     eras: pd.Series,
+    *,
+    meta_model_preds: np.ndarray | None = None,
+    corr_weight: float = 0.75,
+    mmc_weight: float = 2.25,
 ) -> dict[str, float]:
     """Compute the canonical backtest metric dict.
 
+    Args:
+        y_true: True target values.
+        y_pred: Model predictions.
+        eras: Era labels aligned with y_true and y_pred.
+        meta_model_preds: Optional Numerai meta model predictions for the same rows.
+            When provided, ``mmc_sharpe`` and ``payout_score`` are included.
+        corr_weight: Weight for CORR Sharpe in payout formula. Default 0.75.
+        mmc_weight: Weight for MMC Sharpe in payout formula. Default 2.25.
+
     Returns:
         Dict with ``mean_per_era_correlation``, ``std_per_era_correlation``,
-        ``corr_sharpe``, and the legacy aliases ``sharpe`` and ``correlation``
-        (equal to ``corr_sharpe`` and ``mean_per_era_correlation`` respectively).
+        ``corr_sharpe``, ``max_drawdown``, ``pct_positive_eras``,
+        ``n_valid_eras``, and legacy aliases ``sharpe`` / ``correlation``.
+        When meta model is provided: also ``mmc_sharpe`` and ``payout_score``.
     """
     scoring = era_correlation_metrics(y_true, y_pred, eras)
     mean_corr = scoring["mean_era_corr"]
     corr_sharpe = scoring["corr_sharpe"]
-    return {
+    result: dict[str, float] = {
         "mean_per_era_correlation": mean_corr,
         "std_per_era_correlation": scoring["std_era_corr"],
         "corr_sharpe": corr_sharpe,
         "sharpe": corr_sharpe,
         "correlation": mean_corr,
+        "max_drawdown": scoring["max_drawdown"],
+        "pct_positive_eras": scoring["pct_positive_eras"],
+        "n_valid_eras": scoring["n_valid_eras"],
     }
+    if meta_model_preds is not None:
+        meta_arr = np.asarray(meta_model_preds, dtype=np.float64)
+        ms = era_sharpe_of_mmc(y_true, y_pred, meta_arr, eras)
+        result["mmc_sharpe"] = ms
+        ps = payout_score(
+            y_true,
+            y_pred,
+            meta_arr,
+            eras,
+            corr_weight=corr_weight,
+            mmc_weight=mmc_weight,
+        )
+        result["payout_score"] = ps
+    return result

@@ -8,6 +8,8 @@ import plotly.express as px
 import streamlit as st
 from scipy import stats
 
+from eda.utils import create_download_button
+
 st.set_page_config(page_title="Rozkłady Cech", page_icon="📊", layout="wide")
 
 if "data_loaded" not in st.session_state:
@@ -185,5 +187,15 @@ with uniform_count_col:
 with avg_p_value_col:
     avg_p_value = chi_df["P-Value"].mean()
     st.metric("Średnia P-Value", f"{avg_p_value:.4f}")
+
+# Download button for chi-square results
+lang = st.session_state.get("lang", "English")
+create_download_button(
+    chi_df,
+    "chi_square_uniformity_test.csv",
+    label=None,
+    key="download_chi_square",
+    lang=lang,
+)
 
 st.divider()
