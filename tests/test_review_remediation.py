@@ -47,18 +47,20 @@ def numerai_dataset_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def toy_data_with_era() -> dict[str, Any]:
-    np.random.seed(42)
-    n = 240
-    X = pd.DataFrame(np.random.randn(n, 4).astype(np.float64), columns=list("ABCD"))
-    X["era"] = np.repeat(["e1", "e2", "e3", "e4"], n // 4)
-    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + np.random.randn(n) * 0.2)
-    feature_cols = list("ABCD") + ["era"]
+    rng = np.random.default_rng(42)
+    n_eras = 40
+    rows_per_era = 8
+    n = n_eras * rows_per_era
+    X = pd.DataFrame(
+        rng.standard_normal((n, 4)).astype(np.float64), columns=list("ABCD")
+    )
+    X["era"] = np.repeat([f"era_{i:04d}" for i in range(n_eras)], rows_per_era)
+    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + rng.standard_normal(n) * 0.2)
+    feature_cols = list("ABCD")
     return {
         "X_train": X,
         "y_train": y,
-        "X_val": X.iloc[:60],
-        "y_val": y.iloc[:60],
-        "era_val": X["era"].iloc[:60],
+        "era_train": X["era"],
         "feature_cols": feature_cols,
     }
 
@@ -234,16 +236,14 @@ def test_autoresearch_run_one_trial(toy_data_with_era: dict[str, Any]) -> None:
         seed=0,
         X_train=toy_data_with_era["X_train"],
         y_train=toy_data_with_era["y_train"],
-        X_val=toy_data_with_era["X_val"],
-        y_val=toy_data_with_era["y_val"],
-        era_val=toy_data_with_era["era_val"],
+        era_train=toy_data_with_era["era_train"],
         feature_cols=toy_data_with_era["feature_cols"],
     )
     assert elapsed > 0
-    assert "sharpe" in metrics
+    assert "corr_sharpe" in metrics
 
 
-def test_autoresearch_run_one_trial_accepts_train_kwargs(
+def test_autoresearch_run_one_trial_pipeline_is_fit(
     toy_data_with_era: dict[str, Any],
 ) -> None:
     config = {
@@ -266,12 +266,13 @@ def test_autoresearch_run_one_trial_accepts_train_kwargs(
     }
     with patch("alphapulse.autoresearch.loop.build_pipeline_or_multi") as mock_build:
         mock_pipeline = mock_build.return_value
-        mock_pipeline.fit.return_value = {}
-        with patch("alphapulse.autoresearch.loop.Backtester") as mock_bt:
-            mock_bt.return_value.evaluate.return_value = {"sharpe": 1.0}
-            _run_one_trial(
-                config,
-                seed=0,
-                **toy_data_with_era,
-            )
-            mock_pipeline.fit.assert_called_once()
+        mock_pipeline.predict.side_effect = lambda X: np.zeros(len(X))
+        _run_one_trial(
+            config,
+            seed=0,
+            X_train=toy_data_with_era["X_train"],
+            y_train=toy_data_with_era["y_train"],
+            era_train=toy_data_with_era["era_train"],
+            feature_cols=toy_data_with_era["feature_cols"],
+        )
+        assert mock_pipeline.fit.called

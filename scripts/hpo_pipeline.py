@@ -4,6 +4,10 @@ Supports two modes:
   --local   Random search (no extra dependencies).
   (default) Ray Tune distributed search (requires ``pip install 'alphapulse[hpo]'``).
 
+Each trial is scored via walk-forward backtesting (3 folds, n_purge=4) so
+that the objective reflects temporal out-of-sample performance rather than a
+fixed holdout split. The default objective is corr_sharpe from walk-forward.
+
 Pass --wandb-project <name> to log every trial to Weights & Biases.
 """
 
@@ -16,7 +20,7 @@ from typing import Literal
 import tyro
 from loguru import logger
 
-from alphapulse.experiments.data import load_train_val_frames
+from alphapulse.experiments.data import load_train_only_frame
 from alphapulse.hpo.objective import TrialResult, run_trial
 from alphapulse.hpo.search_space import sample_random_config
 from alphapulse.logging_.leaderboard import (
@@ -24,27 +28,6 @@ from alphapulse.logging_.leaderboard import (
     print_leaderboard,
     save_leaderboard,
 )
-
-
-def _load_meta_model_val(data_dir: Path, val_df_index: object) -> object:
-    """Load meta model predictions aligned to validation index, if available."""
-    import numpy as np
-    import pandas as pd
-
-    meta_path = data_dir / "meta_model.parquet"
-    if not meta_path.exists():
-        return None
-    try:
-        meta_df = pd.read_parquet(meta_path)
-        aligned = meta_df.reindex(val_df_index)  # type: ignore[call-overload]
-        col = (
-            "numerai_meta_model"
-            if "numerai_meta_model" in aligned.columns
-            else aligned.columns[0]
-        )
-        return np.asarray(aligned[col].to_numpy(dtype=np.float64))
-    except Exception:
-        return None
 
 
 def _run_local(
@@ -55,27 +38,24 @@ def _run_local(
     seed: int,
     num_trials: int,
     output_dir: Path,
-    objective: str = "payout_score",
+    objective: str = "corr_sharpe",
     wandb_project: str | None = None,
 ) -> None:
     """Local random-search HPO (no Ray dependency)."""
 
-    need_era = True
-    X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
+    X_train, y_train, feature_cols = load_train_only_frame(
         data_dir,
         train_subsample=train_subsample,
         target_col=target_col,
         seed=seed,
         feature_columns=None,
-        need_era=need_era,
+        need_era=True,
     )
-    meta_model_preds = _load_meta_model_val(data_dir, X_val.index)
+    era_train = X_train["era"]
     logger.info(
-        "Data loaded: train={}, val={}, features={}, meta_model={}",
+        "Data loaded: train={}, features={}",
         X_train.shape,
-        X_val.shape,
         len(feature_cols),
-        "yes" if meta_model_preds is not None else "no",
     )
 
     wandb_group = f"hpo-{uuid.uuid4().hex[:8]}" if wandb_project else None
@@ -96,26 +76,21 @@ def _run_local(
                 flat_config,
                 X_train=X_train,
                 y_train=y_train,
-                X_val=X_val,
-                y_val=y_val,
-                era_val=era_val,
+                era_train=era_train,
                 feature_cols=feature_cols,
                 seed=seed + i,
-                meta_model_preds=meta_model_preds,
             )
             elapsed = time.perf_counter() - t0
-            sharpe = metrics.get("sharpe", float("-inf"))
-            trial_score = float(metrics.get(objective, sharpe))
+            corr_sharpe = metrics.get("corr_sharpe", float("-inf"))
+            trial_score = float(metrics.get(objective, corr_sharpe))
             result = TrialResult(
                 trial_number=i,
-                sharpe=sharpe,
+                sharpe=corr_sharpe,
                 metrics=metrics,
                 model_type=flat_config.get("model_1_type", "XGBoost"),
                 elapsed_seconds=elapsed,
                 params=flat_config,
-                corr_sharpe=metrics.get("corr_sharpe", sharpe),
-                mmc_sharpe=metrics.get("mmc_sharpe"),
-                payout_score=metrics.get("payout_score"),
+                corr_sharpe=corr_sharpe,
             )
         except Exception as e:
             elapsed = time.perf_counter() - t0
@@ -132,17 +107,11 @@ def _run_local(
             )
 
         results.append(result)
-        payout_str = (
-            f" payout={result.payout_score:.4f}"
-            if result.payout_score is not None
-            else ""
-        )
         logger.info(
-            "Trial {}/{}: sharpe={:.4f}{} ({:.1f}s){}",
+            "Trial {}/{}: corr_sharpe={:.4f} ({:.1f}s){}",
             i + 1,
             num_trials,
             result.sharpe,
-            payout_str,
             result.elapsed_seconds,
             f" [ERROR: {result.error}]" if result.error else "",
         )
@@ -171,7 +140,7 @@ def _run_local(
     best_path = output_dir / "best_config.json"
     with open(best_path, "w", encoding="utf-8") as f:
         json.dump(best_config, f, indent=2)
-    logger.info("Best objective score: {:.4f}", best_score)
+    logger.info("Best {} score: {:.4f}", objective, best_score)
     logger.info("Best config saved to: {}", best_path)
 
     all_results_path = output_dir / "all_trials.json"
@@ -211,7 +180,7 @@ def _run_ray(
     seed: int,
     num_trials: int,
     output_dir: Path,
-    objective: str = "payout_score",
+    objective: str = "corr_sharpe",
     wandb_project: str | None = None,
 ) -> None:
     """Ray Tune distributed HPO."""
@@ -229,15 +198,15 @@ def _run_ray(
     from alphapulse.hpo.objective import ray_trainable
     from alphapulse.hpo.search_space import get_full_param_space
 
-    need_era = True
-    X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
+    X_train, y_train, feature_cols = load_train_only_frame(
         data_dir,
         train_subsample=train_subsample,
         target_col=target_col,
         seed=seed,
         feature_columns=None,
-        need_era=need_era,
+        need_era=True,
     )
+    era_train = X_train["era"]
 
     ray.init(ignore_reinit_error=True)
 
@@ -245,16 +214,14 @@ def _run_ray(
         ray_trainable,
         X_train=X_train,
         y_train=y_train,
-        X_val=X_val,
-        y_val=y_val,
-        era_val=era_val,
+        era_train=era_train,
         feature_cols=feature_cols,
     )
 
     param_space = get_full_param_space()
 
     reporter = CLIReporter(
-        metric_columns=["sharpe", "mean_per_era_correlation"],
+        metric_columns=["corr_sharpe", "mean_per_era_correlation"],
         max_report_frequency=30,
     )
 
@@ -316,13 +283,15 @@ def main(
     num_trials: int = 30,
     output_dir: Path = Path("artifacts/hpo"),
     local: bool = False,
-    objective: Literal["sharpe", "corr_sharpe", "payout_score"] = "payout_score",
+    objective: Literal[
+        "corr_sharpe", "mean_per_era_correlation", "max_drawdown"
+    ] = "corr_sharpe",
     wandb_project: str | None = None,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
     Use --local for random search without Ray, or omit for Ray Tune.
-    Use --objective to choose the optimization target (default: payout_score).
+    Use --objective to choose the optimization target (default: corr_sharpe).
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     """
     if local:

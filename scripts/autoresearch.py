@@ -3,8 +3,11 @@
 Runs trials within a time/count budget, with a Claude agent deciding what
 to try next (tune hyperparams, add models, change ensemble, etc.).
 
+Each trial is scored via walk-forward backtesting (3 folds) rather than a
+fixed holdout, so the leaderboard reflects temporal out-of-sample performance.
+
 Outputs in --output-dir:
-  best_config.json      Nested pipeline config with the best Sharpe found.
+  best_config.json      Nested pipeline config with the best corr_sharpe found.
   research_state.json   Full trial history + agent reasoning.
   trials_summary.csv    One row per trial with metrics and action taken.
 """
@@ -16,7 +19,7 @@ import tyro
 from loguru import logger
 
 from alphapulse.autoresearch.loop import run_autoresearch
-from alphapulse.experiments.data import load_train_val_frames
+from alphapulse.experiments.data import load_train_only_frame
 
 
 def main(
@@ -52,7 +55,7 @@ def main(
         raise SystemExit(1)
 
     logger.info("Loading data from {} (subsample={:.0%})", data_dir, train_subsample)
-    X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
+    X_train, y_train, feature_cols = load_train_only_frame(
         data_dir,
         train_subsample=train_subsample,
         target_col=target_col,
@@ -60,10 +63,10 @@ def main(
         feature_columns=None,
         need_era=True,
     )
+    era_train = X_train["era"]
     logger.info(
-        "Data loaded: train={}, val={}, features={}",
+        "Data loaded: train={}, features={}",
         X_train.shape,
-        X_val.shape,
         len(feature_cols),
     )
 
@@ -75,9 +78,7 @@ def main(
     state = run_autoresearch(
         X_train,
         y_train,
-        X_val,
-        y_val,
-        era_val,
+        era_train,
         feature_cols,
         max_hours=hours,
         max_trials=trials,

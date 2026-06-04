@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from ..evaluation import Backtester
+from ..evaluation.era_split import EraSplitEvaluator
 from ..hpo.builder import build_pipeline_or_multi
 from ..hpo.search_space import resolve_flat_config, sample_random_config
 from ..logging_.leaderboard import (
@@ -32,15 +32,17 @@ from .mutations import (
 )
 from .state import ResearchState, TrialRecord
 
+_WF_N_SPLITS = 3
+_WF_N_PURGE = 4
+_WF_MIN_TRAIN_ERAS = 20
+
 
 def _run_one_trial(
     config: dict[str, Any],
     *,
     X_train: pd.DataFrame,
     y_train: pd.Series,
-    X_val: pd.DataFrame,
-    y_val: pd.Series,
-    era_val: pd.Series,
+    era_train: pd.Series,
     feature_cols: list[str],
     seed: int,
 ) -> tuple[dict[str, float], float]:
@@ -49,10 +51,18 @@ def _run_one_trial(
     random.seed(seed)
 
     t0 = time.perf_counter()
-    pipeline = build_pipeline_or_multi(config, feature_columns=feature_cols)
-    pipeline.fit(X_train, y_train, X_val=X_val, y_val=y_val)
-    bt = Backtester(pipeline, feature_columns=feature_cols)
-    metrics = bt.evaluate(X_val, y_val, era_val)
+
+    def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:
+        pipeline = build_pipeline_or_multi(config, feature_columns=feature_cols)
+        pipeline.fit(X_tr, y_tr)
+        return pipeline
+
+    metrics = EraSplitEvaluator(
+        feature_columns=feature_cols,
+        n_splits=_WF_N_SPLITS,
+        n_purge=_WF_N_PURGE,
+        min_train_eras=_WF_MIN_TRAIN_ERAS,
+    ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)
     return metrics, time.perf_counter() - t0
 
 
@@ -91,9 +101,7 @@ def _apply_decision(
 def run_autoresearch(
     X_train: pd.DataFrame,
     y_train: pd.Series,
-    X_val: pd.DataFrame,
-    y_val: pd.Series,
-    era_val: pd.Series,
+    era_train: pd.Series,
     feature_cols: list[str],
     *,
     max_hours: float | None = None,
@@ -109,6 +117,10 @@ def run_autoresearch(
 
     Stops when either max_hours wall-clock time or max_trials count is reached,
     whichever comes first. At least one must be provided.
+
+    Each trial scores the pipeline via walk-forward backtesting (n_splits=3)
+    rather than a fixed holdout, so the leaderboard reflects temporal
+    out-of-sample performance.
 
     Args:
         max_hours: Wall-clock budget in hours. None = no limit.
@@ -197,13 +209,11 @@ def run_autoresearch(
                 state.current_config,
                 X_train=X_train,
                 y_train=y_train,
-                X_val=X_val,
-                y_val=y_val,
-                era_val=era_val,
+                era_train=era_train,
                 feature_cols=feature_cols,
                 seed=seed + trial_num,
             )
-            sharpe = metrics.get("sharpe", float("-inf"))
+            sharpe = metrics.get("corr_sharpe", float("-inf"))
             error = None
         except Exception as exc:
             logger.warning("Trial {} failed: {}", trial_num, exc)

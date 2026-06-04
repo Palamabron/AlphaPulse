@@ -11,22 +11,20 @@ from alphapulse.hpo import run_trial, sample_random_config
 
 @pytest.fixture
 def toy_data_with_era() -> dict[str, Any]:
-    np.random.seed(42)
-    n = 300
-    X = pd.DataFrame(np.random.randn(n, 4).astype(np.float64), columns=list("ABCD"))
-    X["era"] = np.repeat(["e1", "e2", "e3"], n // 3)
-    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + np.random.randn(n) * 0.2)
-    feature_cols = list("ABCD") + ["era"]
-    era_val = X["era"]
-    X_val = X.iloc[:50]
-    y_val = y.iloc[:50]
-    era_val_small = era_val.iloc[:50]
+    rng = np.random.default_rng(42)
+    n_eras = 40
+    rows_per_era = 8
+    n = n_eras * rows_per_era
+    X = pd.DataFrame(
+        rng.standard_normal((n, 4)).astype(np.float64), columns=list("ABCD")
+    )
+    X["era"] = np.repeat([f"era_{i:04d}" for i in range(n_eras)], rows_per_era)
+    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + rng.standard_normal(n) * 0.2)
+    feature_cols = list("ABCD")
     return {
         "X_train": X,
         "y_train": y,
-        "X_val": X_val,
-        "y_val": y_val,
-        "era_val": era_val_small,
+        "era_train": X["era"],
         "feature_cols": feature_cols,
     }
 
@@ -63,8 +61,8 @@ def test_run_trial_returns_metrics(
     metrics = run_trial(minimal_flat_config, **toy_data_with_era)
     assert isinstance(metrics, dict)
     assert "mean_per_era_correlation" in metrics
-    assert "sharpe" in metrics
-    assert "correlation" in metrics
+    assert "corr_sharpe" in metrics
+    assert "max_drawdown" in metrics
 
 
 def test_sample_random_config_returns_dict() -> None:
