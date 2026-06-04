@@ -4,13 +4,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ..evaluation.era_split import EraSplitEvaluator
+from ..evaluation.era_split import (
+    WF_MIN_TRAIN_ERAS,
+    WF_N_PURGE,
+    WF_N_SPLITS,
+    EraSplitEvaluator,
+)
 from .builder import build_pipeline_or_multi
 from .search_space import get_train_kwargs_from_flat, resolve_flat_config
-
-_WF_N_SPLITS = 3
-_WF_N_PURGE = 4
-_WF_MIN_TRAIN_ERAS = 20
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ def run_trial(
 
     return EraSplitEvaluator(
         feature_columns=feature_cols,
-        n_splits=_WF_N_SPLITS,
-        n_purge=_WF_N_PURGE,
-        min_train_eras=_WF_MIN_TRAIN_ERAS,
+        n_splits=WF_N_SPLITS,
+        n_purge=WF_N_PURGE,
+        min_train_eras=WF_MIN_TRAIN_ERAS,
     ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)

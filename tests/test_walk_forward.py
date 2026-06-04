@@ -27,17 +27,19 @@ def _make_data(
 
 
 class _Pred:
-    def __init__(self, model: Ridge) -> None:
+    def __init__(self, model: Ridge, feature_cols: list[str]) -> None:
         self._model = model
+        self._feature_cols = feature_cols
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)  # type: ignore[no-any-return]
+        return self._model.predict(X[self._feature_cols])  # type: ignore[no-any-return]
 
 
 def _ridge_train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> _Pred:
     model = Ridge(alpha=1.0)
-    model.fit(X_tr, y_tr)
-    return _Pred(model)
+    numeric_cols = [c for c in X_tr.columns if c != "era"]
+    model.fit(X_tr[numeric_cols], y_tr)
+    return _Pred(model, numeric_cols)
 
 
 class TestEraSplitEvaluatorDefaults:
