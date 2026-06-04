@@ -15,7 +15,7 @@ import pandas as pd
 import tyro
 from loguru import logger
 
-from alphapulse.evaluation.submission import prepare_submission, validate_submission
+from alphapulse.evaluation.submission import validate_submission
 
 
 def main(

@@ -144,6 +144,7 @@ class GreedyEnsembleSelector:
         self.mmc_weight = mmc_weight
         self.selected_indices_: list[int] = []
         self.best_score_: float = float("-inf")
+        self.model_names_: list[str] | None = None
 
     def _score(
         self,
@@ -214,10 +215,13 @@ class GreedyEnsembleSelector:
 
         self.selected_indices_ = selected
         self.best_score_ = best_score
+        self.model_names_ = model_names
         return self
 
     @property
-    def selected_names(self) -> list[int]:
+    def selected_names(self) -> list[str] | list[int]:
+        if self.model_names_ is not None:
+            return [self.model_names_[i] for i in self.selected_indices_]
         return self.selected_indices_
 
     def predict(self, pred_matrix: np.ndarray) -> np.ndarray:

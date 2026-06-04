@@ -88,15 +88,21 @@ def test_era_stable_selector_keep_fraction_respected() -> None:
     rng = np.random.RandomState(0)
     n = 80
     n_feats = 8
-    X = pd.DataFrame(rng.randn(n, n_feats), columns=[f"feat_{i}" for i in range(n_feats)])
+    X = pd.DataFrame(
+        rng.randn(n, n_feats), columns=[f"feat_{i}" for i in range(n_feats)]
+    )
     y = pd.Series(rng.randn(n))
     eras = pd.Series([f"e{i}" for i in range(4) for _ in range(20)])
 
     for frac in [0.25, 0.5, 0.75]:
-        selector = EraStableFeatureSelector(keep_fraction=frac, n_estimators=5, min_eras=2)
+        selector = EraStableFeatureSelector(
+            keep_fraction=frac, n_estimators=5, min_eras=2
+        )
         out = selector.fit_transform(X, y, eras=eras)
         expected = max(1, int(n_feats * frac))
-        assert out.shape[1] == expected, f"keep_fraction={frac}: expected {expected} cols, got {out.shape[1]}"
+        assert out.shape[1] == expected, (
+            f"keep_fraction={frac}: expected {expected} cols, got {out.shape[1]}"
+        )
 
 
 def test_era_stable_selector_transform_only_uses_fitted_cols() -> None:

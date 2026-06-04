@@ -103,9 +103,7 @@ def main(
             raise SystemExit(1)
         _patch_experiment_yaml(output_yaml, groups)
         total = sum(len(v) for v in groups.values())
-        print(
-            f"Patched {output_yaml}: {len(groups)} group(s), {total} total columns."
-        )
+        print(f"Patched {output_yaml}: {len(groups)} group(s), {total} total columns.")
     else:
         print(_build_groups_yaml(groups))
 

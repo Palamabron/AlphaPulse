@@ -166,6 +166,7 @@ exclude = [
   '^dist/.*',
   '^\.venv/.*',
   '^eda/.*',
+  '^tests/test_eda\.py$',
 ]
 
 [[tool.mypy.overrides]]

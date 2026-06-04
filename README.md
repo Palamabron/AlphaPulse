@@ -233,7 +233,7 @@ uv run python scripts/export_numerai_pickle.py \
 ```
 
 **From a YAML Experiment:**
-Prefer using `scripts/run_test_pipeline.py` or the specific export scripts currently in the [Roadmap](#roadmap).
+Prefer using `scripts/run_test_pipeline.py` or `scripts/export_from_yaml.py` for YAML-driven exports.
 
 ### 7. Live Inference (Production Predictions)
 
@@ -525,12 +525,12 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 - ✅ Robust NaN/inf Filtering in Pipeline
 - ✅ Ensemble Weight Optimization
 - ✅ Comprehensive EDA Dashboard with HPO Analysis
+- ✅ Config Tooling: `scripts/make_feature_groups.py` converts `features.json` sets into YAML `features.groups`
+- ✅ Unified Export: `scripts/export_from_yaml.py` for YAML-driven production pickles
 
 **Upcoming:**
 1. **Payout Optimization:** Integrate Numerai payout-style scoring into HPO objective
-2. **Config Tooling:** Helper to convert `features.json` sets into YAML `features.groups`
-3. **Unified Export:** Dedicated "export from YAML" script for production pickles
-4. **Validation:** Better error messages for feature routing mismatches
+2. **Validation:** Better error messages for feature routing mismatches
 5. **Metrics:** Dedicated MMC (Meta-Model Contribution) tests and Numerai benchmark alignment
 6. **CI/CD:** Automated weekly submission pipeline with GitHub Actions
 7. **W&B Integration:** Full experiment tracking and visualization (config exists, needs integration)
