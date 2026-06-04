@@ -12,7 +12,12 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from ..evaluation.era_split import EraSplitEvaluator
+from ..evaluation.era_split import (
+    WF_MIN_TRAIN_ERAS,
+    WF_N_PURGE,
+    WF_N_SPLITS,
+    EraSplitEvaluator,
+)
 from ..hpo.builder import build_pipeline_or_multi
 from ..hpo.search_space import resolve_flat_config, sample_random_config
 from ..logging_.leaderboard import (
@@ -31,10 +36,6 @@ from .mutations import (
     tune_model_params,
 )
 from .state import ResearchState, TrialRecord
-
-_WF_N_SPLITS = 3
-_WF_N_PURGE = 4
-_WF_MIN_TRAIN_ERAS = 20
 
 
 def _run_one_trial(
@@ -59,9 +60,9 @@ def _run_one_trial(
 
     metrics = EraSplitEvaluator(
         feature_columns=feature_cols,
-        n_splits=_WF_N_SPLITS,
-        n_purge=_WF_N_PURGE,
-        min_train_eras=_WF_MIN_TRAIN_ERAS,
+        n_splits=WF_N_SPLITS,
+        n_purge=WF_N_PURGE,
+        min_train_eras=WF_MIN_TRAIN_ERAS,
     ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)
     return metrics, time.perf_counter() - t0
 

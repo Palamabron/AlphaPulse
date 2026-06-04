@@ -8,6 +8,10 @@ from ..validation.purged_cv import PurgedEraCV
 from .backtester import Backtester
 from .metrics import calculate_metrics
 
+WF_N_SPLITS = 3
+WF_N_PURGE = 4
+WF_MIN_TRAIN_ERAS = 20
+
 _NAN_METRICS: dict[str, float] = {
     "mean_per_era_correlation": float("nan"),
     "std_per_era_correlation": float("nan"),
@@ -149,7 +153,8 @@ class EraSplitEvaluator:
             test_mask = df["era"] == test_era
             if not test_mask.any():
                 continue
-            X_tr = cast(pd.DataFrame, df.loc[train_mask, X_use.columns])
+            train_cols = list(X_use.columns) + (["era"] if "era" in df.columns else [])
+            X_tr = cast(pd.DataFrame, df.loc[train_mask, train_cols])
             y_tr = cast(pd.Series, df.loc[train_mask, "y"])
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
@@ -180,7 +185,8 @@ class EraSplitEvaluator:
             test_mask = era_series.isin(set(test_eras))
             if not test_mask.any():
                 continue
-            X_tr = cast(pd.DataFrame, df.loc[train_mask, X_use.columns])
+            train_cols = list(X_use.columns) + (["era"] if "era" in df.columns else [])
+            X_tr = cast(pd.DataFrame, df.loc[train_mask, train_cols])
             y_tr = cast(pd.Series, df.loc[train_mask, "y"])
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
@@ -192,6 +198,9 @@ class EraSplitEvaluator:
 
 
 __all__ = [
+    "WF_MIN_TRAIN_ERAS",
+    "WF_N_PURGE",
+    "WF_N_SPLITS",
     "EraSplitEvaluator",
     "PredictorProtocol",
     "evaluate_holdout_last_n_eras",
