@@ -9,6 +9,15 @@ common:
   warning: "Ostrzeżenie"
   success: "Sukces"
   info: "Info"
+  settings: "Ustawienia"
+  computing: "Obliczanie..."
+  summary: "Podsumowanie"
+  method: "Metoda"
+  all: "Wszystkie"
+  show: "Pokaż:"
+  threshold: "Próg"
+  feature: "Cecha"
+  correlation: "Korelacja"
 
 # Language selector
 language:
@@ -172,8 +181,33 @@ hpo:
   num_trials_display: "Liczba wyświetlanych prób"
   download_leaderboard: "📥 Pobierz leaderboard jako CSV"
 
+# Feature importance page
+feature_importance:
+  title: "Ważność Cech"
+  description: "Rankinguje cechy według korelacji Pearsona lub wzrostu LightGBM względem aktywnego targetu."
+  method_pearson: "Korelacja Pearsona"
+  method_label: "Metoda ważności:"
+  method_help: "Pearson: szybka korelacja liniowa. LightGBM: nieliniowa ważność przez gradient boosting."
+  lgbm_subsample: "Subsample treningu (%):"
+  lgbm_subsample_help: "Procent wierszy użytych do trenowania LightGBM. Zmniejsz dla szybszego obliczenia."
+  lgbm_not_installed: "LightGBM nie jest zainstalowany. Zainstaluj: pip install lightgbm"
+  pearson_label: "Pearson |r|"
+  lgbm_fitting: "Trenuję LightGBM na {percent}% danych..."
+  lgbm_label: "LightGBM gain (znormalizowany)"
+  top_feature: "Najważniejsza cecha"
+  mean_score: "Średni {score}"
+  features_above_threshold: "Cechy |r| > 0.01"
+  top10_share: "Udział Top-10"
+  ranking_title: "Pełny ranking cech"
+  above_threshold: "Powyżej progu"
+  top20_title: "Top 20 cech"
+  positive_correlations: "**Top 20 korelacji dodatnich**"
+  negative_correlations: "**Top 20 korelacji ujemnych**"
+  importance_normalized: "Ważność (znormalizowana)"
+
 # Error messages
 errors:
+  data_not_loaded: "Dane nie zostały załadowane. Przejdź do strony głównej."
   column_not_found: "Kolumna '{column}' nie znaleziona w danych."
   computation_error: "Błąd obliczenia: {error}"
   unexpected_error: "Nieoczekiwany błąd: {error}"

@@ -319,4 +319,4 @@ with st.expander(t["preview.data_preview"]):
 with st.expander(t["preview.quick_stats"]):
     st.dataframe(train.describe(), use_container_width=True)
 
-st.caption(t.format("preview.footer", version=DATASET_VERSION, target=selected_target))
+st.caption(t.format("preview.caption", version=DATASET_VERSION, target=selected_target))
