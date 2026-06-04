@@ -9,7 +9,7 @@ from loguru import logger
 
 from ..evaluation import Backtester
 from ..evaluation.era_split import EraSplitEvaluator, evaluate_holdout_last_n_eras
-from ..hpo.builder import build_pipeline_or_multi
+from ..hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
 from ..pipeline.multihead import MultiHeadPipeline
 from ..pipeline.pipeline import Pipeline
 from .data import load_train_frame_with_era, load_train_val_frames
@@ -45,7 +45,7 @@ def load_experiment_dict(path: Path) -> dict[str, Any]:
 
 def _need_era_column(exp: ExperimentV1) -> bool:
     for m in exp.models:
-        if m.type == "Packboost":
+        if m.type == "Packboost" or m.type in TREE_MODEL_NAMES:
             return True
         for p in exp.preprocessing + m.preprocessors:
             if p.type == "Packboost":
