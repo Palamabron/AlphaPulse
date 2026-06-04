@@ -9,6 +9,15 @@ common:
   warning: "Warning"
   success: "Success"
   info: "Info"
+  settings: "Settings"
+  computing: "Computing..."
+  summary: "Summary"
+  method: "Method"
+  all: "All"
+  show: "Show:"
+  threshold: "Threshold"
+  feature: "Feature"
+  correlation: "Correlation"
 
 # Language selector
 language:
@@ -172,8 +181,33 @@ hpo:
   num_trials_display: "Number of trials to display"
   download_leaderboard: "📥 Download leaderboard as CSV"
 
+# Feature importance page
+feature_importance:
+  title: "Feature Importance"
+  description: "Rank features by Pearson correlation or LightGBM gain against the active target."
+  method_pearson: "Pearson Correlation"
+  method_label: "Importance method:"
+  method_help: "Pearson: fast linear correlation. LightGBM: non-linear importance via gradient boosting."
+  lgbm_subsample: "Training subsample (%):"
+  lgbm_subsample_help: "Percentage of rows used to fit LightGBM. Reduce for faster computation."
+  lgbm_not_installed: "LightGBM is not installed. Install with: pip install lightgbm"
+  pearson_label: "Pearson |r|"
+  lgbm_fitting: "Fitting LightGBM on {percent}% of data..."
+  lgbm_label: "LightGBM gain (normalized)"
+  top_feature: "Top feature"
+  mean_score: "Mean {score}"
+  features_above_threshold: "Features |r| > 0.01"
+  top10_share: "Top-10 share"
+  ranking_title: "Full Feature Ranking"
+  above_threshold: "Above threshold"
+  top20_title: "Top 20 Features"
+  positive_correlations: "**Top 20 Positive Correlations**"
+  negative_correlations: "**Top 20 Negative Correlations**"
+  importance_normalized: "Importance (normalized)"
+
 # Error messages
 errors:
+  data_not_loaded: "Data not loaded. Go to the main page."
   column_not_found: "Column '{column}' not found in data."
   computation_error: "Computation error: {error}"
   unexpected_error: "Unexpected error: {error}"
