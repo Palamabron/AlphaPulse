@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -99,6 +99,9 @@ class EvaluationConfig(BaseModel):
     era_holdout_last_n: int | None = None
     walk_forward: bool = False
     walk_forward_min_train_eras: int = Field(default=1, ge=1)
+    walk_forward_n_purge: int = Field(default=4, ge=0)
+    walk_forward_n_embargo: int = Field(default=0, ge=0)
+    walk_forward_n_splits: Annotated[int, Field(ge=2)] | None = None
     meta_model_path: str | None = None
     corr_weight: float = Field(default=0.75, ge=0.0)
     mmc_weight: float = Field(default=2.25, ge=0.0)
