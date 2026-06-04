@@ -59,7 +59,6 @@ def _run_local(
     wandb_project: str | None = None,
 ) -> None:
     """Local random-search HPO (no Ray dependency)."""
-    import numpy as np
 
     need_era = True
     X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
@@ -279,7 +278,8 @@ def _run_ray(
             )
         except ImportError:
             logger.warning(
-                "ray.air.integrations.wandb not available; skipping WandB logging for Ray mode."
+                "ray.air.integrations.wandb not available; "
+                "skipping WandB logging for Ray mode."
             )
 
     analysis = tune.run(

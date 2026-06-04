@@ -9,7 +9,6 @@ from alphapulse.evaluation.ensemble_diagnostics import (
 )
 from alphapulse.evaluation.submission import prepare_submission, validate_submission
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 N_ROWS = 120
@@ -18,9 +17,7 @@ ERA_SIZE = N_ROWS // N_ERAS
 
 
 def _make_eras() -> pd.Series:
-    return pd.Series(
-        [f"era{i:02d}" for i in range(N_ERAS) for _ in range(ERA_SIZE)]
-    )
+    return pd.Series([f"era{i:02d}" for i in range(N_ERAS) for _ in range(ERA_SIZE)])
 
 
 def _make_preds(seed: int) -> np.ndarray:
@@ -121,7 +118,9 @@ def test_validate_submission_out_of_range() -> None:
 def test_validate_submission_constant_predictions() -> None:
     df = pd.DataFrame({"prediction": [0.5] * 20})
     issues = validate_submission(df)
-    assert any("constant" in msg.lower() or "identical" in msg.lower() for msg in issues)
+    assert any(
+        "constant" in msg.lower() or "identical" in msg.lower() for msg in issues
+    )
 
 
 def test_validate_submission_id_alignment_missing() -> None:
@@ -179,5 +178,7 @@ def test_compute_feature_report_empty_eras() -> None:
     y = pd.Series(rng.randn(10))
     eras = pd.Series(["only_one"] * 10)
 
-    result = compute_feature_report(X, y, eras, n_estimators=5, top_n=2, max_era_subsample=1)
+    result = compute_feature_report(
+        X, y, eras, n_estimators=5, top_n=2, max_era_subsample=1
+    )
     assert result["n_features"] == 3
