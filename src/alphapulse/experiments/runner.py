@@ -163,6 +163,9 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
         wf_metrics = EraSplitEvaluator(
             feature_columns=list(X_wf.columns),
             min_train_eras=ev.walk_forward_min_train_eras,
+            n_purge=ev.walk_forward_n_purge,
+            n_embargo=ev.walk_forward_n_embargo,
+            n_splits=ev.walk_forward_n_splits,
         ).evaluate_walk_forward(X_wf, y_wf, era_wf, train_fn)
         for k, v in wf_metrics.items():
             metrics[f"walk_forward_{k}"] = v
