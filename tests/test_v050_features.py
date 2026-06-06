@@ -293,3 +293,59 @@ class TestMaskedAuxTargets:
         pipeline.fit(X, targets)
         preds = pipeline.predict(X)
         assert len(preds) == n
+
+    def test_three_targets_one_skipped_no_dimension_mismatch(self) -> None:
+        from alphapulse.models.sklearn_models import RidgeModel
+        from alphapulse.pipeline.multi_target import MultiTargetPipeline
+
+        rng = np.random.default_rng(3)
+        n = 40
+        X = pd.DataFrame(rng.standard_normal((n, 3)), columns=["f0", "f1", "f2"])
+        targets = pd.DataFrame(
+            {
+                "target": pd.Series(rng.standard_normal(n)),
+                "aux1": pd.Series(rng.standard_normal(n)),
+                "all_nan": pd.Series([np.nan] * n),
+            }
+        )
+        pipeline = MultiTargetPipeline(
+            preprocessors=[],
+            model_factory=RidgeModel,
+            target_columns=["target", "aux1", "all_nan"],
+            primary_target="target",
+        )
+        pipeline.fit(X, targets)
+        assert "all_nan" not in pipeline._models
+        assert pipeline._weights is not None
+        assert len(pipeline._weights) == 2
+        preds = pipeline.predict(X)
+        assert len(preds) == n
+        assert np.all(np.isfinite(preds))
+
+    def test_sharpe_blend_skips_nan_target_no_keyerror(self) -> None:
+        from alphapulse.models.sklearn_models import RidgeModel
+        from alphapulse.pipeline.multi_target import MultiTargetPipeline
+
+        rng = np.random.default_rng(4)
+        n = 60
+        X = pd.DataFrame(rng.standard_normal((n, 3)), columns=["f0", "f1", "f2"])
+        era = pd.Series(["e1"] * 20 + ["e2"] * 20 + ["e3"] * 20)
+        targets = pd.DataFrame(
+            {
+                "target": pd.Series(rng.standard_normal(n)),
+                "aux1": pd.Series(rng.standard_normal(n)),
+                "all_nan": pd.Series([np.nan] * n),
+            }
+        )
+        pipeline = MultiTargetPipeline(
+            preprocessors=[],
+            model_factory=RidgeModel,
+            target_columns=["target", "aux1", "all_nan"],
+            primary_target="target",
+            blend_method="sharpe",
+        )
+        pipeline.fit(X, targets, era_train=era)
+        assert "all_nan" not in pipeline._models
+        preds = pipeline.predict(X)
+        assert len(preds) == n
+        assert np.all(np.isfinite(preds))

@@ -108,7 +108,8 @@ class MultiTargetPipeline:
             for k, v in metrics.items():
                 all_metrics[f"{target_col}_{k}"] = v
 
-        self._compute_weights(X_fit, targets, era_train, available_targets)
+        fitted_targets = [t for t in available_targets if t in self._models]
+        self._compute_weights(X_fit, targets, era_train, fitted_targets)
         return all_metrics
 
     def _compute_weights(
@@ -116,9 +117,9 @@ class MultiTargetPipeline:
         X_fit: pd.DataFrame,
         targets: pd.DataFrame,
         era_train: pd.Series | None,
-        available_targets: list[str],
+        fitted_targets: list[str],
     ) -> None:
-        n = len(available_targets)
+        n = len(fitted_targets)
         if n <= 1 or self.blend_method == "equal":
             self._weights = np.ones(n) / n
             return
@@ -130,7 +131,7 @@ class MultiTargetPipeline:
         ):
             y_primary = targets[self.primary_target]
             sharpes = []
-            for t in available_targets:
+            for t in fitted_targets:
                 pred = self._models[t].predict(X_fit)
                 s = era_sharpe(y_primary, pred, era_train)
                 sharpes.append(max(s, 0.0) if np.isfinite(s) else 0.0)
