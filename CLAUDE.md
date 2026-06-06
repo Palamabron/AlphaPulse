@@ -242,7 +242,7 @@ When adding new UI text:
 - `TrainEvalPreprocessor` protocol: `train()` / `eval()` switching for noise injection
 - **Scaling:** `StandardScalerPreprocessor`, `RobustScalerPreprocessor`
 - **Dimensionality Reduction:** `PCAPreprocessor(n_components)`, `TruncatedSVDPreprocessor(n_components=10)`
-- **Feature Selection:** `VarianceFeatureSelector(keep_fraction, threshold, mode)`, `LGBMImportanceSelector(keep_fraction=0.75, n_estimators=100)`
+- **Feature Selection:** `VarianceFeatureSelector(keep_fraction, threshold, mode)`, `LGBMImportanceSelector(keep_fraction=0.75, n_estimators=100)`, `EraStableFeatureSelector(keep_fraction, n_estimators, stability_weight)` — ranks features by blended mean importance / cross-era stability score
 - **Noise Injection:** `GaussianNoiseInjector(sigma=0.01, seed=42)` — active only during `train()` mode
 - **Special:** `PackboostPreprocessor` — adds Packboost predictions as an extra feature; `GroupedPreprocessor(groups, group_preprocessors)` — applies different preprocessing chains to named feature groups
 - `PreprocessorFactory(n_features, prefix)` → Optuna-based HPO factory with `suggest(trial)` and `suggest_fixed(...)` methods
@@ -346,6 +346,21 @@ When adding new UI text:
 
 **Era Splitting** (`src/alphapulse/evaluation/era_split.py`)
 - Utilities for splitting data by era for validation
+
+**Export Validation** (`src/alphapulse/evaluation/export_validation.py`)
+- `smoke_test_predict_fn(pkl_path, feature_columns, n_rows=10)` → loads `predict.pkl` in a clean subprocess, runs a forward pass on a synthetic frame with edge-case columns, raises on any failure
+
+**Submission Validation** (`src/alphapulse/evaluation/submission.py`)
+- `validate_submission(predictions_df, live_df, id_col, pred_col)` → returns list of validation error strings; empty list means submission is well-formed
+
+**Ensemble Diagnostics** (`src/alphapulse/evaluation/ensemble_diagnostics.py`)
+- `correlation_matrix(oof_predictions, eras)` → per-era inter-model Spearman correlation matrix; high correlation means ensemble gains little over a single model
+
+**Feature Report** (`src/alphapulse/evaluation/feature_report.py`)
+- `compute_feature_report(X, y, eras)` → per-era feature importance diagnostics; tracks mean importance and cross-era stability
+
+**Global Seed Utility** (`src/alphapulse/utils/seed.py`)
+- `set_global_seed(seed)` → locks Python `random`, NumPy, PyTorch (if available), and sets `PYTHONHASHSEED` so child processes (e.g. Ray workers) inherit a fixed hash seed
 
 ## Code Conventions
 

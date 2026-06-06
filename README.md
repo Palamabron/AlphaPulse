@@ -456,7 +456,8 @@ eda/
 └── utils/                  # Utilities
     ├── config.py           # Path resolution and constants
     ├── data_loader.py      # NumeraiDataLoader wrapper
-    ├── i18n.py             # Translation helper
+    ├── translations.py     # YAML-based translation system
+    ├── i18n.py             # Translation helper (session state access)
     └── common.py           # Shared analysis utilities
 ```
 
@@ -488,6 +489,10 @@ make eda-lint
 │   ├── hpo_pipeline.py
 │   ├── run_test_pipeline.py
 │   ├── export_numerai_pickle.py
+│   ├── export_from_yaml.py
+│   ├── live_inference.py
+│   ├── submit_predictions.py
+│   ├── make_feature_groups.py
 │   └── autoresearch.py
 ├── eda/             # Standalone Streamlit EDA dashboard
 │   ├── app.py         # Main entry point (streamlit run eda/app.py)
@@ -495,8 +500,15 @@ make eda-lint
 │   └── utils/         # Config & data loading (uses NumeraiDataLoader)
 ├── src/alphapulse/  # Core framework source code
 │   ├── autoresearch/  # Agent-driven research loop
+│   ├── evaluation/    # Backtesting, metrics, diagnostics, export validation
+│   ├── experiments/   # YAML schema, runner, data loading
+│   ├── hpo/           # HPO objective, search space, builder, registry
 │   ├── logging_/      # Leaderboard and W&B helpers
-│   └── ...            # pipeline, models, hpo, experiments, etc.
+│   ├── models/        # All model implementations + factory
+│   ├── pipeline/      # Pipeline, ensemble, neutralizer, stacker
+│   ├── preprocessors/ # All preprocessor implementations + factory
+│   ├── utils/         # Seed utility (set_global_seed)
+│   └── validation/    # Purged era cross-validation
 └── tests/           # Unit tests
 ```
 
