@@ -9,8 +9,6 @@ from alphapulse.evaluation.ensemble_diagnostics import (
 )
 from alphapulse.evaluation.submission import prepare_submission, validate_submission
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
-
 N_ROWS = 120
 N_ERAS = 6
 ERA_SIZE = N_ROWS // N_ERAS
@@ -23,9 +21,6 @@ def _make_eras() -> pd.Series:
 def _make_preds(seed: int) -> np.ndarray:
     rng = np.random.RandomState(seed)
     return rng.randn(N_ROWS)
-
-
-# ── ensemble_diagnostics ──────────────────────────────────────────────────────
 
 
 def test_correlation_matrix_shape() -> None:
@@ -88,9 +83,6 @@ def test_compute_ensemble_diagnostics_with_weights() -> None:
     assert 1.0 <= result["effective_model_count"] <= 2.0 + 1e-6
 
 
-# ── submission ────────────────────────────────────────────────────────────────
-
-
 def test_validate_submission_clean() -> None:
     df = pd.DataFrame({"prediction": np.linspace(0.0, 1.0, 50)})
     issues = validate_submission(df)
@@ -146,9 +138,6 @@ def test_prepare_submission_rank_normalized() -> None:
     df = prepare_submission(preds, ids)
     sorted_preds = df.set_index("id").loc[["b", "c", "a"], "prediction"].values
     assert sorted_preds[0] < sorted_preds[1] < sorted_preds[2]
-
-
-# ── feature_report (integration — requires lightgbm) ─────────────────────────
 
 
 def test_compute_feature_report_basic() -> None:

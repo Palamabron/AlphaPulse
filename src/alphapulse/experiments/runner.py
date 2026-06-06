@@ -154,14 +154,14 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
         def train_fn(X_tr: Any, y_tr: Any) -> Pipeline | MultiHeadPipeline:
             p = build_pipeline_or_multi(
                 pipeline_cfg,
-                feature_columns=list(X_tr.columns),
+                feature_columns=feature_cols,
                 feature_groups=exp.features.groups,
             )
             p.fit(X_tr, y_tr, **train_kw)
             return p
 
         wf_metrics = EraSplitEvaluator(
-            feature_columns=list(X_wf.columns),
+            feature_columns=feature_cols,
             min_train_eras=ev.walk_forward_min_train_eras,
             n_purge=ev.walk_forward_n_purge,
             n_embargo=ev.walk_forward_n_embargo,

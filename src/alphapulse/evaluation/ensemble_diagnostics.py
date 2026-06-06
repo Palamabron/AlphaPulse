@@ -36,7 +36,6 @@ def correlation_matrix(
     e_arr = np.asarray(eras.to_numpy())
     unique_eras = sorted(pd.unique(e_arr), key=str)
 
-    # For each era, compute rank-normalised predictions, then global correlation
     era_corr_sums = np.zeros((n, n), dtype=np.float64)
     era_count = 0
 
@@ -122,7 +121,6 @@ def compute_ensemble_diagnostics(
 
     eff_count = effective_model_count(w, corr_df)
 
-    # Mean off-diagonal correlation
     mask_off_diag = ~np.eye(n, dtype=bool)
     off_diag_vals = corr_df.to_numpy()[mask_off_diag]
     mean_pairwise = (
