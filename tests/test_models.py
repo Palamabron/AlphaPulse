@@ -1,0 +1,97 @@
+"""Smoke tests for model implementations, ensemble optimizer, and augmenter."""
+
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from alphapulse.models import CatBoostModel, LightGBMModel, ModelFactory
+from alphapulse.models.diffusion_augmenter import SyntheticDataAugmenter
+from alphapulse.pipeline.ensemble_optimizer import EnsembleOptimizer
+
+
+@pytest.fixture
+def toy_data_with_era() -> dict[str, Any]:
+    rng = np.random.default_rng(42)
+    n_eras = 40
+    rows_per_era = 8
+    n = n_eras * rows_per_era
+    X = pd.DataFrame(
+        rng.standard_normal((n, 4)).astype(np.float64), columns=list("ABCD")
+    )
+    X["era"] = np.repeat([f"era_{i:04d}" for i in range(n_eras)], rows_per_era)
+    y = pd.Series(X["A"] * 0.5 + X["B"] * 0.3 + rng.standard_normal(n) * 0.2)
+    return {"X": X.drop(columns=["era"]), "y": y}
+
+
+def test_lightgbm_train_predict_smoke(toy_data_with_era: dict[str, Any]) -> None:
+    model = LightGBMModel(
+        params={"objective": "regression", "verbosity": -1}, n_estimators=20
+    )
+    model.train(toy_data_with_era["X"], toy_data_with_era["y"], n_rounds=20)
+    preds = model.predict(toy_data_with_era["X"].iloc[:10])
+    assert preds.shape == (10,)
+
+
+def test_catboost_train_predict_smoke(toy_data_with_era: dict[str, Any]) -> None:
+    model = CatBoostModel(
+        params={"verbose": 0, "allow_writing_files": False}, iterations=20
+    )
+    model.train(toy_data_with_era["X"], toy_data_with_era["y"], n_rounds=20)
+    preds = model.predict(toy_data_with_era["X"].iloc[:10])
+    assert preds.shape == (10,)
+
+
+def test_model_spec_normalizes_top_level_hyperparams() -> None:
+    from alphapulse.experiments.schema import ModelSpec
+
+    spec = ModelSpec(type="XGBoost", params={"max_depth": 4, "learning_rate": 0.05})
+    assert "params" in spec.params
+    assert spec.params["params"]["max_depth"] == 4
+    assert spec.params["params"]["learning_rate"] == 0.05
+
+
+def test_instantiate_model_matches_model_factory() -> None:
+    from alphapulse.hpo.builder import instantiate_model
+    from alphapulse.models.era_ensemble_model import EraEnsembleModel
+
+    params = {"params": {"max_depth": 3, "learning_rate": 0.1}, "name": "TestXGB"}
+    from_builder = instantiate_model("XGBoost", params, index=0, n_subs=3)
+    from_factory = ModelFactory().suggest_fixed("xgboost", params, n_subs=3)
+    assert isinstance(from_builder, EraEnsembleModel)
+    assert isinstance(from_factory, EraEnsembleModel)
+    assert from_builder.n_subs == from_factory.n_subs == 3
+
+
+def test_ensemble_optimizer_fit_predict() -> None:
+    rng = np.random.RandomState(0)
+    n = 200
+    eras = pd.Series(np.repeat(["e1", "e2", "e3", "e4"], n // 4))
+    y = rng.randn(n)
+    oof = np.column_stack([y + rng.randn(n) * 0.5, y + rng.randn(n) * 0.8])
+
+    optimizer = EnsembleOptimizer(seed=0)
+    optimizer.fit(oof, y, eras)
+    assert optimizer.weights_ is not None
+    assert optimizer.weights_.sum() == pytest.approx(1.0)
+    blend = optimizer.predict(oof[:10])
+    assert blend.shape == (10,)
+
+
+def test_synthetic_data_augmenter_kde_fit_once() -> None:
+    rng = np.random.RandomState(0)
+    n = 80
+    X = pd.DataFrame(rng.randn(n, 3), columns=list("ABC"))
+    y = pd.Series(rng.randn(n))
+
+    aug = SyntheticDataAugmenter(
+        top_fraction=0.25, n_synthetic=10, backend="kde", seed=0
+    )
+    aug.fit(X, y)
+    assert aug._kde is not None or aug._kde_fallback_combined is not None
+
+    X1, _ = aug.generate()
+    X2, _ = aug.generate()
+    assert len(X1) == len(X2) == 10
+    assert list(X1.columns) == list("ABC")
