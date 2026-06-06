@@ -8,8 +8,9 @@ def set_global_seed(seed: int) -> None:
     """Lock all RNG sources to a single seed for reproducibility.
 
     Sets Python ``random``, NumPy, and PyTorch (if available).
-    Also fixes ``PYTHONHASHSEED`` so dictionary ordering is deterministic
-    within the current process.
+    Also sets ``PYTHONHASHSEED`` in the environment so that any child
+    processes (e.g. Ray workers) inherit a fixed hash seed.  Note: this has
+    no effect on the current interpreter, which reads the variable at startup.
 
     Args:
         seed: Integer seed value. Must be non-negative.
