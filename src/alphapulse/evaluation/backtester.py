@@ -1,9 +1,12 @@
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import pandas as pd
 
 from .metrics import calculate_metrics, era_sharpe_of_fnc, mmc_score
+
+if TYPE_CHECKING:
+    from ..pipeline.neutralizer import FeatureNeutralizer
 
 
 class PredictorProtocol(Protocol):
@@ -17,6 +20,9 @@ class Backtester:
         predictor: Any object implementing ``predict(X) -> np.ndarray``.
         feature_columns: Subset of columns to pass to the predictor.
             If *None*, the full DataFrame is used.
+        neutralizer: Optional ``FeatureNeutralizer`` applied to raw predictions
+            before metric computation. Rewards genuinely novel alpha over
+            crowded factor exposure.
     """
 
     def __init__(
@@ -24,9 +30,11 @@ class Backtester:
         predictor: PredictorProtocol,
         *,
         feature_columns: list[str] | None = None,
+        neutralizer: "FeatureNeutralizer | None" = None,
     ) -> None:
         self.predictor = predictor
         self.feature_columns = feature_columns
+        self.neutralizer = neutralizer
 
     def evaluate(
         self,
@@ -61,6 +69,9 @@ class Backtester:
         """
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
         preds = self.predictor.predict(X_use)
+
+        if self.neutralizer is not None:
+            preds = self.neutralizer.neutralize(preds, X_use, era)
 
         meta_arr = (
             np.asarray(meta_model_preds, dtype=np.float64)

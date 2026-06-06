@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 import pandas as pd
@@ -7,6 +7,9 @@ import pandas as pd
 from ..validation.purged_cv import PurgedEraCV
 from .backtester import Backtester
 from .metrics import calculate_metrics, rank_normalize_per_era
+
+if TYPE_CHECKING:
+    from ..pipeline.neutralizer import FeatureNeutralizer
 
 WF_N_SPLITS = 3
 WF_N_PURGE = 4
@@ -81,6 +84,7 @@ class EraSplitEvaluator:
         n_purge: int = 4,
         n_embargo: int = 0,
         n_splits: int | None = None,
+        neutralizer: "FeatureNeutralizer | None" = None,
     ) -> None:
         if n_purge < 0:
             raise ValueError("n_purge must be >= 0")
@@ -93,6 +97,7 @@ class EraSplitEvaluator:
         self.n_purge = n_purge
         self.n_embargo = n_embargo
         self.n_splits = n_splits
+        self.neutralizer = neutralizer
 
     def evaluate_walk_forward(
         self,
@@ -162,6 +167,9 @@ class EraSplitEvaluator:
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
             preds = predictor.predict(X_te)
+            if self.neutralizer is not None:
+                era_labels = pd.Series([test_era] * len(y_te), index=y_te.index)
+                preds = self.neutralizer.neutralize(preds, X_te, era_labels)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend([test_era] * len(y_te))
@@ -196,6 +204,9 @@ class EraSplitEvaluator:
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
             preds = predictor.predict(X_te)
+            if self.neutralizer is not None:
+                fold_eras = era_series.loc[test_mask]
+                preds = self.neutralizer.neutralize(preds, X_te, fold_eras)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend(era_series.loc[test_mask].tolist())

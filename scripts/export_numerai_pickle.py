@@ -7,9 +7,13 @@ This script is intended to be used after HPO:
 4) export `predict.pkl` (and `pipeline.pkl`) for upload.
 """
 
+import datetime
 import gc
+import hashlib
 import json
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import cloudpickle
 import tyro
@@ -32,6 +36,43 @@ def _needs_era_from_flat_config(flat: dict) -> bool:
         if model_type == "Packboost" or model_type in TREE_MODEL_NAMES:
             return True
     return False
+
+
+def _artifact_stem(flat_config: dict[str, Any], target_col: str) -> str:
+    """Build canonical artifact stem: TIMESTAMP_ARCH_TARGET_HASH."""
+    ts = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S")
+    arch = str(flat_config.get("model_1_type", "unknown"))
+    config_hash = hashlib.sha1(  # noqa: S324
+        json.dumps(flat_config, sort_keys=True).encode()
+    ).hexdigest()[:8]
+    return f"{ts}_{arch}_{target_col}_{config_hash}"
+
+
+def _provenance(
+    flat_config: dict[str, Any],
+    pipeline_config: dict[str, Any],
+    target_col: str,
+) -> dict[str, Any]:
+    """Build a hermetically sealed provenance record."""
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True
+        ).strip()
+    except Exception:
+        git_commit = "unavailable"
+
+    try:
+        dependencies = subprocess.check_output(["uv", "export", "--no-dev"], text=True)
+    except Exception:
+        dependencies = "unavailable"
+
+    return {
+        "git_commit": git_commit,
+        "target_col": target_col,
+        "flat_config": flat_config,
+        "resolved_config": pipeline_config,
+        "dependencies": dependencies,
+    }
 
 
 def main(
@@ -109,23 +150,38 @@ def main(
     gc.collect()
 
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = _artifact_stem(flat_config, target_col)
+
     (output_dir / "resolved_pipeline_config.json").write_text(
         json.dumps(pipeline_config, indent=2),
         encoding="utf-8",
     )
 
+    prov = _provenance(flat_config, pipeline_config, target_col)
+    prov_path = output_dir / f"{stem}_provenance.json"
+    prov_path.write_text(json.dumps(prov, indent=2), encoding="utf-8")
+    logger.info("Provenance bundle saved to: {}", prov_path)
+
     predict_fn = pipeline.to_numerai_predict()
-    pkl_path = output_dir / "predict.pkl"
+    pkl_path = output_dir / f"{stem}_predict.pkl"
     with open(pkl_path, "wb") as f:
         cloudpickle.dump(predict_fn, f)
 
     smoke_test_predict_fn(pkl_path, feature_cols)
     logger.info("Smoke test passed for {}", pkl_path)
 
-    pipeline.save_pipeline(output_dir / "pipeline.pkl")
+    pipeline_pkl_path = output_dir / f"{stem}_pipeline.pkl"
+    pipeline.save_pipeline(pipeline_pkl_path)
+
+    latest_predict = output_dir / "latest_predict.pkl"
+    if latest_predict.is_symlink() or latest_predict.exists():
+        latest_predict.unlink()
+    latest_predict.symlink_to(pkl_path.name)
 
     logger.info("Exported Numerai predict to: {}", pkl_path)
-    logger.info("Saved trained pipeline to:   {}", output_dir / "pipeline.pkl")
+    logger.info("Saved trained pipeline to:   {}", pipeline_pkl_path)
+    logger.info("Symlink updated:             {}", latest_predict)
 
 
 if __name__ == "__main__":
