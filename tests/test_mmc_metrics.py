@@ -5,8 +5,8 @@ import pytest
 from alphapulse.evaluation.metrics import (
     era_sharpe_of_mmc,
     mmc_score,
-    per_era_mmc,
     payout_score,
+    per_era_mmc,
 )
 
 N_ERAS = 4
@@ -43,7 +43,7 @@ def test_mmc_score_identical_to_meta_model_is_nan() -> None:
 
 
 def test_mmc_score_positive_for_informative_predictor() -> None:
-    """A predictor correlated with the target and orthogonal to meta model has positive MMC."""
+    """Predictor correlated with target and orthogonal to meta has positive MMC."""
     rng = np.random.RandomState(3)
     y_arr = rng.randn(N)
     y_true = pd.Series(y_arr)
@@ -55,7 +55,7 @@ def test_mmc_score_positive_for_informative_predictor() -> None:
 
 
 def test_mmc_score_anti_correlated_predictor_is_negative() -> None:
-    """A predictor perfectly anti-correlated with the target should yield negative MMC."""
+    """A predictor perfectly anti-correlated with the target yields negative MMC."""
     rng = np.random.RandomState(4)
     y_arr = rng.randn(N)
     y_true = pd.Series(y_arr)

@@ -128,24 +128,25 @@ class ExperimentV1(BaseModel):
     def validate_feature_routing(self) -> Self:
         defined_groups = set(self.features.groups.keys())
         for i, model in enumerate(self.models):
-            if model.input_group is not None and model.input_group not in defined_groups:
+            group = model.input_group
+            if group is not None and group not in defined_groups:
                 if defined_groups:
                     available = ", ".join(sorted(defined_groups))
                     raise ValueError(
-                        f"models[{i}] (type={model.type!r}) references input_group="
-                        f"{model.input_group!r}, which is not defined in features.groups. "
-                        f"Available groups: {available}"
+                        f"models[{i}] (type={model.type!r}) references"
+                        f" input_group={group!r}, which is not defined in"
+                        f" features.groups. Available groups: {available}"
                     )
                 else:
                     raise ValueError(
-                        f"models[{i}] (type={model.type!r}) references input_group="
-                        f"{model.input_group!r}, but features.groups is empty. "
-                        f"Define the group under features.groups in your YAML."
+                        f"models[{i}] (type={model.type!r}) references"
+                        f" input_group={group!r}, but features.groups is"
+                        f" empty. Define the group in your YAML."
                     )
-            if model.input_group is not None and model.input_columns is not None:
+            if group is not None and model.input_columns is not None:
                 raise ValueError(
-                    f"models[{i}] (type={model.type!r}) sets both input_group and "
-                    f"input_columns — use one or the other, not both."
+                    f"models[{i}] (type={model.type!r}) sets both"
+                    f" input_group and input_columns — use one, not both."
                 )
         return self
 
