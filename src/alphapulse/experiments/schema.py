@@ -124,6 +124,31 @@ class ExperimentV1(BaseModel):
     train: TrainConfig = Field(default_factory=TrainConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
+    @model_validator(mode="after")
+    def validate_feature_routing(self) -> Self:
+        defined_groups = set(self.features.groups.keys())
+        for i, model in enumerate(self.models):
+            if model.input_group is not None and model.input_group not in defined_groups:
+                if defined_groups:
+                    available = ", ".join(sorted(defined_groups))
+                    raise ValueError(
+                        f"models[{i}] (type={model.type!r}) references input_group="
+                        f"{model.input_group!r}, which is not defined in features.groups. "
+                        f"Available groups: {available}"
+                    )
+                else:
+                    raise ValueError(
+                        f"models[{i}] (type={model.type!r}) references input_group="
+                        f"{model.input_group!r}, but features.groups is empty. "
+                        f"Define the group under features.groups in your YAML."
+                    )
+            if model.input_group is not None and model.input_columns is not None:
+                raise ValueError(
+                    f"models[{i}] (type={model.type!r}) sets both input_group and "
+                    f"input_columns — use one or the other, not both."
+                )
+        return self
+
     def to_pipeline_config(self) -> dict[str, Any]:
         return {
             "preprocessors": [s.model_dump() for s in self.preprocessing],

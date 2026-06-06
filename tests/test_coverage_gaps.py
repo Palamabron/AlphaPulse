@@ -139,7 +139,7 @@ class TestMultiHeadPipeline:
             feature_groups={},
         )
         pipe = MultiHeadPipeline(global_preprocessors=[], heads=[head])
-        with pytest.raises(ValueError, match="No columns from input_group"):
+        with pytest.raises(ValueError, match="input_group="):
             pipe.fit(X, y, n_rounds=5)
 
     def test_to_numerai_predict(self, toy_data: tuple[pd.DataFrame, pd.Series]) -> None:

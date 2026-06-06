@@ -36,13 +36,29 @@ class HeadSpec:
 
     def resolved_columns(self, X: pd.DataFrame) -> list[str]:
         if self.input_columns is not None:
+            missing = [c for c in self.input_columns if c not in X.columns]
+            if missing:
+                raise ValueError(
+                    f"Model {self.model.name!r} input_columns references columns not "
+                    f"present in data: {missing[:10]}"
+                    + (" (and more)" if len(missing) > 10 else "")
+                )
             return list(self.input_columns)
         if self.input_group is not None:
-            cols = self.feature_groups.get(self.input_group, [])
+            if self.input_group not in self.feature_groups:
+                available = sorted(self.feature_groups.keys())
+                raise ValueError(
+                    f"Model {self.model.name!r} references input_group="
+                    f"{self.input_group!r}, which is not defined in feature_groups. "
+                    f"Available groups: {available}"
+                )
+            cols = self.feature_groups[self.input_group]
             found = [c for c in cols if c in X.columns]
             if not found:
                 raise ValueError(
-                    f"No columns from input_group {self.input_group!r} present in data"
+                    f"Model {self.model.name!r} input_group={self.input_group!r} "
+                    f"defines {len(cols)} column(s) but none are present in data. "
+                    f"First few expected: {cols[:5]}"
                 )
             return found
         return list(X.columns)
