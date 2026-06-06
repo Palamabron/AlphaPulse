@@ -1,6 +1,12 @@
 from .backtester import Backtester
 from .ensemble_diagnostics import compute_ensemble_diagnostics
-from .era_split import EraSplitEvaluator, evaluate_holdout_last_n_eras
+from .era_split import (
+    WF_MIN_TRAIN_ERAS,
+    WF_N_PURGE,
+    WF_N_SPLITS,
+    EraSplitEvaluator,
+    evaluate_holdout_last_n_eras,
+)
 from .feature_report import compute_feature_report
 from .metrics import (
     calculate_metrics,
@@ -20,6 +26,9 @@ from .metrics import (
 from .submission import prepare_submission, validate_submission
 
 __all__ = [
+    "WF_MIN_TRAIN_ERAS",
+    "WF_N_PURGE",
+    "WF_N_SPLITS",
     "Backtester",
     "EraSplitEvaluator",
     "compute_ensemble_diagnostics",
