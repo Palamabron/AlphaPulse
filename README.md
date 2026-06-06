@@ -528,13 +528,19 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 - ✅ Config Tooling: `scripts/make_feature_groups.py` converts `features.json` sets into YAML `features.groups`
 - ✅ Unified Export: `scripts/export_from_yaml.py` for YAML-driven production pickles
 
+**Completed in v0.2.0:**
+- ✅ Purge-aware walk-forward backtesting (`EraSplitEvaluator` with `n_purge`, `n_embargo`, `n_splits`)
+- ✅ Consistent HPO scoring: all trials evaluated via 3-fold walk-forward CV (no fixed holdout split)
+- ✅ Full metric parity: walk-forward returns `max_drawdown`, `pct_positive_eras`, `n_valid_eras`
+- ✅ Ensemble diagnostics and submission validation utilities
+- ✅ Per-era feature importance report
+
 **Upcoming:**
-1. **Payout Optimization:** Integrate Numerai payout-style scoring into HPO objective
-2. **Validation:** Better error messages for feature routing mismatches
-5. **Metrics:** Dedicated MMC (Meta-Model Contribution) tests and Numerai benchmark alignment
-6. **CI/CD:** Automated weekly submission pipeline with GitHub Actions
-7. **W&B Integration:** Full experiment tracking and visualization (config exists, needs integration)
-8. **Model Registry:** Versioned model storage with performance tracking
+1. **Validation:** Better error messages for feature routing mismatches
+2. **Metrics:** Dedicated MMC (Meta-Model Contribution) tests and Numerai benchmark alignment
+3. **CI/CD:** Automated weekly submission pipeline with GitHub Actions
+4. **W&B Integration:** Full experiment tracking and visualization (config exists, needs integration)
+5. **Model Registry:** Versioned model storage with performance tracking
 
 -----
 
