@@ -62,9 +62,6 @@ def test_pca_with_era_column() -> None:
     assert list(out.columns) == ["pca_0", "pca_1"]
 
 
-# ── EraStableFeatureSelector ──────────────────────────────────────────────────
-
-
 def test_era_stable_selector_reduces_features() -> None:
     pytest.importorskip("lightgbm")
     from alphapulse.preprocessors.era_stable import EraStableFeatureSelector

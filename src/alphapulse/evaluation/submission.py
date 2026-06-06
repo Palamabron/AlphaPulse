@@ -29,19 +29,16 @@ def validate_submission(
     """
     issues: list[str] = []
 
-    # Check prediction column exists
     if pred_col not in predictions_df.columns:
         issues.append(f"Missing required column '{pred_col}'.")
         return issues  # can't check further without predictions
 
     preds = predictions_df[pred_col]
 
-    # Check for NaN predictions
     n_nan = int(preds.isna().sum())
     if n_nan > 0:
         issues.append(f"ERROR: {n_nan} NaN predictions found.")
 
-    # Check predictions are in [0, 1]
     valid_preds = preds.dropna()
     if len(valid_preds) > 0:
         p_min = float(valid_preds.min())
@@ -52,13 +49,11 @@ def validate_submission(
                 f"Got min={p_min:.4f}, max={p_max:.4f}."
             )
 
-    # Check for constant predictions (degenerate)
     if len(valid_preds) > 1 and float(valid_preds.std()) == 0.0:
         issues.append(
             "WARNING: All predictions are identical (constant). This will score 0 CORR."
         )
 
-    # Check for very low variance (near-constant)
     if len(valid_preds) > 10:
         unique_ratio = valid_preds.nunique() / len(valid_preds)
         if unique_ratio < 0.01:
@@ -68,7 +63,6 @@ def validate_submission(
                 "Model may be degenerate."
             )
 
-    # ID alignment check against live data
     if live_df is not None:
         live_ids = set(
             live_df[id_col].tolist()

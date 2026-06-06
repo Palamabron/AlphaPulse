@@ -12,6 +12,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+_MIN_ERA_SAMPLES = 20
+
 
 def compute_feature_report(
     X: pd.DataFrame,
@@ -69,7 +71,7 @@ def compute_feature_report(
         mask = era_arr == era
         X_era = X[mask]
         y_era = y[mask]
-        if len(X_era) < 20 or float(y_era.std()) == 0.0:
+        if len(X_era) < _MIN_ERA_SAMPLES or float(y_era.std()) == 0.0:
             continue
         model = lgb.LGBMRegressor(
             n_estimators=n_estimators,
