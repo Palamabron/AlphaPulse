@@ -11,17 +11,20 @@ from alphapulse.logging_ import init_wandb, log_backtest_results, log_metrics
 from alphapulse.models.xgboost_model import XGBoostModel
 from alphapulse.pipeline import Pipeline
 from alphapulse.preprocessors.scaling import StandardScalerPreprocessor
+from alphapulse.utils import set_global_seed
 
 
 def main(
     data_dir: Path = Path("data/v5.2"),
     train_subsample: float = 0.05,
     target_col: str = "target",
+    seed: int = 42,
     output_dir: Path = Path("artifacts"),
     wandb_project: str = "alphapulse-test",
     wandb_run_name: str | None = None,
 ) -> None:
     """Run test pipeline: load data, train, backtest, log to wandb, save pickle."""
+    set_global_seed(seed)
     train_path = data_dir / "train.parquet"
     val_path = data_dir / "validation.parquet"
     if not train_path.exists() or not val_path.exists():

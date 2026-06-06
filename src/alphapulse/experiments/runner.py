@@ -1,3 +1,4 @@
+import gc
 import json
 import time
 from dataclasses import dataclass, field
@@ -87,6 +88,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             seed=exp.data.seed,
             feature_columns=exp.features.columns,
             need_era=need_era,
+            benchmark_columns=exp.data.benchmark_columns or None,
         )
     except Exception as e:
         logger.exception("Experiment data load failed")
@@ -130,6 +132,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             pipeline_config=pipeline_cfg,
         )
 
+    gc.collect()
     backtester = Backtester(pipeline, feature_columns=feature_cols)
     metrics = backtester.evaluate(X_val, y_val, era_val)
 
@@ -149,6 +152,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             seed=exp.data.seed,
             feature_columns=exp.features.columns,
             need_era=need_era,
+            benchmark_columns=exp.data.benchmark_columns or None,
         )
 
         def train_fn(X_tr: Any, y_tr: Any) -> Pipeline | MultiHeadPipeline:
@@ -157,7 +161,11 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
                 feature_columns=feature_cols,
                 feature_groups=exp.features.groups,
             )
-            p.fit(X_tr, y_tr, **train_kw)
+            era_col = X_tr["era"] if "era" in X_tr.columns else None
+            X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
+                X_tr, y_tr, era_train=era_col
+            )
+            p.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kw)
             return p
 
         wf_metrics = EraSplitEvaluator(

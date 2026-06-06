@@ -28,6 +28,7 @@ from alphapulse.logging_.leaderboard import (
     print_leaderboard,
     save_leaderboard,
 )
+from alphapulse.utils import set_global_seed
 
 
 def _run_local(
@@ -294,6 +295,7 @@ def main(
     Use --objective to choose the optimization target (default: corr_sharpe).
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     """
+    set_global_seed(seed)
     if local:
         _run_local(
             data_dir=data_dir,

@@ -42,6 +42,7 @@ class DataConfig(BaseModel):
     target_col: str = "target"
     seed: int = 42
     auxiliary_targets: list[str] | None = None
+    benchmark_columns: list[str] = Field(default_factory=list)
 
 
 class FeatureConfig(BaseModel):

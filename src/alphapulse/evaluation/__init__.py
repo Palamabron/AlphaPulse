@@ -7,6 +7,7 @@ from .era_split import (
     EraSplitEvaluator,
     evaluate_holdout_last_n_eras,
 )
+from .export_validation import smoke_test_predict_fn
 from .feature_report import compute_feature_report
 from .metrics import (
     calculate_metrics,
@@ -22,6 +23,7 @@ from .metrics import (
     per_era_mmc,
     per_era_spearman,
     rank_normalize,
+    rank_normalize_per_era,
 )
 from .submission import prepare_submission, validate_submission
 
@@ -49,4 +51,6 @@ __all__ = [
     "per_era_spearman",
     "payout_score",
     "rank_normalize",
+    "rank_normalize_per_era",
+    "smoke_test_predict_fn",
 ]
