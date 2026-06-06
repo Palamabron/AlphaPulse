@@ -22,12 +22,12 @@ from loguru import logger
 from alphapulse.experiments.runner import load_experiment_dict
 from alphapulse.experiments.schema import ExperimentV1
 from alphapulse.experiments.split import internal_val_split
-from alphapulse.hpo.builder import build_pipeline_or_multi
+from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
 
 
 def _needs_era(exp: ExperimentV1) -> bool:
     for m in exp.models:
-        if m.type == "Packboost":
+        if m.type == "Packboost" or m.type in TREE_MODEL_NAMES:
             return True
         for p in exp.preprocessing + m.preprocessors:
             if p.type == "Packboost":

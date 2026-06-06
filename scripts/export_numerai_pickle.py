@@ -17,7 +17,7 @@ from loguru import logger
 
 from alphapulse.experiments.data import load_train_only_frame
 from alphapulse.experiments.split import internal_val_split
-from alphapulse.hpo.builder import build_pipeline_or_multi
+from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
 from alphapulse.hpo.search_space import get_train_kwargs_from_flat, resolve_flat_config
 
 
@@ -26,7 +26,8 @@ def _needs_era_from_flat_config(flat: dict) -> bool:
         return True
     num_models = int(flat.get("num_models", 1))
     for i in range(1, min(num_models, 3) + 1):
-        if flat.get(f"model_{i}_type") == "Packboost":
+        model_type = flat.get(f"model_{i}_type", "")
+        if model_type == "Packboost" or model_type in TREE_MODEL_NAMES:
             return True
     return False
 
