@@ -10,6 +10,7 @@ from ..evaluation.era_split import (
     WF_N_SPLITS,
     EraSplitEvaluator,
 )
+from ..experiments.split import internal_val_split
 from .builder import build_pipeline_or_multi
 from .search_space import get_train_kwargs_from_flat, resolve_flat_config
 
@@ -74,7 +75,11 @@ def run_trial(
         pipeline = build_pipeline_or_multi(
             pipeline_cfg, feature_columns=feature_cols, feature_groups=None
         )
-        pipeline.fit(X_tr, y_tr, **train_kwargs)
+        era_col = X_tr["era"] if "era" in X_tr.columns else None
+        X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
+            X_tr, y_tr, era_train=era_col
+        )
+        pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kwargs)
         return pipeline
 
     return EraSplitEvaluator(

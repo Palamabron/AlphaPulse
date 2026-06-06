@@ -6,7 +6,7 @@ import pandas as pd
 
 from ..validation.purged_cv import PurgedEraCV
 from .backtester import Backtester
-from .metrics import calculate_metrics
+from .metrics import calculate_metrics, rank_normalize_per_era
 
 WF_N_SPLITS = 3
 WF_N_PURGE = 4
@@ -128,7 +128,7 @@ class EraSplitEvaluator:
 
         y_s = pd.Series(all_y_true)
         era_s = pd.Series(all_era)
-        pred_a = np.asarray(all_y_pred, dtype=np.float64)
+        pred_a = rank_normalize_per_era(np.asarray(all_y_pred, dtype=np.float64), era_s)
         return calculate_metrics(y_s, pred_a, era_s)
 
     def _collect_expanding(

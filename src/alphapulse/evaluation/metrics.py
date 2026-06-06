@@ -26,6 +26,34 @@ def rank_normalize(predictions: np.ndarray) -> np.ndarray:
     return out
 
 
+def rank_normalize_per_era(
+    predictions: np.ndarray,
+    eras: pd.Series,
+) -> np.ndarray:
+    """Rank-normalize predictions independently within each era.
+
+    Applies ``rank_normalize`` per era so that the output matches the
+    cross-sectional [0, 1] uniform distribution Numerai uses before scoring.
+    Rows whose era produces fewer than 2 finite predictions are left as NaN.
+
+    Args:
+        predictions: Raw model predictions aligned with *eras*.
+        eras: Era labels with the same length as *predictions*.
+
+    Returns:
+        Array of rank-normalized predictions, same shape as *predictions*.
+    """
+    p = np.asarray(predictions, dtype=np.float64)
+    e = np.asarray(eras.to_numpy())
+    if len(p) != len(e):
+        raise ValueError("predictions and eras must have the same length.")
+    out = np.full_like(p, fill_value=np.nan)
+    for era in pd.unique(e):
+        mask = e == era
+        out[mask] = rank_normalize(p[mask])
+    return out
+
+
 def _corr_pearson(x: np.ndarray, y: np.ndarray) -> float:
     if x.size < 2:
         return float("nan")

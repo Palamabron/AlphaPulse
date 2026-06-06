@@ -264,6 +264,25 @@ class Pipeline:
         )
         return rank_normalize(neutralized)
 
+    def validate_feature_schema(self, X: pd.DataFrame) -> None:
+        """Warn about columns present in training but missing from *X*.
+
+        Args:
+            X: DataFrame to validate against the training feature schema.
+        """
+        import warnings
+
+        if not self.feature_columns:
+            return
+        missing = [c for c in self.feature_columns if c not in X.columns]
+        if missing:
+            warnings.warn(
+                f"Feature schema mismatch: {len(missing)} training column(s) absent "
+                f"from input (will be zero-filled): {missing[:10]}"
+                + (" …" if len(missing) > 10 else ""),
+                stacklevel=2,
+            )
+
     def to_numerai_predict(
         self,
         benchmark_col: str | None = None,
@@ -291,7 +310,7 @@ class Pipeline:
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
-            X = live_features[feature_columns]
+            X = live_features.reindex(columns=feature_columns, fill_value=0.0)
             eras = (
                 live_features["era"]
                 if use_neutralization and "era" in live_features.columns

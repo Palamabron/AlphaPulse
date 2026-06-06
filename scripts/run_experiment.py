@@ -6,12 +6,16 @@ from typing import Any
 
 import tyro
 
+from alphapulse.utils import set_global_seed
+
 
 def main(
     config: Path = Path("experiments/example_v1.yaml"),
     artifact_dir: Path | None = Path("artifacts/experiments"),
+    seed: int = 42,
 ) -> None:
     """Load experiment file, train, evaluate; print metrics and config hash."""
+    set_global_seed(seed)
     from alphapulse.experiments import run_experiment_from_path
 
     result = run_experiment_from_path(config, artifact_dir=artifact_dir)

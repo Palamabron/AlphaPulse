@@ -15,10 +15,12 @@ import cloudpickle
 import tyro
 from loguru import logger
 
+from alphapulse.evaluation.export_validation import smoke_test_predict_fn
 from alphapulse.experiments.data import load_train_only_frame
 from alphapulse.experiments.split import internal_val_split
 from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
 from alphapulse.hpo.search_space import get_train_kwargs_from_flat, resolve_flat_config
+from alphapulse.utils import set_global_seed
 
 
 def _needs_era_from_flat_config(flat: dict) -> bool:
@@ -42,6 +44,7 @@ def main(
     output_dir: Path = Path("artifacts/competition_pickle_x8"),
 ) -> None:
     """Train best HPO config on subsampled data and export `predict.pkl`."""
+    set_global_seed(seed)
 
     if not best_config_path.exists():
         raise FileNotFoundError(f"best_config_path not found: {best_config_path}")
@@ -112,12 +115,16 @@ def main(
     )
 
     predict_fn = pipeline.to_numerai_predict()
-    with open(output_dir / "predict.pkl", "wb") as f:
+    pkl_path = output_dir / "predict.pkl"
+    with open(pkl_path, "wb") as f:
         cloudpickle.dump(predict_fn, f)
+
+    smoke_test_predict_fn(pkl_path, feature_cols)
+    logger.info("Smoke test passed for {}", pkl_path)
 
     pipeline.save_pipeline(output_dir / "pipeline.pkl")
 
-    logger.info("Exported Numerai predict to: {}", output_dir / "predict.pkl")
+    logger.info("Exported Numerai predict to: {}", pkl_path)
     logger.info("Saved trained pipeline to:   {}", output_dir / "pipeline.pkl")
 
 

@@ -19,6 +19,7 @@ import cloudpickle
 import tyro
 from loguru import logger
 
+from alphapulse.evaluation.export_validation import smoke_test_predict_fn
 from alphapulse.experiments.runner import load_experiment_dict
 from alphapulse.experiments.schema import ExperimentV1
 from alphapulse.experiments.split import internal_val_split
@@ -121,12 +122,16 @@ def main(
     )
 
     predict_fn = pipeline.to_numerai_predict(benchmark_col)
-    with open(output_dir / "predict.pkl", "wb") as f:
+    pkl_path = output_dir / "predict.pkl"
+    with open(pkl_path, "wb") as f:
         cloudpickle.dump(predict_fn, f)
+
+    smoke_test_predict_fn(pkl_path, feature_cols)
+    logger.info("Smoke test passed for {}", pkl_path)
 
     pipeline.save_pipeline(output_dir / "pipeline.pkl")
 
-    logger.info("Exported Numerai predict to: {}", output_dir / "predict.pkl")
+    logger.info("Exported Numerai predict to: {}", pkl_path)
     logger.info("Saved trained pipeline to:   {}", output_dir / "pipeline.pkl")
 
 

@@ -20,6 +20,7 @@ from loguru import logger
 
 from alphapulse.autoresearch.loop import run_autoresearch
 from alphapulse.experiments.data import load_train_only_frame
+from alphapulse.utils import set_global_seed
 
 
 def main(
@@ -50,6 +51,7 @@ def main(
         resume: Resume from existing research_state.json in output_dir.
         wandb_project: WandB project name. When set, logs all trials to W&B.
     """
+    set_global_seed(seed)
     if hours is None and trials is None:
         logger.error("Provide at least one of --hours or --trials.")
         raise SystemExit(1)

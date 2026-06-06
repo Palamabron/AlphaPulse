@@ -51,13 +51,15 @@ def resolve_feature_columns(
     train_df: pd.DataFrame,
     data_dir: Path,
     explicit: list[str] | None,
+    benchmark_columns: list[str] | None = None,
 ) -> list[str]:
+    excluded = set(benchmark_columns or [])
     if explicit:
-        return [c for c in explicit if c in train_df.columns]
+        return [c for c in explicit if c in train_df.columns and c not in excluded]
     feature_names = load_feature_names(data_dir)
     if feature_names:
-        return [c for c in feature_names if c in train_df.columns]
-    meta = {"id", "era", "target"}
+        return [c for c in feature_names if c in train_df.columns and c not in excluded]
+    meta = {"id", "era", "target"} | excluded
     meta.update(c for c in train_df.columns if c.startswith("target_"))
     return [
         c
@@ -73,6 +75,7 @@ def load_train_val_frames(
     seed: int,
     feature_columns: list[str] | None,
     need_era: bool,
+    benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.Series, list[str]]:
     if train_subsample <= 0.0:
         raise ValueError(f"train_subsample must be > 0, got {train_subsample}")
@@ -85,17 +88,20 @@ def load_train_val_frames(
             "Run scripts/download_dataset.py first."
         )
 
+    excluded = set(benchmark_columns or [])
     feature_names = feature_columns or load_feature_names(data_dir)
     extra_cols = [target_col] + (["era"] if need_era else [])
     if feature_names:
         read_cols = list(dict.fromkeys(feature_names + extra_cols + ["era"]))
         train_df = pd.read_parquet(train_path, columns=read_cols)
         val_df = pd.read_parquet(val_path, columns=read_cols)
-        cols = [c for c in feature_names if c in train_df.columns]
+        cols = [c for c in feature_names if c in train_df.columns and c not in excluded]
     else:
         train_df = pd.read_parquet(train_path)
         val_df = pd.read_parquet(val_path)
-        cols = resolve_feature_columns(train_df, data_dir, feature_columns)
+        cols = resolve_feature_columns(
+            train_df, data_dir, feature_columns, benchmark_columns
+        )
 
     if not cols:
         raise ValueError("No feature columns resolved.")
@@ -122,12 +128,14 @@ def load_train_only_frame(
     feature_columns: list[str] | None,
     need_era: bool,
     feature_set: str | None = None,
+    benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, list[str]]:
     """Load only train.parquet (no validation) with column pruning to reduce RAM."""
     train_path = data_dir / "train.parquet"
     if not train_path.exists():
         raise FileNotFoundError(f"Expected {train_path}")
 
+    excluded = set(benchmark_columns or [])
     feature_names = feature_columns or load_feature_names(
         data_dir, feature_set=feature_set
     )
@@ -136,10 +144,12 @@ def load_train_only_frame(
             dict.fromkeys(feature_names + [target_col] + (["era"] if need_era else []))
         )
         train_df = pd.read_parquet(train_path, columns=read_cols)
-        cols = [c for c in feature_names if c in train_df.columns]
+        cols = [c for c in feature_names if c in train_df.columns and c not in excluded]
     else:
         train_df = pd.read_parquet(train_path)
-        cols = resolve_feature_columns(train_df, data_dir, feature_columns)
+        cols = resolve_feature_columns(
+            train_df, data_dir, feature_columns, benchmark_columns
+        )
 
     if not cols:
         raise ValueError("No feature columns resolved.")
@@ -159,17 +169,29 @@ def load_train_frame_with_era(
     seed: int,
     feature_columns: list[str] | None,
     need_era: bool,
+    benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series, list[str]]:
     train_path = data_dir / "train.parquet"
     if not train_path.exists():
         raise FileNotFoundError(f"Expected {train_path}")
-    train_df = pd.read_parquet(train_path)
-    cols = resolve_feature_columns(train_df, data_dir, feature_columns)
+
+    excluded = set(benchmark_columns or [])
+    feature_names = feature_columns or load_feature_names(data_dir)
+    if feature_names:
+        read_cols = list(dict.fromkeys(feature_names + [target_col, "era"]))
+        train_df = pd.read_parquet(train_path, columns=read_cols)
+        cols = [c for c in feature_names if c in train_df.columns and c not in excluded]
+    else:
+        train_df = pd.read_parquet(train_path)
+        cols = resolve_feature_columns(
+            train_df, data_dir, feature_columns, benchmark_columns
+        )
+
     if not cols:
         raise ValueError("No feature columns resolved.")
     cols = [c for c in cols if c not in {"era", "id"}]
     if not cols:
         raise ValueError("No feature columns resolved after excluding metadata.")
-    read_cols = cols + (["era"] if need_era else [])
+    x_cols = cols + (["era"] if need_era else [])
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
-    return train_df[read_cols], train_df[target_col], train_df["era"], cols
+    return train_df[x_cols], train_df[target_col], train_df["era"], cols
