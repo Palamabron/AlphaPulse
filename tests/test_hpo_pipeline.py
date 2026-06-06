@@ -70,3 +70,25 @@ def test_sample_random_config_returns_dict() -> None:
     assert isinstance(config, dict)
     assert "num_models" in config
     assert "scaler_type" in config
+
+
+def test_lightgbm_uses_lgbm_rounds() -> None:
+    from alphapulse.hpo.search_space import get_train_kwargs_from_flat
+
+    flat = {
+        "num_models": 1,
+        "model_1_type": "LightGBM",
+        "lgbm_n_rounds": 777,
+        "lgbm_early_stopping": 33,
+    }
+    kw = get_train_kwargs_from_flat(flat)
+    assert kw["n_rounds"] == 777
+    assert kw["early_stopping_rounds"] == 33
+
+
+def test_xgb_defaults_when_type_xgb() -> None:
+    from alphapulse.hpo.search_space import get_train_kwargs_from_flat
+
+    flat = {"num_models": 1, "model_1_type": "XGBoost", "xgb_n_rounds": 400}
+    kw = get_train_kwargs_from_flat(flat)
+    assert kw["n_rounds"] == 400
