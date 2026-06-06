@@ -517,46 +517,16 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 
 ## Roadmap
 
-**Completed in v0.1.0:**
-- ✅ AutoResearch Loop with Claude agent
-- ✅ Foundation Models (TabPFN, TabICL)
-- ✅ Enhanced Model Suite (EraEnsemble, SyntheticDataAugmenter)
-- ✅ Multi-target and Multi-head Pipelines
-- ✅ Robust NaN/inf Filtering in Pipeline
-- ✅ Ensemble Weight Optimization
-- ✅ Comprehensive EDA Dashboard with HPO Analysis
-- ✅ Config Tooling: `scripts/make_feature_groups.py` converts `features.json` sets into YAML `features.groups`
-- ✅ Unified Export: `scripts/export_from_yaml.py` for YAML-driven production pickles
-
-**Completed in v0.2.0:**
-- ✅ Purge-aware walk-forward backtesting (`EraSplitEvaluator` with `n_purge`, `n_embargo`, `n_splits`)
-- ✅ Consistent HPO scoring: all trials evaluated via 3-fold walk-forward CV (no fixed holdout split)
-- ✅ Full metric parity: walk-forward returns `max_drawdown`, `pct_positive_eras`, `n_valid_eras`
-- ✅ Ensemble diagnostics and submission validation utilities
-- ✅ Per-era feature importance report
-
-**Completed in v0.3.0:**
-- ✅ Validation: clear error messages for feature routing mismatches (`input_group` validated at YAML parse time; `HeadSpec` distinguishes undefined group vs missing columns)
-- ✅ MMC metric tests: full test coverage for `mmc_score`, `per_era_mmc`, `era_sharpe_of_mmc`, and `payout_score`
-
-**Completed in v0.4.0 (Pre-Training Critical Path):**
-- ✅ **Global seed threading:** Centralized `set_global_seed()` utility invoked at script genesis — locks Python `random`, `numpy`, `torch`, and cross-validation subsampling to guarantee identical walk-forward splits across independent executions.
-- ✅ **Nested early stopping:** Decouple early-stopping validation from the outer holdout fold. Each walk-forward training fold carves an inner temporal validation set (respecting purge/embargo) exclusively for loss monitoring; the outer fold remains untouched for metric reporting.
-- ✅ **Per-era rank normalization before metrics:** Enforce `rank_normalize()` strictly per era (not globally) before any correlation or Sharpe computation, matching Numerai's exact scoring pipeline.
-- ✅ **Feature schema contract:** Serialise the exact ordered feature list into every artifact; validate incoming data against it at load time — fail fast on missing columns, silently drop unexpected ones.
-- ✅ **OOM protection / lazy data loading:** Transition from full in-memory loading to memory-mapped or streaming access for the full dataset; use native `DMatrix`/`Dataset` formats for tree models to avoid 3× memory spikes during histogram construction.
-- ✅ **Export artifact smoke test:** After serialising `predict.pkl`, spawn a clean subprocess that loads it and runs a forward pass on a synthetic frame with edge-case columns — only mark the artifact as deployment-ready on success.
-- ✅ **Column taxonomy:** Tag every dataset column as `feature | target | auxiliary_target | metadata | benchmark` in config; guarantee benchmark columns (e.g. `v2_equivalent_return`) bypass model training but reach the evaluation module intact.
+See [CHANGELOG.md](CHANGELOG.md) for completed releases.
 
 **Upcoming — v0.5.0 (Production Hardening):**
-
-8. **HPO fault tolerance:** Back the optimization sweep with a persistent trial database; isolate each trial in a subprocess so a crash marks that trial failed and the sweep continues; checkpoint deep-learning weights per epoch.
-9. **Provenance artifact:** On every successful trial, save a hermetically sealed bundle: resolved config, `uv export` dependency snapshot, and the git commit hash — verify the environment on resume/deploy.
-10. **Canonical artifact naming:** Enforce `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>.pkl` for all exported models to prevent overwrite collisions and enable automated deployment selection.
-11. **Masked loss for auxiliary targets:** Implement per-column boolean masking in multi-task neural losses so `NaN`-sparse auxiliary targets contribute valid gradients without crashing backpropagation.
-12. **Feature neutralization in eval loop:** Project predictions orthogonally to the Numerai Neutralizers Matrix before computing selection metrics, rewarding genuinely novel alpha over crowded factor exposure.
-13. **W&B Integration:** Full experiment tracking — co-locate configs, per-era metrics, and artifacts in a searchable run database (config scaffolding already exists).
-14. **CI/CD:** Automated weekly submission pipeline with GitHub Actions (download → infer → submit).
+- **HPO fault tolerance:** Back the optimization sweep with a persistent trial database; isolate each trial in a subprocess so a crash marks that trial failed and the sweep continues; checkpoint deep-learning weights per epoch.
+- **Provenance artifact:** On every successful trial, save a hermetically sealed bundle: resolved config, `uv export` dependency snapshot, and the git commit hash — verify the environment on resume/deploy.
+- **Canonical artifact naming:** Enforce `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>.pkl` for all exported models to prevent overwrite collisions and enable automated deployment selection.
+- **Masked loss for auxiliary targets:** Implement per-column boolean masking in multi-task neural losses so `NaN`-sparse auxiliary targets contribute valid gradients without crashing backpropagation.
+- **Feature neutralization in eval loop:** Project predictions orthogonally to the Numerai Neutralizers Matrix before computing selection metrics, rewarding genuinely novel alpha over crowded factor exposure.
+- **W&B Integration:** Full experiment tracking — co-locate configs, per-era metrics, and artifacts in a searchable run database (config scaffolding already exists).
+- **CI/CD:** Automated weekly submission pipeline with GitHub Actions (download → infer → submit).
 
 -----
 
