@@ -1,9 +1,6 @@
-# AlphaPulse
-0.5.0
+# AlphaPulse v0.5.0
 
-AlphaPulse is a config-driven framework for building, training, and deploying Numerai competition pipelines.
-
-Numerai is a global data science tournament where you build ML models to predict stock-market signals; AlphaPulse streamlines dataset download, experiment definition, evaluation/backtesting, and automated HPO for that workflow.
+AlphaPulse is a config-driven framework for building, training, and deploying ML pipelines for the [Numerai](https://numer.ai) stock-market prediction tournament. It covers the full workflow: dataset download, experiment definition, backtesting, hyperparameter optimization (HPO), and automated weekly submission.
 
 -----
 
@@ -20,6 +17,8 @@ Numerai is a global data science tournament where you build ML models to predict
   - [4. Run AutoResearch (Agent-Driven Research Loop)](#4-run-autoresearch-agent-driven-research-loop)
   - [5. Quick Test & Smoke Test](#5-quick-test--smoke-test)
   - [6. Exporting for Submission](#6-exporting-for-submission)
+  - [7. Live Inference](#7-live-inference-production-predictions)
+  - [8. Submit Predictions](#8-submit-predictions-to-numerai)
 - [Configuring Experiments (Experiment v1 YAML)](#configuring-experiments-experiment-v1-yaml)
 - [Directory Structure](#directory-structure)
 - [Contributing](#contributing)
@@ -30,18 +29,17 @@ Numerai is a global data science tournament where you build ML models to predict
 
 ## About Numerai
 
-Numerai is a crowd-sourced hedge fund and the world's largest stock-market ML tournament. Data scientists worldwide build models to predict stock returns; Numerai combines these predictions into a meta-model for real hedge fund trading.
+Numerai is a crowd-sourced hedge fund and the world's largest stock-market ML tournament. Data scientists submit predictions that Numerai combines into a meta-model for real hedge fund trading.
 
-**Key Concepts:**
-- **Dataset:** Obfuscated tabular data where each row represents a stock at a point in time
-- **Era:** Time period (typically a week) grouping correlated observations
-- **Target:** 20-day forward stock-specific alpha (returns neutral to market/sector)
-- **Scoring:** Correlation (CORR), Meta Model Contribution (MMC), and Sharpe ratio
-- **Staking:** Stake NMR cryptocurrency on your model — positive performance earns, negative burns
-
-AlphaPulse streamlines the entire workflow from data download through model training, validation, and weekly submission.
-
-For more details, see: https://numer.ai
+**Key concepts:**
+| Term | Meaning |
+|------|---------|
+| **Era** | One week of data; rows within an era are correlated stocks |
+| **Target** | 20-day forward stock-specific alpha, neutral to market/sector |
+| **CORR** | Spearman correlation of your predictions to the target per era |
+| **MMC** | Meta Model Contribution — how much your model improves beyond others |
+| **Sharpe** | Mean per-era correlation ÷ its standard deviation |
+| **NMR** | Numerai's token; stake on your model to earn rewards or get burned |
 
 -----
 
@@ -218,6 +216,8 @@ uv run python scripts/run_test_pipeline.py \
   --output-dir artifacts/test_run
 ```
 
+> **No W&B account?** Prefix the command with `WANDB_MODE=disabled` to skip W&B logging. You can also add `WANDB_MODE=disabled` to your `.env` file to make it permanent.
+
 ### 6\. Exporting for Submission
 
 To generate the `predict.pkl` required for Numerai:
@@ -235,7 +235,7 @@ uv run python scripts/export_numerai_pickle.py \
 **From a YAML Experiment:**
 Prefer using `scripts/run_test_pipeline.py` or `scripts/export_from_yaml.py` for YAML-driven exports.
 
-### 7. Live Inference (Production Predictions)
+### 7. Live Inference — Production Predictions
 
 Run your trained model on live tournament data to generate predictions:
 
