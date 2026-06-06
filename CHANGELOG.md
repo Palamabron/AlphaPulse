@@ -4,6 +4,15 @@ All notable changes to AlphaPulse are documented here.
 
 ---
 
+## [0.5.0] — Production Hardening
+
+- **HPO fault tolerance:** Each local trial runs in an isolated subprocess; a crash marks that trial failed and the sweep continues. A SQLite-backed `TrialDB` (`src/alphapulse/hpo/trial_db.py`) persists trial state across crashes. `--resume` flag skips already-completed trial numbers. `--trial-timeout` caps each subprocess.
+- **Provenance artifact:** On every `export_numerai_pickle.py` run, a `*_provenance.json` bundle is written alongside the model: resolved config, `uv export` dependency snapshot, and git commit hash — enabling hermetic environment verification on resume or deploy.
+- **Canonical artifact naming:** Exported models follow `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>` naming (e.g. `20260606T120000_XGBoost_target_a1b2c3d4_predict.pkl`) with a `latest_predict.pkl` symlink for convenience.
+- **Masked loss for auxiliary targets:** `MultiTargetPipeline` now drops NaN rows per-target before training each model; targets with fewer than 10 valid rows are skipped entirely — prevents crashes with NaN-sparse auxiliary targets in both tree and DL models.
+- **Feature neutralization in eval loop:** `Backtester` and `EraSplitEvaluator` accept an optional `FeatureNeutralizer`; when set, predictions are neutralized against feature columns before metric computation, rewarding genuinely novel alpha over crowded factor exposure.
+- **W&B experiment runner integration:** `scripts/run_experiment.py` gains a `--wandb-project` flag; configs, per-era metrics, duration, config hash, and artifact paths are logged to W&B on every run. AutoResearch W&B wiring was already complete.
+
 ## [0.4.0] — Pre-Training Critical Path
 
 - **Global seed threading:** Centralized `set_global_seed()` utility invoked at script genesis — locks Python `random`, `numpy`, `torch`, and cross-validation subsampling to guarantee identical walk-forward splits across independent executions.

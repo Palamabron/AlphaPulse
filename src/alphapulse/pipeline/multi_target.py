@@ -72,18 +72,36 @@ class MultiTargetPipeline:
 
         for target_col in available_targets:
             y = targets[target_col]
+            valid_mask = y.notna()
+            if valid_mask.sum() < 10:
+                continue
+
             y_val = (
                 targets_val[target_col]
                 if targets_val is not None and target_col in targets_val.columns
                 else None
             )
 
+            X_fit_masked = X_fit[valid_mask]
+            y_masked = y[valid_mask]
+
+            X_val_masked: Any = X_val_t
+            y_val_masked: Any = y_val
+            if y_val is not None:
+                val_valid = y_val.notna()
+                if val_valid.sum() >= 2:
+                    X_val_masked = X_val_t[val_valid] if X_val_t is not None else None
+                    y_val_masked = y_val[val_valid]
+                else:
+                    X_val_masked = None
+                    y_val_masked = None
+
             model = self.model_factory()
             metrics = model.train(
-                X_fit,
-                y,
-                X_val=X_val_t,
-                y_val=y_val,
+                X_fit_masked,
+                y_masked,
+                X_val=X_val_masked,
+                y_val=y_val_masked,
                 **model_train_kwargs,
             )
             self._models[target_col] = model
