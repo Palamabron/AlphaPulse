@@ -141,20 +141,19 @@ class TestTrialDB:
 
 
 class TestNeutralizerInBacktester:
-    def _make_data(self) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:
+    def _make_data(self) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
         rng = np.random.default_rng(0)
         n = 60
         X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["f0", "f1", "f2", "f3"])
         y = pd.Series(rng.standard_normal(n))
         era = pd.Series(["e1"] * 20 + ["e2"] * 20 + ["e3"] * 20)
-        preds = pd.Series(rng.standard_normal(n))
-        return X, y, era, preds
+        return X, y, era
 
     def test_backtester_accepts_neutralizer(self) -> None:
         from alphapulse.evaluation.backtester import Backtester
         from alphapulse.pipeline.neutralizer import FeatureNeutralizer
 
-        X, y, era, _ = self._make_data()
+        X, y, era = self._make_data()
 
         class ConstantPredictor:
             def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -187,19 +186,6 @@ class TestNeutralizerInBacktester:
         m_plain = bt_plain.evaluate(X, y, era)
         m_neutralized = bt_neutralized.evaluate(X, y, era)
         assert m_plain["corr_sharpe"] != m_neutralized["corr_sharpe"]
-
-    def test_backtester_without_neutralizer_unchanged(self) -> None:
-        from alphapulse.evaluation.backtester import Backtester
-
-        X, y, era, _ = self._make_data()
-
-        class FixedPredictor:
-            def predict(self, X: pd.DataFrame) -> np.ndarray:
-                return np.random.default_rng(3).standard_normal(len(X))
-
-        bt = Backtester(FixedPredictor(), neutralizer=None)
-        metrics = bt.evaluate(X, y, era)
-        assert "corr_sharpe" in metrics
 
 
 class TestMaskedAuxTargets:

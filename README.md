@@ -1,5 +1,5 @@
 # AlphaPulse
-0.4.0
+0.5.0
 
 AlphaPulse is a config-driven framework for building, training, and deploying Numerai competition pipelines.
 
@@ -531,14 +531,13 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 
 See [CHANGELOG.md](CHANGELOG.md) for completed releases.
 
-**Upcoming — v0.5.0 (Production Hardening):**
-- **HPO fault tolerance:** Back the optimization sweep with a persistent trial database; isolate each trial in a subprocess so a crash marks that trial failed and the sweep continues; checkpoint deep-learning weights per epoch.
-- **Provenance artifact:** On every successful trial, save a hermetically sealed bundle: resolved config, `uv export` dependency snapshot, and the git commit hash — verify the environment on resume/deploy.
-- **Canonical artifact naming:** Enforce `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>.pkl` for all exported models to prevent overwrite collisions and enable automated deployment selection.
-- **Masked loss for auxiliary targets:** Implement per-column boolean masking in multi-task neural losses so `NaN`-sparse auxiliary targets contribute valid gradients without crashing backpropagation.
-- **Feature neutralization in eval loop:** Project predictions orthogonally to the Numerai Neutralizers Matrix before computing selection metrics, rewarding genuinely novel alpha over crowded factor exposure.
-- **W&B Integration:** Full experiment tracking — co-locate configs, per-era metrics, and artifacts in a searchable run database (config scaffolding already exists).
-- **CI/CD:** Automated weekly submission pipeline with GitHub Actions (download → infer → submit).
+**Completed — v0.5.0 (Production Hardening):**
+- **HPO fault tolerance:** Each local trial runs in an isolated subprocess; crashes mark the trial failed and the sweep continues. A SQLite-backed `TrialDB` persists trial state. `--resume` skips already-completed trials.
+- **Provenance artifact:** On every export, a hermetically sealed bundle is written: resolved config, `uv export` dependency snapshot, and git commit hash.
+- **Canonical artifact naming:** Exported models follow `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>.pkl` with a `latest_predict.pkl` symlink.
+- **Masked loss for auxiliary targets:** `MultiTargetPipeline` drops NaN rows per-target; targets with fewer than 10 valid rows are skipped entirely.
+- **Feature neutralization in eval loop:** `Backtester` and `EraSplitEvaluator` accept an optional `FeatureNeutralizer`; predictions are neutralized before metric computation.
+- **W&B experiment runner integration:** `scripts/run_experiment.py` logs configs, per-era metrics, and artifact paths to W&B via `--wandb-project`.
 
 -----
 
