@@ -19,8 +19,6 @@ _NAN_METRICS: dict[str, float] = {
     "mean_per_era_correlation": float("nan"),
     "std_per_era_correlation": float("nan"),
     "corr_sharpe": float("nan"),
-    "sharpe": float("nan"),
-    "correlation": float("nan"),
     "max_drawdown": float("nan"),
     "pct_positive_eras": float("nan"),
     "n_valid_eras": float("nan"),
@@ -48,8 +46,7 @@ def evaluate_holdout_last_n_eras(
         return {
             "mean_per_era_correlation": float("nan"),
             "std_per_era_correlation": float("nan"),
-            "sharpe": float("nan"),
-            "correlation": float("nan"),
+            "corr_sharpe": float("nan"),
         }
     bt = Backtester(predictor, feature_columns=feature_columns)
     return bt.evaluate(X_val.loc[mask], y_val.loc[mask], era_val.loc[mask])
