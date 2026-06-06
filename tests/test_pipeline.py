@@ -72,8 +72,7 @@ def test_backtester_returns_expected_keys(
     expected = {
         "mean_per_era_correlation",
         "std_per_era_correlation",
-        "sharpe",
-        "correlation",
+        "corr_sharpe",
     }
     assert expected <= set(metrics.keys())
 

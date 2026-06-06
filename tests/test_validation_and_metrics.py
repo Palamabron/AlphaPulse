@@ -41,7 +41,7 @@ def test_era_split_walk_forward_returns_sharpe_key() -> None:
     result = evaluator.evaluate_walk_forward(
         X, y, eras, train_fn=lambda Xtr, ytr: _DummyPredictor()
     )
-    assert "sharpe" in result
+    assert "corr_sharpe" in result
     assert "mean_per_era_correlation" in result
 
 
@@ -61,7 +61,7 @@ def test_era_split_holdout_returns_expected_keys() -> None:
     result = evaluate_holdout_last_n_eras(
         _DummyPredictor(), X, y, eras, feature_columns=None, last_n_eras=2
     )
-    assert "sharpe" in result
+    assert "corr_sharpe" in result
     assert "mean_per_era_correlation" in result
 
 

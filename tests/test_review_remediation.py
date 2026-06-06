@@ -106,7 +106,7 @@ def test_run_experiment_e2e(numerai_dataset_dir: Path) -> None:
     )
     result = run_experiment(exp, artifact_dir=numerai_dataset_dir / "artifacts")
     assert result.error is None
-    assert "sharpe" in result.metrics
+    assert "corr_sharpe" in result.metrics
     assert result.config_hash
     artifact_path = numerai_dataset_dir / "artifacts" / "resolved_pipeline_config.json"
     assert artifact_path.exists()

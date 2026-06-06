@@ -419,7 +419,7 @@ def calculate_metrics(
     Returns:
         Dict with ``mean_per_era_correlation``, ``std_per_era_correlation``,
         ``corr_sharpe``, ``max_drawdown``, ``pct_positive_eras``,
-        ``n_valid_eras``, and legacy aliases ``sharpe`` / ``correlation``.
+        ``n_valid_eras``.
         When meta model is provided: also ``mmc_sharpe`` and ``payout_score``.
     """
     scoring = era_correlation_metrics(y_true, y_pred, eras)
@@ -429,8 +429,6 @@ def calculate_metrics(
         "mean_per_era_correlation": mean_corr,
         "std_per_era_correlation": scoring["std_era_corr"],
         "corr_sharpe": corr_sharpe,
-        "sharpe": corr_sharpe,
-        "correlation": mean_corr,
         "max_drawdown": scoring["max_drawdown"],
         "pct_positive_eras": scoring["pct_positive_eras"],
         "n_valid_eras": scoring["n_valid_eras"],

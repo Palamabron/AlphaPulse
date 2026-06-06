@@ -63,7 +63,7 @@ class Backtester:
 
         Returns:
             Dictionary with ``mean_per_era_correlation``, ``std_per_era_correlation``,
-            ``corr_sharpe``, ``sharpe``, ``correlation``, ``max_drawdown``,
+            ``corr_sharpe``, ``max_drawdown``,
             ``pct_positive_eras``, ``n_valid_eras``, and optionally ``mmc``,
             ``mmc_sharpe``, ``payout_score``, ``fnc_sharpe``.
         """
