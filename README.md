@@ -1,5 +1,5 @@
 # AlphaPulse
-0.1.0 (internal release)
+0.4.0
 
 AlphaPulse is a config-driven framework for building, training, and deploying Numerai competition pipelines.
 
@@ -539,17 +539,14 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 - ✅ Validation: clear error messages for feature routing mismatches (`input_group` validated at YAML parse time; `HeadSpec` distinguishes undefined group vs missing columns)
 - ✅ MMC metric tests: full test coverage for `mmc_score`, `per_era_mmc`, `era_sharpe_of_mmc`, and `payout_score`
 
-**Upcoming — v0.4.0 (Pre-Training Critical Path):**
-
-*Must be resolved before the first serious full-dataset training run.*
-
-1. **Global seed threading:** Centralized `set_global_seed()` utility invoked at script genesis — locks Python `random`, `numpy`, `torch`, and cross-validation subsampling to guarantee identical walk-forward splits across independent executions.
-2. **Nested early stopping:** Decouple early-stopping validation from the outer holdout fold. Each walk-forward training fold must carve an inner temporal validation set (respecting purge/embargo) exclusively for loss monitoring; the outer fold remains untouched for metric reporting.
-3. **Per-era rank normalization before metrics:** Enforce `rank_normalize()` strictly per era (not globally) before any correlation or Sharpe computation, matching Numerai's exact scoring pipeline.
-4. **Feature schema contract:** Serialise the exact ordered feature list into every artifact; validate incoming data against it at load time — fail fast on missing columns, silently drop unexpected ones.
-5. **OOM protection / lazy data loading:** Transition from full in-memory loading to memory-mapped or streaming access for the full dataset; use native `DMatrix`/`Dataset` formats for tree models to avoid 3× memory spikes during histogram construction.
-6. **Export artifact smoke test:** After serialising `predict.pkl`, spawn a clean subprocess that loads it and runs a forward pass on a synthetic frame with edge-case columns — only mark the artifact as deployment-ready on success.
-7. **Column taxonomy:** Tag every dataset column as `feature | target | auxiliary_target | metadata | benchmark` in config; guarantee benchmark columns (e.g. `v2_equivalent_return`) bypass model training but reach the evaluation module intact.
+**Completed in v0.4.0 (Pre-Training Critical Path):**
+- ✅ **Global seed threading:** Centralized `set_global_seed()` utility invoked at script genesis — locks Python `random`, `numpy`, `torch`, and cross-validation subsampling to guarantee identical walk-forward splits across independent executions.
+- ✅ **Nested early stopping:** Decouple early-stopping validation from the outer holdout fold. Each walk-forward training fold carves an inner temporal validation set (respecting purge/embargo) exclusively for loss monitoring; the outer fold remains untouched for metric reporting.
+- ✅ **Per-era rank normalization before metrics:** Enforce `rank_normalize()` strictly per era (not globally) before any correlation or Sharpe computation, matching Numerai's exact scoring pipeline.
+- ✅ **Feature schema contract:** Serialise the exact ordered feature list into every artifact; validate incoming data against it at load time — fail fast on missing columns, silently drop unexpected ones.
+- ✅ **OOM protection / lazy data loading:** Transition from full in-memory loading to memory-mapped or streaming access for the full dataset; use native `DMatrix`/`Dataset` formats for tree models to avoid 3× memory spikes during histogram construction.
+- ✅ **Export artifact smoke test:** After serialising `predict.pkl`, spawn a clean subprocess that loads it and runs a forward pass on a synthetic frame with edge-case columns — only mark the artifact as deployment-ready on success.
+- ✅ **Column taxonomy:** Tag every dataset column as `feature | target | auxiliary_target | metadata | benchmark` in config; guarantee benchmark columns (e.g. `v2_equivalent_return`) bypass model training but reach the evaluation module intact.
 
 **Upcoming — v0.5.0 (Production Hardening):**
 
