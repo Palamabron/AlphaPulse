@@ -7,7 +7,7 @@ import pandas as pd
 
 from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
-from ..preprocessors.base import BasePreprocessor
+from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
 from .ensemble import EnsembleStrategy
 from .row_utils import (
     filter_invalid_rows,
@@ -89,6 +89,8 @@ class MultiHeadPipeline:
     ) -> pd.DataFrame:
         era_meta = protected_metadata_frame(X)
         for pp in self.global_preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.train() if fit else pp.eval()
             if fit:
                 pp.fit(X, y)
             X = pp.transform(X)
@@ -107,6 +109,8 @@ class MultiHeadPipeline:
         X_h = X_global[cols].copy()
         era_meta = protected_metadata_frame(X_h)
         for pp in head.local_preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.train() if fit else pp.eval()
             if fit:
                 pp.fit(X_h, y)
             X_h = pp.transform(X_h)
