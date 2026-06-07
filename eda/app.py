@@ -29,10 +29,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-lang = st.sidebar.radio("Language / Język", ["English", "Polski"], index=0)
+_t_default = get_translations("English")
+lang = st.sidebar.radio(
+    _t_default["language.label"],
+    [_t_default["language.english"], _t_default["language.polish"]],
+    index=0,
+)
 st.session_state["lang"] = lang
 
-# Get translations accessor for current language (new YAML-based API)
 t = get_translations(lang)
 
 

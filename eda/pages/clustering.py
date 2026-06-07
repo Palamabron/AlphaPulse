@@ -11,23 +11,22 @@ import streamlit as st
 from scipy.cluster import hierarchy
 from scipy.spatial.distance import squareform
 
-from eda.utils import translate
+from eda.utils import get_translations
 from eda.utils.config import FEATURES_JSON_PATH
 
 st.set_page_config(page_title="Clustering", page_icon="🔬", layout="wide")
 
+t = get_translations()
+
 if "data_loaded" not in st.session_state:
-    st.warning("⚠️ Dane nie zostały załadowane. Przejdź do strony głównej.")
+    st.warning(t["errors.data_not_loaded"])
     st.stop()
 
 train = st.session_state["train"]
 feature_set = st.session_state["feature_set"]
 
-st.title("🔬 Analiza Klasteryzacji Cech")
-st.markdown("""
-Grupowanie podobnych cech na podstawie korelacji - identyfikacja grup redundantnych cech
-**Cel:** Wykryć cechy, które są silnie skorelowane ze sobą i mogą być redundantne.
-""")
+st.title(t["clustering.title"])
+st.markdown(t["clustering.description"])
 
 
 @st.cache_data
@@ -40,19 +39,19 @@ def load_feature_groups() -> dict[str, list[str]]:
             try:
                 with open(FEATURES_JSON_PATH, encoding=encoding) as f:
                     features_json = json.load(f)
-                st.success(f"✓ Załadowano features.json (kodowanie: {encoding})")
+                st.success(t.format("clustering.load_success", encoding=encoding))
                 break
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
 
         if features_json is None:
-            raise ValueError("Plik features.json uszkodzony lub nie istnieje")
+            raise ValueError(t["clustering.load_corrupted"])
 
     except FileNotFoundError:
-        st.warning(f"features.json nie istnieje: {FEATURES_JSON_PATH}")
+        st.warning(t.format("clustering.load_not_found", path=FEATURES_JSON_PATH))
         return {}
     except Exception as e:
-        st.error(f"❌ Błąd ładowania features.json: {e}")
+        st.error(t.format("clustering.load_error", error=e))
         return {}
 
     feature_to_group: dict[str, str] = {}
@@ -120,10 +119,10 @@ def get_group_color(group_name: str | None) -> str:
     return color_map.get(group_name, "#95A5A6")
 
 
-st.sidebar.header("⚙️ Ustawienia Klasteryzacji")
+st.sidebar.header(t["clustering.sidebar_header"])
 
 num_features = st.sidebar.slider(
-    "Liczba cech do klasteryzacji:",
+    t["clustering.num_features_label"],
     min_value=20,
     max_value=min(200, len(feature_set)),
     value=50,
@@ -142,12 +141,12 @@ unique_groups = set(feature_groups)
 all_targets = st.session_state.get("all_targets", [])
 
 if len(all_targets) > 0:
-    st.sidebar.subheader("🎯 Wybór Target (opcjonalnie)")
+    st.sidebar.subheader(t["clustering.target_header"])
     selected_target = st.sidebar.selectbox(
-        "Analizuj korelacje z targetem:",
+        t["clustering.target_select"],
         all_targets,
         index=0,
-        help="Możesz wybrać target do korelacji (jeśli potrzebne)",
+        help=t["clustering.target_help"],
     )
 else:
     selected_target = None
@@ -155,68 +154,41 @@ else:
 st.divider()
 
 try:
-    with st.spinner("Obliczanie macierzy korelacji i linkage..."):
+    with st.spinner(t["clustering.computing"]):
         corr_matrix = train[selected_features].corr()
         distance_matrix = 1 - corr_matrix.abs()
         distance_condensed = squareform(distance_matrix, checks=False)
         linkage_matrix = hierarchy.linkage(distance_condensed, method=linkage_method)
 except KeyError as e:
-    lang = st.session_state.get("lang", "English")
-    st.error(
-        translate(
-            f"Column '{e}' not found in data.",
-            f"Kolumna '{e}' nie znaleziona w danych.",
-        )
-    )
+    st.error(t.format("errors.column_not_found", column=str(e)))
     st.stop()
 except ValueError as e:
-    lang = st.session_state.get("lang", "English")
-    st.error(
-        translate(
-            f"Computation error: {e}",
-            f"Błąd obliczenia: {e}",
-        )
-    )
+    st.error(t.format("errors.computation_error", error=str(e)))
     st.stop()
 except Exception as e:
-    lang = st.session_state.get("lang", "English")
-    st.error(
-        translate(
-            f"Unexpected error during clustering: {e}",
-            f"Nieoczekiwany błąd podczas klasteryzacji: {e}",
-        )
-    )
+    st.error(t.format("errors.unexpected_clustering_error", error=str(e)))
     st.stop()
 
 feature_count_col, avg_corr_col, max_corr_col, method_col = st.columns(4)
 with feature_count_col:
-    st.metric("Liczba Cech", num_features)
+    st.metric(t["clustering.num_features_metric"], num_features)
 with avg_corr_col:
     avg_corr = (
         corr_matrix.abs().values[np.triu_indices_from(corr_matrix.values, k=1)].mean()
     )
-    st.metric("Średnia |Korelacja|", f"{avg_corr:.4f}")
+    st.metric(t["clustering.avg_abs_corr"], f"{avg_corr:.4f}")
 with max_corr_col:
     max_corr = (
         corr_matrix.abs().values[np.triu_indices_from(corr_matrix.values, k=1)].max()
     )
-    st.metric("Max |Korelacja|", f"{max_corr:.4f}")
+    st.metric(t["clustering.max_abs_corr"], f"{max_corr:.4f}")
 with method_col:
-    st.metric("Metoda", linkage_method)
+    st.metric(t["clustering.method"], linkage_method)
 
 st.divider()
 
-
-st.header("🌳 Dendrogram Hierarchicznej Klasteryzacji")
-
-st.markdown("""
-Dendrogram pokazuje hierarchię podobieństw między cechami.
-
-**Nazwy cech są kolorowane według grup z features.json.**
-
-Legenda poniżej pokazuje kolor każdej grupy.
-""")
-
+st.header(t["clustering.dendrogram_header"])
+st.markdown(t["clustering.dendrogram_description"])
 
 fig_dendro, ax = plt.subplots(figsize=(16, 8))
 
@@ -229,11 +201,9 @@ dendro = hierarchy.dendrogram(
     above_threshold_color="gray",
 )
 
-ax.set_xlabel("Cechy (kolorowane według grup z features.json)", fontsize=12)
-ax.set_ylabel("Odległość (1 - |Correlation|)", fontsize=12)
-ax.set_title(
-    "Dendrogram Hierarchicznej Klasteryzacji Cech", fontsize=14, fontweight="bold"
-)
+ax.set_xlabel(t["clustering.dendrogram_xlabel"], fontsize=12)
+ax.set_ylabel(t["clustering.dendrogram_ylabel"], fontsize=12)
+ax.set_title(t["clustering.dendrogram_title"], fontsize=14, fontweight="bold")
 
 ordered_labels = dendro["ivl"]
 
@@ -253,12 +223,8 @@ plt.close()
 
 st.divider()
 
-
-st.header("📋 Legenda - Kolor = Grupa")
-
-st.markdown("""
-Poniżej znajduje się legenda mapująca kolory etykiet w dendrogramie do grup cech.
-""")
+st.header(t["clustering.legend_header"])
+st.markdown(t["clustering.legend_description"])
 
 legend_data = []
 
@@ -267,24 +233,30 @@ for group in sorted(unique_groups):
     count = feature_groups.count(group)
     legend_data.append(
         {
-            "Grupa": group,
-            "Liczba_Cech": count,
-            "Procent": f"{(count / len(selected_features) * 100):.1f}%",
-            "Kolor": color,
+            "Group": group,
+            "Feature_Count": count,
+            "Percent": f"{(count / len(selected_features) * 100):.1f}%",
+            "Color": color,
         }
     )
 
 legend_df = pd.DataFrame(legend_data)
 
-st.markdown("### Mapowanie Kolor → Grupa")
+st.markdown(t["clustering.legend_color_mapping"])
 
 col_count = 3
 cols = st.columns(col_count)
 
 for idx, (group, color, count) in enumerate(
-    zip(legend_df["Grupa"], legend_df["Kolor"], legend_df["Liczba_Cech"], strict=False)
+    zip(
+        legend_df["Group"], legend_df["Color"], legend_df["Feature_Count"], strict=False
+    )
 ):
+    pct = count / len(selected_features) * 100
     with cols[idx % col_count]:
+        legend_item_text = t.format(
+            "clustering.legend_item", count=count, pct=f"{pct:.1f}"
+        )
         st.markdown(
             f"""
             <div style="
@@ -294,19 +266,18 @@ for idx, (group, color, count) in enumerate(
                 border-left: 5px solid {color};
                 margin: 5px 0;
             ">
-                <strong style="color: {color}">■ {group}</strong><br>
-                <small>{count} cech
-                ({(count / len(selected_features) * 100):.1f}%)</small>
+                <strong style="color: {color}">&#9632; {group}</strong><br>
+                <small>{legend_item_text}</small>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-st.markdown("### Tabela Legendy")
+st.markdown(t["clustering.legend_table_title"])
 
 st.dataframe(
     legend_df.style.apply(
-        lambda row: ["", "", "", f"background-color: {row['Kolor']}"], axis=1
+        lambda row: ["", "", "", f"background-color: {row['Color']}"], axis=1
     ),
     width="stretch",
     use_container_width=True,
@@ -314,12 +285,8 @@ st.dataframe(
 
 st.divider()
 
-st.header("🗺️ Klasterowana Mapa Cieplna Korelacji")
-
-st.markdown("""
-Macierz korelacji uporządkowana według struktury dendrogramu.
-**Wartości korelacji są wyświetlane w komórkach (dla ≤30 cech).**
-""")
+st.header(t["clustering.heatmap_header"])
+st.markdown(t["clustering.heatmap_description"])
 
 dendro_leaves = dendro["leaves"]
 
@@ -329,8 +296,8 @@ show_numbers = num_features <= 30
 
 fig = px.imshow(
     clustered_corr,
-    title=f"Macierz Korelacji - Uporządkowana ({num_features} cech)",
-    labels={"color": "Korelacja"},
+    title=t.format("clustering.heatmap_title", count=num_features),
+    labels={"color": "Correlation"},
     color_continuous_scale="RdBu_r",
     zmin=-1,
     zmax=1,
@@ -345,23 +312,16 @@ fig.update_layout(height=max(700, num_features * 10))
 st.plotly_chart(fig, width="stretch")
 
 if show_numbers:
-    st.success(f"✅ Wartości korelacji wyświetlane (liczba cech: {num_features} ≤ 30)")
+    st.success(t.format("clustering.heatmap_values_visible", count=num_features))
 else:
-    st.info(
-        f"💡 Wartości ukryte (zbyt wiele cech: {num_features}). "
-        "Zmniejsz do ≤30 aby zobaczyć liczby."
-    )
+    st.info(t.format("clustering.heatmap_values_hidden", count=num_features))
 
 st.divider()
 
-st.header("🔍 Analiza Redundancji")
+st.header(t["clustering.redundancy_header"])
+st.markdown(t["clustering.redundancy_description"])
 
-st.markdown("""
-Identyfikacja par cech z wysoką korelacją (potencjalna redundancja).
-**Pary z tej samej grupy są podświetlone na czerwono.**
-""")
-
-threshold = st.slider("Próg korelacji dla redundancji:", 0.5, 0.95, 0.8, 0.05)
+threshold = st.slider(t["clustering.threshold_label"], 0.5, 0.95, 0.8, 0.05)
 
 redundant_pairs = []
 for i in range(len(selected_features)):
@@ -370,31 +330,33 @@ for i in range(len(selected_features)):
         if corr_val >= threshold:
             redundant_pairs.append(
                 {
-                    "Cecha_1": selected_features[i],
-                    "Cecha_2": selected_features[j],
-                    "Grupa_1": get_feature_group(selected_features[i]),
-                    "Grupa_2": get_feature_group(selected_features[j]),
-                    "Korelacja": corr_matrix.iloc[i, j],
-                    "Abs_Korelacja": corr_val,
+                    "Feature_1": selected_features[i],
+                    "Feature_2": selected_features[j],
+                    "Group_1": get_feature_group(selected_features[i]),
+                    "Group_2": get_feature_group(selected_features[j]),
+                    "Correlation": corr_matrix.iloc[i, j],
+                    "Abs_Correlation": corr_val,
                 }
             )
 
 if redundant_pairs:
     redundant_df = pd.DataFrame(redundant_pairs).sort_values(
-        "Abs_Korelacja", ascending=False
+        "Abs_Correlation", ascending=False
     )
 
     st.success(
-        f"✅ Znaleziono **{len(redundant_df)}** par cech z |korelacją| ≥ {threshold}"
+        t.format(
+            "clustering.redundant_found", count=len(redundant_df), threshold=threshold
+        )
     )
 
     feature_count_col, avg_corr_col = st.columns([3, 1])
 
     with feature_count_col:
-        st.subheader("Redundantne Pary Cech")
+        st.subheader(t["clustering.redundant_subheader"])
 
         def highlight_same_group(row: pd.Series) -> list[str]:
-            if row["Grupa_1"] == row["Grupa_2"]:
+            if row["Group_1"] == row["Group_2"]:
                 return ["background-color: #ffcccc"] * len(row)
             return [""] * len(row)
 
@@ -402,32 +364,32 @@ if redundant_pairs:
             redundant_df.head(50)
             .style.apply(highlight_same_group, axis=1)
             .background_gradient(
-                subset=["Korelacja"], cmap="RdBu_r", vmin=-1, vmax=1
+                subset=["Correlation"], cmap="RdBu_r", vmin=-1, vmax=1
             ),
             width="stretch",
             height=500,
         )
 
-        st.info("🎨 Czerwone tło = cechy z tej samej grupy (według features.json)")
+        st.info(t["clustering.same_group_info"])
 
     with avg_corr_col:
-        st.subheader("Statystyki")
-        st.metric("Liczba Par", len(redundant_df))
+        st.subheader(t["clustering.stats_subheader"])
+        st.metric(t["clustering.num_pairs"], len(redundant_df))
         st.metric(
-            "Średnia |Korelacja|",
-            f"{redundant_df['Abs_Korelacja'].mean():.4f}",
+            t["clustering.avg_abs_corr_label"],
+            f"{redundant_df['Abs_Correlation'].mean():.4f}",
         )
-        st.metric("Max Korelacja", f"{redundant_df['Korelacja'].max():.4f}")
-        st.metric("Min Korelacja", f"{redundant_df['Korelacja'].min():.4f}")
+        st.metric(t["clustering.max_corr"], f"{redundant_df['Correlation'].max():.4f}")
+        st.metric(t["clustering.min_corr"], f"{redundant_df['Correlation'].min():.4f}")
 
     csv = redundant_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="📥 Pobierz redundantne pary",
+        label=t["clustering.download_redundant"],
         data=csv,
         file_name="redundant_feature_pairs.csv",
         mime="text/csv",
     )
 else:
-    st.warning(f"⚠️ Nie znaleziono par z |korelacją| ≥ {threshold}. Zmniejsz próg.")
+    st.warning(t.format("clustering.no_redundant", threshold=threshold))
 
 st.divider()
