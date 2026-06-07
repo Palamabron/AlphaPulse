@@ -2,9 +2,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
+from ..constants import _PROTECTED_COLS
 from ..evaluation.metrics import era_sharpe
-
-_PROTECTED_COLS: frozenset[str] = frozenset({"era", "id", "data_type"})
 
 
 def _numeric_features(features: pd.DataFrame | np.ndarray) -> np.ndarray:

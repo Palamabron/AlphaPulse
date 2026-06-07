@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-_PROTECTED_COLS: frozenset[str] = frozenset({"era", "id", "data_type"})
+from ..constants import _PROTECTED_COLS
 
 
 def _numeric(X: pd.DataFrame) -> pd.DataFrame:
