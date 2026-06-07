@@ -303,8 +303,6 @@ uv run python scripts/submit_predictions.py \
   --model-name my_model_name
 ```
 
-**Note:** Steps 2-3 can be automated with a cron job or CI/CD pipeline for hands-free weekly submissions.
-
 -----
 
 ## Configuring Experiments (Experiment v1 YAML)

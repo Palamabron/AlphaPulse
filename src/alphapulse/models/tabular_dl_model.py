@@ -1,3 +1,5 @@
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -46,7 +48,7 @@ class TabularDLModel(BaseModel):
         self._target_col = "__target__"
         self._feature_cols: list[str] = []
 
-    def _build_model_config(self) -> Any:
+    def _build_model_config(self, checkpoint_dir: str) -> Any:
         from pytorch_tabular.config import DataConfig, OptimizerConfig, TrainerConfig
         from pytorch_tabular.models import (
             CategoryEmbeddingModelConfig,
@@ -64,7 +66,7 @@ class TabularDLModel(BaseModel):
             early_stopping="valid_loss",
             early_stopping_patience=self.trainer_params.get("patience", 5),
             checkpoints="valid_loss",
-            checkpoints_path="__pt_checkpoints__",
+            checkpoints_path=checkpoint_dir,
             progress_bar="none",
             load_best=True,
             trainer_kwargs={"enable_model_summary": False},
@@ -123,18 +125,30 @@ class TabularDLModel(BaseModel):
             val_df = X_val.copy()
             val_df[self._target_col] = y_val.values
 
-        data_config, trainer_config, optimizer_config, model_config = (
-            self._build_model_config()
-        )
+        user_checkpoint_dir = self.trainer_params.get("checkpoint_dir")
+        temp_dir: str | None = None
+        if user_checkpoint_dir is None:
+            temp_dir = tempfile.mkdtemp(prefix="pt_ckpt_")
+            checkpoint_dir = temp_dir
+        else:
+            checkpoint_dir = str(user_checkpoint_dir)
 
-        tabular_model = TabularModel(
-            data_config=data_config,
-            model_config=model_config,
-            optimizer_config=optimizer_config,
-            trainer_config=trainer_config,
-            verbose=False,
-        )
-        tabular_model.fit(train=train_df, validation=val_df)
+        try:
+            data_config, trainer_config, optimizer_config, model_config = (
+                self._build_model_config(checkpoint_dir)
+            )
+
+            tabular_model = TabularModel(
+                data_config=data_config,
+                model_config=model_config,
+                optimizer_config=optimizer_config,
+                trainer_config=trainer_config,
+                verbose=False,
+            )
+            tabular_model.fit(train=train_df, validation=val_df)
+        finally:
+            if temp_dir is not None:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
         self.model = tabular_model
         self.is_trained = True
