@@ -3,6 +3,8 @@ from typing import Protocol, Self, runtime_checkable
 
 import pandas as pd
 
+_PROTECTED_COLS: frozenset[str] = frozenset({"era", "id", "data_type"})
+
 
 @runtime_checkable
 class TrainEvalPreprocessor(Protocol):

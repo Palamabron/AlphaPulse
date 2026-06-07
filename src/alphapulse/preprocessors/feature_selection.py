@@ -3,7 +3,7 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from .base import BasePreprocessor
+from .base import BasePreprocessor, _PROTECTED_COLS
 
 
 class VarianceFeatureSelector(BasePreprocessor):
@@ -23,7 +23,8 @@ class VarianceFeatureSelector(BasePreprocessor):
         self.selected_columns_: list[str] = []
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        variances = X.var(axis=0)
+        feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+        variances = X[feat_cols].var(axis=0)
 
         if self.mode == "threshold":
             mask = variances > self.threshold
@@ -73,6 +74,7 @@ class LGBMImportanceSelector(BasePreprocessor):
 
         import lightgbm as lgb
 
+        feat_X = X[[c for c in X.columns if c not in _PROTECTED_COLS]]
         model = lgb.LGBMRegressor(
             n_estimators=self.n_estimators,
             max_depth=self.max_depth,
@@ -81,14 +83,14 @@ class LGBMImportanceSelector(BasePreprocessor):
             verbosity=-1,
             n_jobs=1,
         )
-        model.fit(X, y)
+        model.fit(feat_X, y)
 
         importances = np.asarray(model.feature_importances_, dtype=np.float64)
         self.importances_ = importances
 
-        n_keep = max(1, int(len(X.columns) * self.keep_fraction))
+        n_keep = max(1, int(len(feat_X.columns) * self.keep_fraction))
         top_indices = np.argsort(importances)[::-1][:n_keep]
-        self.selected_columns_ = [str(X.columns[i]) for i in top_indices]
+        self.selected_columns_ = [str(feat_X.columns[i]) for i in top_indices]
 
         self.is_fitted = True
         return self

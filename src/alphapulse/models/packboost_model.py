@@ -6,7 +6,7 @@ import pandas as pd
 import xgboost as xgb
 
 from ..evaluation.metrics import per_era_correlation
-from .base import BaseModel
+from .base import BaseModel, _numeric
 from .xgboost_model import _make_ray_callbacks
 
 
@@ -54,10 +54,8 @@ class PackboostModel(BaseModel):
 
     def _feature_matrix(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._feature_columns is not None:
-            feat = X[self._feature_columns]
-        else:
-            feat = X.drop(columns=[self.era_column], errors="ignore")
-        return feat.select_dtypes(include=[np.number])
+            return X[self._feature_columns]
+        return _numeric(X)
 
     def train(
         self,

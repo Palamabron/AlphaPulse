@@ -3,7 +3,7 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from .base import BasePreprocessor
+from .base import BasePreprocessor, _PROTECTED_COLS
 
 _MIN_ERAS_REQUIRED = 2
 
@@ -74,7 +74,7 @@ class EraStableFeatureSelector(BasePreprocessor):
 
         import lightgbm as lgb
 
-        feature_cols = list(X.columns)
+        feature_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
         n_features = len(feature_cols)
         n_keep = max(1, int(n_features * self.keep_fraction))
 
@@ -88,7 +88,7 @@ class EraStableFeatureSelector(BasePreprocessor):
                 verbosity=-1,
                 n_jobs=1,
             )
-            model.fit(X, y)
+            model.fit(X[feature_cols], y)
             importances = np.asarray(model.feature_importances_, dtype=np.float64)
             ranked = np.argsort(importances)[::-1][:n_keep]
             self.selected_columns_ = [str(feature_cols[i]) for i in ranked]
@@ -111,7 +111,7 @@ class EraStableFeatureSelector(BasePreprocessor):
         era_importances: list[np.ndarray] = []
         for era in unique_eras:
             mask = era_arr == era
-            X_era = X[mask]
+            X_era = X[mask][feature_cols]
             y_era = y[mask]
             if len(X_era) < 20:
                 continue
@@ -143,7 +143,7 @@ class EraStableFeatureSelector(BasePreprocessor):
                 verbosity=-1,
                 n_jobs=1,
             )
-            model.fit(X, y)
+            model.fit(X[feature_cols], y)
             importances = np.asarray(model.feature_importances_, dtype=np.float64)
             ranked = np.argsort(importances)[::-1][:n_keep]
             self.selected_columns_ = [str(feature_cols[i]) for i in ranked]

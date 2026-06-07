@@ -6,8 +6,12 @@ import numpy as np
 import pandas as pd
 
 
+_PROTECTED_COLS: frozenset[str] = frozenset({"era", "id", "data_type"})
+
+
 def _numeric(X: pd.DataFrame) -> pd.DataFrame:
-    return X.select_dtypes(include=[np.number])
+    cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+    return X[cols].select_dtypes(include=[np.number])
 
 
 class BaseModel(ABC):

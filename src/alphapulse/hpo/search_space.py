@@ -9,7 +9,6 @@ except ImportError:
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
-AUGMENTER_SAMPLE_PROB = 0.05
 
 
 def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
@@ -17,8 +16,6 @@ def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
         roll = rng.random()
         if roll < FOUNDATION_SAMPLE_PROB:
             return rng.choice(FOUNDATION_MODELS)
-        if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
-            return "SyntheticDataAugmenter"
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -264,7 +261,11 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
     tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
     models = []
     for i, t in enumerate(types):
-        spec: dict[str, Any] = {"type": t, "params": model_params(t, i)}
+        spec: dict[str, Any] = {
+            "type": t,
+            "params": model_params(t, i),
+            "use_era_ensemble": False,
+        }
         if t in tree_models:
             spec["n_subs"] = flat.get("n_subs", 10)
         models.append(spec)

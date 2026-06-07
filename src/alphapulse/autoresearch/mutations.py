@@ -14,7 +14,6 @@ VALID_MODELS = [
     "TabPFN3",
     "TabPFN3Reasoning",
     "TabICL",
-    "SyntheticDataAugmenter",
 ]
 VALID_PREPROCESSORS = [
     "StandardScaler",
@@ -58,7 +57,7 @@ def add_model(
     models = config.get("models", [])
     if len(models) >= MAX_MODELS:
         raise ValueError(f"Cannot exceed {MAX_MODELS} models in the ensemble")
-    models.append({"type": model_type, "params": params})
+    models.append({"type": model_type, "params": params, "use_era_ensemble": False})
     config["models"] = models
     if len(models) > 1 and config.get("ensemble_method") == "single":
         config["ensemble_method"] = "weighted"
