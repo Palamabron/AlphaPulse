@@ -6,27 +6,24 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-from eda.utils import create_download_button
+from eda.utils import get_translations
 
-st.set_page_config(page_title="Analiza Target", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Target Analysis", page_icon="🎯", layout="wide")
+
+t = get_translations()
 
 if "data_loaded" not in st.session_state:
-    st.warning("⚠️ Dane nie zostały załadowane. Przejdź do strony głównej.")
+    st.warning(t["errors.data_not_loaded"])
     st.stop()
 
 train = st.session_state["train"]
 feature_set = st.session_state["feature_set"]
 all_targets = st.session_state.get("all_targets", [])
 
-st.title("🎯 Analiza Zmiennej Target")
-st.markdown("""
-Szczegółowa analiza zmiennej docelowej oraz jej zachowania w czasie.
+st.title(t["target_analysis.title"])
+st.markdown(t["target_analysis.description"])
 
-**Target** = Znormalizowany zwrot z akcji (wartość do przewidzenia w turnieju Numerai).
-
-""")
-
-st.sidebar.header("⚙️ Ustawienia Analizy")
+st.sidebar.header(t["target_analysis.sidebar_header"])
 
 if len(all_targets) == 0:
     all_targets = [col for col in train.columns if col.startswith("target")]
@@ -35,21 +32,21 @@ if len(all_targets) == 0:
     all_targets = ["target"]
 
 selected_target = st.sidebar.selectbox(
-    "Wybierz Target do analizy:",
+    t["target_analysis.target_select"],
     all_targets,
     index=0,
-    help="Kliknij aby wybrać inny target",
+    help=t["target_analysis.target_select_help"],
 )
 
 if selected_target not in train.columns:
-    st.error(f"❌ Target '{selected_target}' nie istnieje w danych!")
+    st.error(t.format("target_analysis.target_not_found", target=selected_target))
     st.stop()
 
-st.info(f"📊 Analizowany Target: **{selected_target}** (znormalizowany zwrot z akcji)")
+st.info(t.format("target_analysis.target_info", target=selected_target))
 
 st.divider()
 
-st.header("📊 Statystyki Target")
+st.header(t["target_analysis.stats_header"])
 
 target_stats = train[selected_target].describe()
 skewness = train[selected_target].skew()
@@ -58,26 +55,27 @@ kurtosis = train[selected_target].kurtosis()
 col_mean_std, col_median_iqr, col_min_max, col_q1_q3, col_skew_kurtosis = st.columns(5)
 
 with col_mean_std:
-    st.metric("Średnia", f"{target_stats['mean']:.6f}")
-    st.metric("Std Dev", f"{target_stats['std']:.6f}")
+    st.metric(t["target_analysis.mean"], f"{target_stats['mean']:.6f}")
+    st.metric(t["target_analysis.std_dev"], f"{target_stats['std']:.6f}")
 
 with col_median_iqr:
-    st.metric("Mediana", f"{target_stats['50%']:.6f}")
-    st.metric("IQR", f"{(target_stats['75%'] - target_stats['25%']):.6f}")
+    st.metric(t["target_analysis.median"], f"{target_stats['50%']:.6f}")
+    st.metric(
+        t["target_analysis.iqr"], f"{(target_stats['75%'] - target_stats['25%']):.6f}"
+    )
 
 with col_min_max:
-    st.metric("Min", f"{target_stats['min']:.6f}")
-    st.metric("Max", f"{target_stats['max']:.6f}")
+    st.metric(t["target_analysis.min"], f"{target_stats['min']:.6f}")
+    st.metric(t["target_analysis.max"], f"{target_stats['max']:.6f}")
 
 with col_q1_q3:
-    st.metric("25% Percentyl", f"{target_stats['25%']:.6f}")
-    st.metric("75% Percentyl", f"{target_stats['75%']:.6f}")
+    st.metric(t["target_analysis.q25"], f"{target_stats['25%']:.6f}")
+    st.metric(t["target_analysis.q75"], f"{target_stats['75%']:.6f}")
 
 with col_skew_kurtosis:
-    st.metric("Skewness", f"{skewness:.6f}")
-    st.metric("Kurtosis", f"{kurtosis:.6f}")
+    st.metric(t["target_analysis.skewness"], f"{skewness:.6f}")
+    st.metric(t["target_analysis.kurtosis"], f"{kurtosis:.6f}")
 
-# Create summary dataframe for export
 summary_stats = pd.DataFrame(
     {
         "metric": [
@@ -107,28 +105,23 @@ summary_stats = pd.DataFrame(
     }
 )
 
-lang = st.session_state.get("lang", "English")
-create_download_button(
-    summary_stats,
-    f"target_summary_{selected_target}.csv",
-    label=None,
+csv_summary = summary_stats.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label=t["common.download_csv"],
+    data=csv_summary,
+    file_name=f"target_summary_{selected_target}.csv",
+    mime="text/csv",
     key="download_target_summary",
-    lang=lang,
 )
 
 st.divider()
 
-st.header("📈 Ridgeplot - Rozkład Target dla wszystkich Er")
+st.header(t["target_analysis.ridgeplot_header"])
 
-st.markdown("""
-Ridgeplot pokazuje rozkład wartości Target dla każdej Ery na jednym wykresie.
-
-Umożliwia wizualną ocenę stabilności rozkładu w czasie.
-
-""")
+st.markdown(t["target_analysis.ridgeplot_description"])
 
 era_sample_rate = st.slider(
-    "Co która Era na wykresie:", 1, 10, 3, key="ridgeplot_sample"
+    t["target_analysis.ridgeplot_era_sample"], 1, 10, 3, key="ridgeplot_sample"
 )
 
 sample_eras = sorted(train["era"].unique())[::era_sample_rate]
@@ -161,12 +154,13 @@ for idx, era_dict in enumerate(ridgeplot_data):
     )
 
 fig.update_layout(
-    title=(
-        f"Ridgeplot - Rozkład {selected_target} per Era "
-        f"(co {era_sample_rate} Era)"
+    title=t.format(
+        "target_analysis.ridgeplot_title",
+        target=selected_target,
+        n=era_sample_rate,
     ),
-    xaxis_title=f"{selected_target} (znormalizowany zwrot z akcji)",
-    yaxis_title="Era",
+    xaxis_title=t.format("target_analysis.ridgeplot_xaxis", target=selected_target),
+    yaxis_title=t["common.era"],
     height=max(600, len(sample_eras) * 30),
     yaxis={"categoryorder": "category ascending", "tickmode": "linear"},
     hovermode="closest",
@@ -176,33 +170,33 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-st.header("⏰ Wykres Era vs Target")
+st.header(t["target_analysis.scatter_header"])
 
-st.markdown("""
-Wykres przedstawia wartości Target w funkcji Ery (oś X: Era, oś Y: Target).
+st.markdown(t["target_analysis.scatter_description"])
 
-""")
-
-show_sample = st.checkbox(
-    "Pokaż próbkę danych (szybsze renderowanie)", value=True
-)
+show_sample = st.checkbox(t["target_analysis.show_sample"], value=True)
 
 if show_sample:
     plot_data = train.sample(min(10000, len(train)), random_state=42)
 else:
     plot_data = train
 
+scatter_title = (
+    t.format("target_analysis.scatter_title_sample", target=selected_target)
+    if show_sample
+    else t.format("target_analysis.scatter_title_full", target=selected_target)
+)
+
 fig = px.scatter(
     plot_data,
     x="era",
     y=selected_target,
-    title=(
-        f"Era vs {selected_target}"
-        + ("(próbka 10k punktów)" if show_sample else "(wszystkie punkty)")
-    ),
+    title=scatter_title,
     labels={
-        "era": "Era",
-        selected_target: f"{selected_target} (zwrot z akcji)",
+        "era": t["common.era"],
+        selected_target: t.format(
+            "target_analysis.scatter_target_label", target=selected_target
+        ),
     },
     opacity=0.3,
     color=selected_target,
@@ -216,7 +210,7 @@ fig.add_trace(
         x=era_stats["era"],
         y=era_stats[selected_target],
         mode="lines",
-        name="Średnia per Era",
+        name=t["target_analysis.mean_per_era"],
         line={"color": "red", "width": 2},
     )
 )
@@ -225,12 +219,12 @@ fig.add_hline(
     y=train[selected_target].mean(),
     line_dash="dash",
     line_color="green",
-    annotation_text="Średnia globalna",
+    annotation_text=t["target_analysis.global_mean_annotation"],
 )
 
 fig.update_layout(
-    xaxis_title="Era",
-    yaxis_title=f"{selected_target} (znormalizowany zwrot z akcji)",
+    xaxis_title=t["common.era"],
+    yaxis_title=t.format("target_analysis.scatter_yaxis", target=selected_target),
     height=600,
     hovermode="closest",
 )
@@ -240,14 +234,12 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-st.header("⏰ Analiza Target przez Ery")
+st.header(t["target_analysis.era_analysis_header"])
 
 try:
     era_stats_full = (
         train.groupby("era")
-        .agg(
-            {selected_target: ["mean", "std", "min", "max"], "era": "size"}
-        )
+        .agg({selected_target: ["mean", "std", "min", "max"], "era": "size"})
         .reset_index()
     )
     era_stats_full.columns = [
@@ -259,13 +251,15 @@ try:
         "count",
     ]
 except Exception as e:
-    st.error(f"❌ Błąd przy obliczaniu statystyk: {e}")
+    st.error(t.format("target_analysis.stats_error", error=e))
     st.stop()
 
 col_mean_std, col_median_iqr = st.columns(2)
 
 with col_mean_std:
-    st.subheader(f"Średnia {selected_target} per Era")
+    st.subheader(
+        t.format("target_analysis.mean_per_era_subheader", target=selected_target)
+    )
     fig = go.Figure()
 
     fig.add_trace(
@@ -273,7 +267,7 @@ with col_mean_std:
             x=era_stats_full["era"],
             y=era_stats_full["target_mean"],
             mode="lines+markers",
-            name="Średnia",
+            name=t["target_analysis.mean_trace"],
             line={"color": "blue", "width": 2},
             marker={"size": 6},
         )
@@ -282,8 +276,7 @@ with col_mean_std:
     fig.add_trace(
         go.Scatter(
             x=era_stats_full["era"],
-            y=era_stats_full["target_mean"]
-            + era_stats_full["target_std"],
+            y=era_stats_full["target_mean"] + era_stats_full["target_std"],
             mode="lines",
             name="Mean + Std",
             line={"width": 0},
@@ -294,8 +287,7 @@ with col_mean_std:
     fig.add_trace(
         go.Scatter(
             x=era_stats_full["era"],
-            y=era_stats_full["target_mean"]
-            - era_stats_full["target_std"],
+            y=era_stats_full["target_mean"] - era_stats_full["target_std"],
             mode="lines",
             name="Mean - Std",
             fill="tonexty",
@@ -308,13 +300,15 @@ with col_mean_std:
     fig.add_hline(
         y=train[selected_target].mean(),
         line_dash="dash",
-        annotation_text="Średnia globalna",
+        annotation_text=t["target_analysis.global_mean_annotation"],
         line_color="red",
     )
 
     fig.update_layout(
-        xaxis_title="Era",
-        yaxis_title=f"Średnia {selected_target}",
+        xaxis_title=t["common.era"],
+        yaxis_title=t.format(
+            "target_analysis.mean_per_era_subheader", target=selected_target
+        ),
         height=400,
     )
 
@@ -322,20 +316,22 @@ with col_mean_std:
     st.plotly_chart(fig, width="stretch")
 
 with col_median_iqr:
-    st.subheader(f"Zmienność {selected_target} per Era")
+    st.subheader(
+        t.format("target_analysis.variability_subheader", target=selected_target)
+    )
     fig = px.line(
         era_stats_full,
         x="era",
         y="target_std",
-        title=f"Odchylenie standardowe {selected_target}",
-        labels={"era": "Era", "target_std": "Std Dev"},
+        title=t.format("target_analysis.std_title", target=selected_target),
+        labels={"era": t["common.era"], "target_std": "Std Dev"},
         markers=True,
     )
 
     fig.add_hline(
         y=era_stats_full["target_std"].mean(),
         line_dash="dash",
-        annotation_text="Średnia zmienność",
+        annotation_text=t["target_analysis.avg_variability_annotation"],
         line_color="orange",
     )
 
@@ -344,25 +340,24 @@ with col_median_iqr:
     fig.update_yaxes(title_text=f"Std Dev {selected_target}")
     st.plotly_chart(fig, width="stretch")
 
-# Download button for era statistics
-lang = st.session_state.get("lang", "English")
-create_download_button(
-    era_stats_full,
-    f"target_era_stats_{selected_target}.csv",
-    label=None,
+csv_era = era_stats_full.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label=t["common.download_csv"],
+    data=csv_era,
+    file_name=f"target_era_stats_{selected_target}.csv",
+    mime="text/csv",
     key="download_target_era_stats",
-    lang=lang,
 )
 
-st.subheader("Kompleksowa analiza w czasie")
+st.subheader(t["target_analysis.comprehensive_subheader"])
 
 fig = make_subplots(
     rows=3,
     cols=1,
     subplot_titles=(
-        f"Średnia {selected_target}",
-        "Odchylenie Standardowe",
-        "Zakres (Max - Min)",
+        t.format("target_analysis.mean_subplot", target=selected_target),
+        t["target_analysis.std_subplot"],
+        t["target_analysis.range_subplot"],
     ),
     vertical_spacing=0.1,
     shared_xaxes=True,
@@ -392,9 +387,7 @@ fig.add_trace(
     col=1,
 )
 
-era_stats_full["range"] = (
-    era_stats_full["target_max"] - era_stats_full["target_min"]
-)
+era_stats_full["range"] = era_stats_full["target_max"] - era_stats_full["target_min"]
 fig.add_trace(
     go.Scatter(
         x=era_stats_full["era"],
@@ -407,7 +400,7 @@ fig.add_trace(
     col=1,
 )
 
-fig.update_xaxes(title_text="Era", row=3, col=1, tickangle=45)
+fig.update_xaxes(title_text=t["common.era"], row=3, col=1, tickangle=45)
 fig.update_yaxes(title_text="Mean", row=1, col=1)
 fig.update_yaxes(title_text="Std Dev", row=2, col=1)
 fig.update_yaxes(title_text="Range", row=3, col=1)
@@ -416,38 +409,37 @@ st.plotly_chart(fig, width="stretch")
 
 st.divider()
 
-st.header("🎲 Metryki Stabilności Target")
+st.header(t["target_analysis.stability_header"])
 
 col_mean_std, col_median_iqr, col_min_max = st.columns(3)
 
 with col_mean_std:
     cv = (
-        era_stats_full["target_mean"].std()
-        / era_stats_full["target_mean"].mean()
+        era_stats_full["target_mean"].std() / era_stats_full["target_mean"].mean()
     ) * 100
     st.metric(
-        "Coefficient of Variation",
+        t["target_analysis.cv_metric"],
         f"{cv:.2f}%",
-        help="Zmienność średniej target między erami",
+        help=t["target_analysis.cv_help"],
     )
 
 with col_median_iqr:
     mean_std = era_stats_full["target_std"].mean()
     st.metric(
-        "Średnia Zmienność per Era",
+        t["target_analysis.avg_variability_metric"],
         f"{mean_std:.6f}",
-        help="Średnie odchylenie standardowe w erach",
+        help=t["target_analysis.avg_variability_help"],
     )
 
 with col_min_max:
     range_variability = era_stats_full["range"].std()
     st.metric(
-        "Zmienność Zakresu",
+        t["target_analysis.range_variability_metric"],
         f"{range_variability:.6f}",
-        help="Jak bardzo zmienia się zakres między erami",
+        help=t["target_analysis.range_variability_help"],
     )
 
-st.subheader("Mapa stabilności Target")
+st.subheader(t["target_analysis.stability_map_header"])
 
 window = 5
 era_stats_full["rolling_mean"] = (
@@ -461,7 +453,8 @@ fig = make_subplots(
     rows=2,
     cols=1,
     subplot_titles=(
-        f"Średnia {selected_target} (rolling window={window})",
+        t.format("target_analysis.mean_subplot", target=selected_target)
+        + f" (rolling window={window})",
         f"Std Dev {selected_target} (rolling window={window})",
     ),
     shared_xaxes=True,
@@ -473,7 +466,7 @@ fig.add_trace(
         x=era_stats_full["era"],
         y=era_stats_full["target_mean"],
         mode="markers",
-        name="Actual Mean",
+        name=t["target_analysis.actual_mean"],
         marker={"size": 4, "color": "lightblue"},
     ),
     row=1,
@@ -485,7 +478,7 @@ fig.add_trace(
         x=era_stats_full["era"],
         y=era_stats_full["rolling_mean"],
         mode="lines",
-        name="Rolling Mean",
+        name=t["target_analysis.rolling_mean"],
         line={"color": "blue", "width": 3},
     ),
     row=1,
@@ -497,7 +490,7 @@ fig.add_trace(
         x=era_stats_full["era"],
         y=era_stats_full["target_std"],
         mode="markers",
-        name="Actual Std",
+        name=t["target_analysis.actual_std"],
         marker={"size": 4, "color": "lightcoral"},
     ),
     row=2,
@@ -509,20 +502,16 @@ fig.add_trace(
         x=era_stats_full["era"],
         y=era_stats_full["rolling_std"],
         mode="lines",
-        name="Rolling Std",
+        name=t["target_analysis.rolling_std"],
         line={"color": "red", "width": 3},
     ),
     row=2,
     col=1,
 )
 
-fig.update_xaxes(title_text="Era", row=2, col=1, tickangle=45)
-fig.update_yaxes(
-    title_text=f"{selected_target} Mean", row=1, col=1
-)
-fig.update_yaxes(
-    title_text=f"{selected_target} Std", row=2, col=1
-)
+fig.update_xaxes(title_text=t["common.era"], row=2, col=1, tickangle=45)
+fig.update_yaxes(title_text=f"{selected_target} Mean", row=1, col=1)
+fig.update_yaxes(title_text=f"{selected_target} Std", row=2, col=1)
 fig.update_layout(height=700, showlegend=True)
 st.plotly_chart(fig, width="stretch")
 

@@ -7,23 +7,23 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from eda.utils import translate
+from eda.utils import get_translations
 
-st.set_page_config(page_title="Analiza Korelacji", page_icon="🔗", layout="wide")
+st.set_page_config(page_title="Correlation Analysis", page_icon="🔗", layout="wide")
+
+t = get_translations()
 
 if "data_loaded" not in st.session_state:
-    st.warning("⚠️ Dane nie zostały załadowane. Przejdź do strony głównej.")
+    st.warning(t["errors.data_not_loaded"])
     st.stop()
 
 train = st.session_state["train"]
 feature_set = st.session_state["feature_set"]
 
-st.title("🔗 Analiza Korelacji")
-st.markdown(
-    "Badaj korelacje cech z targetem oraz między cechami identyfikując zależności."
-)
+st.title(t["correlations.title"])
+st.markdown(t["correlations.description"])
 
-st.sidebar.header("⚙️ Ustawienia Korelacji")
+st.sidebar.header(t["correlations.sidebar_header"])
 
 target_columns = [
     col for col in train.columns if col == "target" or col.startswith("target")
@@ -32,26 +32,25 @@ if len(target_columns) == 0:
     target_columns = ["target"]
 
 selected_target = st.sidebar.selectbox(
-    "Wybierz Target:",
+    t["correlations.target_select"],
     target_columns,
     index=0,
-    help="Target = zmienna docelowa do przewidzenia",
+    help=t["correlations.target_help"],
 )
 
-st.sidebar.info(f"📊 Analizowany Target: **{selected_target}**")
+st.sidebar.info(t.format("correlations.target_info", target=selected_target))
 
-corr_type = st.sidebar.selectbox(
-    "Typ analizy:",
-    [
-        "Cechy vs Target",
-        "Korelacje między cechami",
-        "Macierz korelacji",
-        "Network Graph",
-    ],
-)
+analysis_modes = [
+    t["correlations.mode_feature_vs_target"],
+    t["correlations.mode_inter_feature"],
+    t["correlations.mode_matrix"],
+    t["correlations.mode_network"],
+]
+
+corr_type = st.sidebar.selectbox(t["correlations.analysis_type"], analysis_modes)
 
 num_features = st.sidebar.slider(
-    "Liczba cech do analizy:",
+    t["correlations.num_features_label"],
     min_value=10,
     max_value=min(150, len(feature_set)),
     value=50,
@@ -69,49 +68,45 @@ def _normalize_col_name(col: str | int | float | list | tuple) -> str:
     return str(col)
 
 
-if corr_type == "Cechy vs Target":
-    st.header(f"📊 Korelacja Cech z {selected_target.upper()}")
-    st.info(f"Analizuję **{len(feature_set)}** cech względem **{selected_target}**...")
+if corr_type == analysis_modes[0]:
+    st.header(
+        t.format(
+            "correlations.feature_vs_target_header", target=selected_target.upper()
+        )
+    )
+    st.info(
+        t.format(
+            "correlations.feature_vs_target_info",
+            count=len(feature_set),
+            target=selected_target,
+        )
+    )
 
     try:
-        with st.spinner("Obliczanie korelacji..."):
+        with st.spinner(t["correlations.computing"]):
             correlations = []
             target_col = _normalize_col_name(selected_target)
             for feat in feature_set:
                 feat_col = _normalize_col_name(feat)
                 corr = train[[feat_col, target_col]].corr().iloc[0, 1]
                 correlations.append(
-                    {"Cecha": feat_col, "Korelacja": corr, "Abs_Korelacja": abs(corr)}
+                    {
+                        "Feature": feat_col,
+                        "Correlation": corr,
+                        "Abs_Correlation": abs(corr),
+                    }
                 )
             corr_df = pd.DataFrame(correlations).sort_values(
-                "Abs_Korelacja", ascending=False
+                "Abs_Correlation", ascending=False
             )
     except KeyError as e:
-        lang = st.session_state.get("lang", "English")
-        st.error(
-            translate(
-                f"Column '{e}' not found in data.",
-                f"Kolumna '{e}' nie znaleziona w danych.",
-            )
-        )
+        st.error(t.format("errors.column_not_found", column=str(e)))
         st.stop()
     except ValueError as e:
-        lang = st.session_state.get("lang", "English")
-        st.error(
-            translate(
-                f"Computation error: {e}",
-                f"Błąd obliczenia: {e}",
-            )
-        )
+        st.error(t.format("errors.computation_error", error=str(e)))
         st.stop()
     except Exception as e:
-        lang = st.session_state.get("lang", "English")
-        st.error(
-            translate(
-                f"Unexpected error: {e}",
-                f"Nieoczekiwany błąd: {e}",
-            )
-        )
+        st.error(t.format("errors.unexpected_error", error=str(e)))
         st.stop()
 
     avg_corr_col, max_positive_col, max_negative_col, threshold_count_col = st.columns(
@@ -119,47 +114,49 @@ if corr_type == "Cechy vs Target":
     )
 
     with avg_corr_col:
-        st.metric("Średnia |Korelacja|", f"{corr_df['Abs_Korelacja'].mean():.6f}")
+        st.metric(
+            t["correlations.avg_abs_corr"], f"{corr_df['Abs_Correlation'].mean():.6f}"
+        )
     with max_positive_col:
-        st.metric("Max Dodatnia", f"{corr_df['Korelacja'].max():.6f}")
+        st.metric(t["correlations.max_positive"], f"{corr_df['Correlation'].max():.6f}")
     with max_negative_col:
-        st.metric("Max Ujemna", f"{corr_df['Korelacja'].min():.6f}")
+        st.metric(t["correlations.max_negative"], f"{corr_df['Correlation'].min():.6f}")
     with threshold_count_col:
-        above_threshold = (corr_df["Abs_Korelacja"] > 0.01).sum()
-        st.metric("Cechy z |r| > 0.01", above_threshold)
+        above_threshold = (corr_df["Abs_Correlation"] > 0.01).sum()
+        st.metric(t["correlations.features_above_threshold"], above_threshold)
 
     st.divider()
 
-    st.subheader("Rozkład korelacji")
+    st.subheader(t["correlations.distribution_header"])
 
     avg_corr_col, max_positive_col = st.columns(2)
 
     with avg_corr_col:
         fig = px.histogram(
             corr_df,
-            x="Korelacja",
+            x="Correlation",
             nbins=60,
-            title=f"Histogram korelacji z {selected_target}",
-            labels={"Korelacja": "Correlation"},
+            title=t.format("correlations.histogram_title", target=selected_target),
+            labels={"Correlation": "Correlation"},
             marginal="box",
             color_discrete_sequence=["#3498db"],
         )
         fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="Zero")
         fig.add_vline(
-            x=corr_df["Korelacja"].mean(),
+            x=corr_df["Correlation"].mean(),
             line_dash="dash",
             line_color="green",
-            annotation_text="Średnia",
+            annotation_text=t["correlations.mean_annotation"],
         )
         st.plotly_chart(fig, width="stretch")
 
     with max_positive_col:
         fig = px.histogram(
             corr_df,
-            x="Abs_Korelacja",
+            x="Abs_Correlation",
             nbins=40,
-            title="Histogram wartości bezwzględnych korelacji",
-            labels={"Abs_Korelacja": "Absolute Correlation"},
+            title=t["correlations.abs_histogram_title"],
+            labels={"Abs_Correlation": "Absolute Correlation"},
             marginal="box",
             color_discrete_sequence=["#e74c3c"],
         )
@@ -167,24 +164,24 @@ if corr_type == "Cechy vs Target":
 
     st.divider()
 
-    st.subheader("Top Korelacje")
+    st.subheader(t["correlations.top_correlations_header"])
 
-    top_n = st.slider("Liczba top cech do wyświetlenia:", 10, 50, 20)
+    top_n = st.slider(t["correlations.top_n_slider"], 10, 50, 20)
 
     avg_corr_col, max_positive_col = st.columns(2)
 
     with avg_corr_col:
-        st.markdown("**🔵 Top Dodatnie Korelacje**")
-        top_pos = corr_df.nlargest(top_n, "Korelacja")
+        st.markdown(t["correlations.top_positive"])
+        top_pos = corr_df.nlargest(top_n, "Correlation")
 
         fig = px.bar(
             top_pos,
-            y="Cecha",
-            x="Korelacja",
+            y="Feature",
+            x="Correlation",
             orientation="h",
-            title=f"Top {top_n} Dodatnie Korelacje",
-            text="Korelacja",
-            color="Korelacja",
+            title=t.format("correlations.top_positive_title", n=top_n),
+            text="Correlation",
+            color="Correlation",
             color_continuous_scale="Blues",
         )
         fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
@@ -192,21 +189,21 @@ if corr_type == "Cechy vs Target":
         st.plotly_chart(fig, width="stretch")
 
         st.dataframe(
-            top_pos[["Cecha", "Korelacja"]].reset_index(drop=True), width="stretch"
+            top_pos[["Feature", "Correlation"]].reset_index(drop=True), width="stretch"
         )
 
     with max_positive_col:
-        st.markdown("**🔴 Top Ujemne Korelacje**")
-        top_neg = corr_df.nsmallest(top_n, "Korelacja")
+        st.markdown(t["correlations.top_negative"])
+        top_neg = corr_df.nsmallest(top_n, "Correlation")
 
         fig = px.bar(
             top_neg,
-            y="Cecha",
-            x="Korelacja",
+            y="Feature",
+            x="Correlation",
             orientation="h",
-            title=f"Top {top_n} Ujemne Korelacje",
-            text="Korelacja",
-            color="Korelacja",
+            title=t.format("correlations.top_negative_title", n=top_n),
+            text="Correlation",
+            color="Correlation",
             color_continuous_scale="Reds_r",
         )
         fig.update_traces(texttemplate="%{text:.6f}", textposition="outside")
@@ -214,27 +211,24 @@ if corr_type == "Cechy vs Target":
         st.plotly_chart(fig, width="stretch")
 
         st.dataframe(
-            top_neg[["Cecha", "Korelacja"]].reset_index(drop=True), width="stretch"
+            top_neg[["Feature", "Correlation"]].reset_index(drop=True), width="stretch"
         )
 
     st.divider()
     csv = corr_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="📥 Pobierz wszystkie korelacje jako CSV",
+        label=t["correlations.download_all"],
         data=csv,
         file_name=f"feature_{selected_target}_correlations.csv",
         mime="text/csv",
     )
 
 
-elif corr_type == "Korelacje między cechami":
-    st.header("🔄 Korelacje Między Cechami")
-    st.info(
-        f"Analiza {num_features} cech - "
-        f"obliczanie macierzy {num_features}x{num_features}"
-    )
+elif corr_type == analysis_modes[1]:
+    st.header(t["correlations.inter_feature_header"])
+    st.info(t.format("correlations.inter_feature_info", count=num_features))
 
-    with st.spinner("Obliczanie macierzy korelacji..."):
+    with st.spinner(t["correlations.computing_matrix"]):
         corr_matrix = train[sample_features].corr()
 
     avg_corr_col, max_positive_col, max_negative_col, threshold_count_col = st.columns(
@@ -245,24 +239,24 @@ elif corr_type == "Korelacje między cechami":
     upper_values = upper_triangle[upper_triangle != 0]
 
     with avg_corr_col:
-        st.metric("Średnia Korelacja", f"{upper_values.mean():.6f}")
+        st.metric(t["correlations.avg_corr"], f"{upper_values.mean():.6f}")
     with max_positive_col:
-        st.metric("Max Korelacja", f"{upper_values.max():.6f}")
+        st.metric(t["correlations.max_corr"], f"{upper_values.max():.6f}")
     with max_negative_col:
-        st.metric("Min Korelacja", f"{upper_values.min():.6f}")
+        st.metric(t["correlations.min_corr"], f"{upper_values.min():.6f}")
     with threshold_count_col:
-        st.metric("Std Korelacji", f"{upper_values.std():.6f}")
+        st.metric(t["correlations.std_corr"], f"{upper_values.std():.6f}")
 
     st.divider()
 
-    st.subheader("Mapa Cieplna Korelacji")
+    st.subheader(t["correlations.heatmap_header"])
 
-    show_values = st.checkbox("Pokaż wartości na mapie", value=False)
+    show_values = st.checkbox(t["correlations.show_values"], value=False)
 
     fig = px.imshow(
         corr_matrix,
-        title=f"Macierz Korelacji ({num_features} cech)",
-        labels={"color": "Korelacja"},
+        title=t.format("correlations.heatmap_title", count=num_features),
+        labels={"color": "Correlation"},
         x=sample_features,
         y=sample_features,
         color_continuous_scale="RdBu_r",
@@ -280,11 +274,9 @@ elif corr_type == "Korelacje między cechami":
 
     st.divider()
 
-    st.subheader("Silnie Skorelowane Pary Cech")
+    st.subheader(t["correlations.strong_pairs_header"])
 
-    threshold = st.slider(
-        "Próg korelacji (wartość bezwzględna):", 0.0, 1.0, 0.5, 0.05
-    )
+    threshold = st.slider(t["correlations.threshold_slider"], 0.0, 1.0, 0.5, 0.05)
 
     corr_pairs = []
     for i in range(len(sample_features)):
@@ -293,20 +285,22 @@ elif corr_type == "Korelacje między cechami":
             if abs(corr_val) >= threshold:
                 corr_pairs.append(
                     {
-                        "Cecha_1": sample_features[i],
-                        "Cecha_2": sample_features[j],
-                        "Korelacja": corr_val,
-                        "Abs_Korelacja": abs(corr_val),
+                        "Feature_1": sample_features[i],
+                        "Feature_2": sample_features[j],
+                        "Correlation": corr_val,
+                        "Abs_Correlation": abs(corr_val),
                     }
                 )
 
     if len(corr_pairs) > 0:
         pairs_df = pd.DataFrame(corr_pairs).sort_values(
-            "Abs_Korelacja", ascending=False
+            "Abs_Correlation", ascending=False
         )
 
         st.success(
-            f"✅ Znaleziono **{len(pairs_df)}** par z |korelacją| >= {threshold}"
+            t.format(
+                "correlations.pairs_found", count=len(pairs_df), threshold=threshold
+            )
         )
 
         avg_corr_col, max_positive_col = st.columns([2, 1])
@@ -315,35 +309,39 @@ elif corr_type == "Korelacje między cechami":
             top_pairs = pairs_df.head(30)
             fig = px.bar(
                 top_pairs,
-                x="Abs_Korelacja",
+                x="Abs_Correlation",
                 y=[
-                    f"{row['Cecha_1']} - {row['Cecha_2']}"
+                    f"{row['Feature_1']} - {row['Feature_2']}"
                     for _, row in top_pairs.iterrows()
                 ],
                 orientation="h",
-                title="Top 30 Skorelowanych Par",
-                color="Korelacja",
+                title="Top 30 Correlated Pairs",
+                color="Correlation",
                 color_continuous_scale="RdBu_r",
                 color_continuous_midpoint=0,
-                text="Korelacja",
+                text="Correlation",
             )
             fig.update_traces(texttemplate="%{text:.4f}", textposition="outside")
             fig.update_layout(height=max(500, len(top_pairs) * 20))
             st.plotly_chart(fig, width="stretch")
 
         with max_positive_col:
-            st.markdown("**Statystyki Par:**")
-            st.metric("Liczba Par", len(pairs_df))
+            st.markdown(t["correlations.pairs_stats"])
+            st.metric(t["correlations.num_pairs"], len(pairs_df))
             st.metric(
-                "Średnia |Korelacja|",
-                f"{pairs_df['Abs_Korelacja'].mean():.4f}",
+                t["correlations.avg_abs_corr"],
+                f"{pairs_df['Abs_Correlation'].mean():.4f}",
             )
-            st.metric("Max Korelacja", f"{pairs_df['Korelacja'].max():.4f}")
-            st.metric("Min Korelacja", f"{pairs_df['Korelacja'].min():.4f}")
+            st.metric(
+                t["correlations.max_corr"], f"{pairs_df['Correlation'].max():.4f}"
+            )
+            st.metric(
+                t["correlations.min_corr"], f"{pairs_df['Correlation'].min():.4f}"
+            )
 
         st.dataframe(
             pairs_df.style.background_gradient(
-                subset=["Korelacja"], cmap="RdBu_r", vmin=-1, vmax=1
+                subset=["Correlation"], cmap="RdBu_r", vmin=-1, vmax=1
             ),
             width="stretch",
             height=400,
@@ -351,33 +349,35 @@ elif corr_type == "Korelacje między cechami":
 
         csv = pairs_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Pobierz pary jako CSV",
+            label=t["correlations.pairs_download"],
             data=csv,
             file_name="correlated_feature_pairs.csv",
             mime="text/csv",
         )
     else:
-        st.warning(f"⚠️ Nie znaleziono par z |korelacją| >= {threshold}")
+        st.warning(t.format("correlations.no_pairs", threshold=threshold))
 
     st.divider()
 
-    st.subheader("Rozkład Wszystkich Korelacji Między Cechami")
+    st.subheader(t["correlations.all_corr_distribution"])
 
     fig = px.histogram(
         x=upper_values,
         nbins=50,
-        title="Histogram korelacji między cechami",
-        labels={"x": "Korelacja", "y": "Liczba Par"},
+        title=t["correlations.all_corr_histogram_title"],
+        labels={"x": "Correlation", "y": "Number of Pairs"},
         marginal="box",
     )
     fig.add_vline(x=0, line_dash="dash", line_color="red")
     st.plotly_chart(fig, width="stretch")
 
-elif corr_type == "Macierz korelacji":
-    st.header(f"🎯 Macierz Korelacji z {selected_target.upper()}")
-    st.info(f"Analiza {num_features} cech + {selected_target}")
+elif corr_type == analysis_modes[2]:
+    st.header(t.format("correlations.matrix_header", target=selected_target.upper()))
+    st.info(
+        t.format("correlations.matrix_info", count=num_features, target=selected_target)
+    )
 
-    with st.spinner("Obliczanie macierzy korelacji..."):
+    with st.spinner(t["correlations.computing_matrix"]):
         target_col = (
             selected_target[0]
             if isinstance(selected_target, list | tuple)
@@ -389,12 +389,14 @@ elif corr_type == "Macierz korelacji":
         columns_to_analyze = sample_features + [target_col]
         corr_with_target = train[columns_to_analyze].corr()
 
-    st.subheader("Pełna Macierz Korelacji")
+    st.subheader(t["correlations.full_matrix_subheader"])
 
     fig = px.imshow(
         corr_with_target,
-        title=f"Macierz Korelacji ({num_features} cech + {selected_target})",
-        labels={"color": "Korelacja"},
+        title=t.format(
+            "correlations.full_matrix_title", count=num_features, target=selected_target
+        ),
+        labels={"color": "Correlation"},
         color_continuous_scale="RdBu_r",
         zmin=-1,
         zmax=1,
@@ -409,7 +411,9 @@ elif corr_type == "Macierz korelacji":
 
     st.divider()
 
-    st.subheader(f"Korelacje z {selected_target.upper()}")
+    st.subheader(
+        t.format("correlations.target_corr_header", target=selected_target.upper())
+    )
 
     target_corr = (
         corr_with_target[selected_target]
@@ -417,7 +421,7 @@ elif corr_type == "Macierz korelacji":
         .sort_values(key=abs, ascending=False)
     )
 
-    top_n_vis = st.slider("Liczba cech do wizualizacji:", 10, 50, 30)
+    top_n_vis = st.slider(t["correlations.top_n_vis_slider"], 10, 50, 30)
     top_target_corr = target_corr.head(top_n_vis)
 
     fig = go.Figure()
@@ -432,18 +436,20 @@ elif corr_type == "Macierz korelacji":
                 "colorscale": "RdBu_r",
                 "cmin": -max(abs(top_target_corr)),
                 "cmax": max(abs(top_target_corr)),
-                "colorbar": {"title": "Korelacja"},
+                "colorbar": {"title": "Correlation"},
             },
             text=top_target_corr.values.round(6),
             textposition="outside",
-            hovertemplate="%{y}<br>Korelacja: %{x:.6f}<extra></extra>",
+            hovertemplate="%{y}<br>Correlation: %{x:.6f}<extra></extra>",
         )
     )
 
     fig.update_layout(
-        title=f"Top {top_n_vis} Cech - Korelacja z {selected_target}",
-        xaxis_title="Korelacja",
-        yaxis_title="Cecha",
+        title=t.format(
+            "correlations.top_features_title", n=top_n_vis, target=selected_target
+        ),
+        xaxis_title="Correlation",
+        yaxis_title="Feature",
         height=max(500, top_n_vis * 20),
     )
 
@@ -453,24 +459,23 @@ elif corr_type == "Macierz korelacji":
 
 
 else:
-    st.header("🕸️ Network Graph - Zależności Między Cechami")
-    st.markdown("""
-Wizualizacja sieci zależności gdzie:
-- **Węzły** = Cechy
-- **Krawędzie** = Silne korelacje (powyżej progu)
-    """)
+    st.header(t["correlations.network_header"])
+    st.markdown(t["correlations.network_description"])
 
     network_features = st.slider(
-        "Liczba cech w grafie:", 10, min(60, len(feature_set)), 30
+        t["correlations.network_features_slider"],
+        10,
+        min(60, len(feature_set)),
+        30,
     )
 
     edge_threshold = st.slider(
-        "Próg korelacji dla krawędzi:", 0.1, 0.9, 0.5, 0.05
+        t["correlations.edge_threshold_slider"], 0.1, 0.9, 0.5, 0.05
     )
 
     network_sample = feature_set[:network_features]
 
-    with st.spinner("Tworzenie grafu sieci..."):
+    with st.spinner(t["correlations.creating_graph"]):
         corr_matrix = train[network_sample].corr()
 
     edges = []
@@ -491,23 +496,22 @@ Wizualizacja sieci zależności gdzie:
 
     if len(edges_df) > 0:
         st.success(
-            f"Graf zawiera {len(edges_df)} krawędzi "
-            f"między {network_features} węzłami"
+            t.format(
+                "correlations.graph_info", edges=len(edges_df), nodes=network_features
+            )
         )
 
         avg_corr_col, max_positive_col, max_negative_col = st.columns(3)
 
         with avg_corr_col:
-            st.metric("Węzły (Cechy)", network_features)
+            st.metric(t["correlations.nodes"], network_features)
         with max_positive_col:
-            st.metric("Krawędzie", len(edges_df))
+            st.metric(t["correlations.edges"], len(edges_df))
         with max_negative_col:
             density = (
-                len(edges_df)
-                / (network_features * (network_features - 1) / 2)
-                * 100
+                len(edges_df) / (network_features * (network_features - 1) / 2) * 100
             )
-            st.metric("Gęstość Grafu", f"{density:.1f}%")
+            st.metric(t["correlations.graph_density"], f"{density:.1f}%")
 
         G: nx.Graph = nx.Graph()
         for _, row in edges_df.iterrows():
@@ -556,7 +560,7 @@ Wizualizacja sieci zależności gdzie:
                 "size": [d * 3 + 10 for d in node_degrees],
                 "color": node_degrees,
                 "colorbar": {
-                    "title": "Liczba<br>Połączeń",
+                    "title": t["correlations.connections"],
                     "thickness": 15,
                     "len": 0.7,
                 },
@@ -567,10 +571,7 @@ Wizualizacja sieci zależności gdzie:
         fig = go.Figure(data=[edge_trace, node_trace])
 
         fig.update_layout(
-            title=(
-                f"Network Graph - Zależności "
-                f"między {network_features} cechami"
-            ),
+            title=t.format("correlations.graph_title", count=network_features),
             showlegend=False,
             hovermode="closest",
             height=800,
@@ -589,25 +590,25 @@ Wizualizacja sieci zależności gdzie:
         st.plotly_chart(fig, width="stretch")
 
         st.divider()
-        st.subheader("Najbardziej Połączone Cechy")
+        st.subheader(t["correlations.most_connected_header"])
 
         degree_df = pd.DataFrame(
             {
-                "Cecha": list(G.nodes()),
-                "Liczba_Połączeń": [G.degree(node) for node in G.nodes()],
+                "Feature": list(G.nodes()),
+                "Connections": [G.degree(node) for node in G.nodes()],
             }
-        ).sort_values("Liczba_Połączeń", ascending=False)
+        ).sort_values("Connections", ascending=False)
 
         avg_corr_col, max_positive_col = st.columns([2, 1])
 
         with avg_corr_col:
             fig = px.bar(
                 degree_df.head(20),
-                y="Cecha",
-                x="Liczba_Połączeń",
+                y="Feature",
+                x="Connections",
                 orientation="h",
-                title="Top 20 - Najbardziej Połączone Cechy",
-                color="Liczba_Połączeń",
+                title=t["correlations.most_connected_bar_title"],
+                color="Connections",
                 color_continuous_scale="Blues",
             )
             fig.update_layout(height=500)
@@ -616,8 +617,6 @@ Wizualizacja sieci zależności gdzie:
         with max_positive_col:
             st.dataframe(degree_df, width="stretch", height=500)
     else:
-        st.warning(
-            f"⚠️ Brak krawędzi dla progu {edge_threshold}. Zmniejsz próg."
-        )
+        st.warning(t.format("correlations.no_edges", threshold=edge_threshold))
 
 st.divider()

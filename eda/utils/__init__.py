@@ -11,8 +11,7 @@ from .data_loader import (
     get_feature_correlations,
     load_numerai_data,
 )
-from .i18n import translate
-from .translations import Translations, get_translations
+from .i18n import Translations, get_translations, translate
 
 __all__ = [
     "APP_ICON",
