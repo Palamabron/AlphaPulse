@@ -8,6 +8,9 @@ from ..evaluation.metrics import era_sharpe, rank_normalize
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor
 
+_MIN_TRAIN_ROWS = 10
+_MIN_VAL_ROWS = 2
+
 
 class MultiTargetPipeline:
     def __init__(
@@ -73,7 +76,7 @@ class MultiTargetPipeline:
         for target_col in available_targets:
             y = targets[target_col]
             valid_mask = y.notna()
-            if valid_mask.sum() < 10:
+            if valid_mask.sum() < _MIN_TRAIN_ROWS:
                 continue
 
             y_val = (
@@ -89,7 +92,7 @@ class MultiTargetPipeline:
             y_val_masked: Any = y_val
             if y_val is not None:
                 val_valid = y_val.notna()
-                if val_valid.sum() >= 2:
+                if val_valid.sum() >= _MIN_VAL_ROWS:
                     X_val_masked = X_val_t[val_valid] if X_val_t is not None else None
                     y_val_masked = y_val[val_valid]
                 else:
