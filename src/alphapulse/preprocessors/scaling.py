@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
-from .base import BasePreprocessor, _PROTECTED_COLS
+from .base import _PROTECTED_COLS, BasePreprocessor
 
 
 class StandardScalerPreprocessor(BasePreprocessor):
@@ -15,7 +15,9 @@ class StandardScalerPreprocessor(BasePreprocessor):
         self, X: pd.DataFrame, y: pd.Series | None = None
     ) -> "StandardScalerPreprocessor":
         feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
-        self._numeric_cols = list(X[feat_cols].select_dtypes(include=[np.number]).columns)
+        self._numeric_cols = list(
+            X[feat_cols].select_dtypes(include=[np.number]).columns
+        )
         if not self._numeric_cols:
             raise ValueError("StandardScalerPreprocessor: no numeric columns to scale.")
 
@@ -43,7 +45,9 @@ class RobustScalerPreprocessor(BasePreprocessor):
         self, X: pd.DataFrame, y: pd.Series | None = None
     ) -> "RobustScalerPreprocessor":
         feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
-        self._numeric_cols = list(X[feat_cols].select_dtypes(include=[np.number]).columns)
+        self._numeric_cols = list(
+            X[feat_cols].select_dtypes(include=[np.number]).columns
+        )
         if not self._numeric_cols:
             raise ValueError("RobustScalerPreprocessor: no numeric columns to scale.")
 

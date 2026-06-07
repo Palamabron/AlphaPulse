@@ -3,7 +3,7 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from .base import BasePreprocessor, _PROTECTED_COLS
+from .base import _PROTECTED_COLS, BasePreprocessor
 
 _MIN_ERAS_REQUIRED = 2
 

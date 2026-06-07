@@ -5,7 +5,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-
 _PROTECTED_COLS: frozenset[str] = frozenset({"era", "id", "data_type"})
 
 
