@@ -28,9 +28,9 @@ class VarianceFeatureSelector(BasePreprocessor):
 
         if self.mode == "threshold":
             mask = variances > self.threshold
-            self.selected_columns_ = list(X.columns[mask])
+            self.selected_columns_ = list(variances.index[mask])
         else:
-            n_keep = max(1, int(len(X.columns) * self.keep_fraction))
+            n_keep = max(1, int(len(feat_cols) * self.keep_fraction))
             ranked = variances.sort_values(ascending=False)
             self.selected_columns_ = list(ranked.index[:n_keep])
 
