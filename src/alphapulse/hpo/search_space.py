@@ -91,6 +91,11 @@ def sample_random_config(
         "packboost_boost_weight": rng.uniform(0.1, 0.5),
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
+        "use_feature_selection": rng.choice([True, False]),
+        "feature_selection_type": rng.choice(["variance", "lgbm_importance"]),
+        "feature_selection_keep_fraction": rng.uniform(0.5, 0.9),
+        "use_noise_injection": rng.choice([True, False]),
+        "noise_sigma": _loguniform(5e-3, 5e-2, rng),
         "num_models": rng.choice([1, 2, 3]),
         "model_1_type": _sample_model_type("phase_b", rng, exclude_models),
         "model_2_type": _sample_model_type("phase_b", rng, exclude_models),
@@ -132,6 +137,11 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_boost_weight": tune.uniform(0.1, 0.5),
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
+        "use_feature_selection": tune.choice([True, False]),
+        "feature_selection_type": tune.choice(["variance", "lgbm_importance"]),
+        "feature_selection_keep_fraction": tune.uniform(0.5, 0.9),
+        "use_noise_injection": tune.choice([True, False]),
+        "noise_sigma": tune.loguniform(5e-3, 5e-2),
         "num_models": tune.choice([1, 2, 3]),
         "model_1_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
         "model_2_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
@@ -189,6 +199,27 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                     "n_rounds_base": flat.get("packboost_n_rounds_base", 300),
                     "n_rounds_boost": flat.get("packboost_n_rounds_boost", 100),
                 },
+            }
+        )
+    if flat.get("use_feature_selection"):
+        fs_type = flat.get("feature_selection_type", "variance")
+        keep = float(flat.get("feature_selection_keep_fraction", 0.75))
+        if fs_type == "lgbm_importance":
+            preprocessors.append(
+                {"type": "LGBMImportanceSelector", "params": {"keep_fraction": keep}}
+            )
+        else:
+            preprocessors.append(
+                {
+                    "type": "VarianceSelector",
+                    "params": {"keep_fraction": keep, "mode": "quantile"},
+                }
+            )
+    if flat.get("use_noise_injection"):
+        preprocessors.append(
+            {
+                "type": "GaussianNoise",
+                "params": {"sigma": float(flat.get("noise_sigma", 0.01))},
             }
         )
 
