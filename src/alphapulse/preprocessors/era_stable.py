@@ -71,6 +71,8 @@ class EraStableFeatureSelector(BasePreprocessor):
     ) -> Self:
         if y is None:
             raise ValueError("EraStableFeatureSelector requires y for fit().")
+        if eras is None and "era" in X.columns:
+            eras = X["era"]
 
         import lightgbm as lgb
 

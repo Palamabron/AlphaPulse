@@ -92,8 +92,11 @@ def sample_random_config(
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
         "use_feature_selection": rng.choice([True, False]),
-        "feature_selection_type": rng.choice(["variance", "lgbm_importance"]),
+        "feature_selection_type": rng.choice(
+            ["variance", "lgbm_importance", "era_stable"]
+        ),
         "feature_selection_keep_fraction": rng.uniform(0.5, 0.9),
+        "era_stable_stability_weight": rng.uniform(0.3, 0.7),
         "use_noise_injection": rng.choice([True, False]),
         "noise_sigma": _loguniform(5e-3, 5e-2, rng),
         "num_models": rng.choice([1, 2, 3]),
@@ -138,8 +141,11 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
         "use_feature_selection": tune.choice([True, False]),
-        "feature_selection_type": tune.choice(["variance", "lgbm_importance"]),
+        "feature_selection_type": tune.choice(
+            ["variance", "lgbm_importance", "era_stable"]
+        ),
         "feature_selection_keep_fraction": tune.uniform(0.5, 0.9),
+        "era_stable_stability_weight": tune.uniform(0.3, 0.7),
         "use_noise_injection": tune.choice([True, False]),
         "noise_sigma": tune.loguniform(5e-3, 5e-2),
         "num_models": tune.choice([1, 2, 3]),
@@ -207,6 +213,18 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         if fs_type == "lgbm_importance":
             preprocessors.append(
                 {"type": "LGBMImportanceSelector", "params": {"keep_fraction": keep}}
+            )
+        elif fs_type == "era_stable":
+            preprocessors.append(
+                {
+                    "type": "EraStableSelector",
+                    "params": {
+                        "keep_fraction": keep,
+                        "stability_weight": float(
+                            flat.get("era_stable_stability_weight", 0.5)
+                        ),
+                    },
+                }
             )
         else:
             preprocessors.append(
