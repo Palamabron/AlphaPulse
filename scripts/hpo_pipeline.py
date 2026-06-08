@@ -17,14 +17,15 @@ import multiprocessing
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+import pandas as pd
 import tyro
 from loguru import logger
 
 from alphapulse.experiments.data import load_train_only_frame
 from alphapulse.hpo.objective import TrialResult, run_trial
-from alphapulse.hpo.search_space import sample_random_config
+from alphapulse.hpo.search_space import FOUNDATION_MODELS, sample_random_config
 from alphapulse.hpo.trial_db import TrialDB
 from alphapulse.logging_.leaderboard import (
     entry_from_hpo_result,
@@ -45,6 +46,73 @@ def _trial_worker(
         result_queue.put({"ok": True, "metrics": metrics})
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
+
+
+def _probe_model_worker(
+    model_type: str,
+    X: pd.DataFrame,
+    y: pd.Series,
+    q: "multiprocessing.Queue[dict[str, Any]]",
+) -> None:
+    try:
+        from alphapulse.hpo.registry import MODEL_REGISTRY
+
+        cls, defaults = MODEL_REGISTRY[model_type]
+        model = cls(**defaults)
+        model.train(X, y)
+        model.predict(X.iloc[:5])
+        q.put({"ok": True})
+    except Exception as exc:
+        q.put({"ok": False, "error": str(exc)})
+
+
+def _probe_foundation_models(
+    X_train: pd.DataFrame, y_train: pd.Series, timeout: int = 60
+) -> frozenset[str]:
+    """Smoke-test each foundation model on a tiny sample.
+
+    Returns the set of model names that failed or timed out.
+    These will be excluded from the HPO search space.
+    """
+    n = min(500, len(X_train))
+    X_sample = X_train.iloc[:n].copy()
+    y_sample = y_train.iloc[:n].copy()
+
+    excluded: set[str] = set()
+    for model_type in FOUNDATION_MODELS:
+        logger.info("Probing foundation model: {}", model_type)
+        q: multiprocessing.Queue = multiprocessing.Queue()
+        p = multiprocessing.Process(
+            target=_probe_model_worker,
+            args=(model_type, X_sample, y_sample, q),
+        )
+        p.start()
+        p.join(timeout=timeout)
+
+        if p.is_alive():
+            p.terminate()
+            p.join(timeout=5)
+            if p.is_alive():
+                p.kill()
+                p.join()
+            excluded.add(model_type)
+            logger.warning(
+                "  {} timed out after {}s — excluded from HPO", model_type, timeout
+            )
+        else:
+            result: dict[str, Any] = (
+                q.get_nowait() if not q.empty() else {"ok": False, "error": "no result"}
+            )
+            if result.get("ok"):
+                logger.info("  {} OK — included in HPO", model_type)
+            else:
+                excluded.add(model_type)
+                logger.warning(
+                    "  {} failed: {} — excluded from HPO",
+                    model_type,
+                    result.get("error", "unknown"),
+                )
+    return frozenset(excluded)
 
 
 def _run_local(
@@ -76,6 +144,13 @@ def _run_local(
         X_train.shape,
         len(feature_cols),
     )
+
+    logger.info("Probing foundation models on 500-row sample (timeout=60s each)...")
+    exclude_models = _probe_foundation_models(X_train, y_train, timeout=60)
+    if exclude_models:
+        logger.info("Excluded from HPO: {}", sorted(exclude_models))
+    else:
+        logger.info("All foundation models passed — none excluded")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     db_path = output_dir / "trials.db"
@@ -110,7 +185,9 @@ def _run_local(
                 )
                 continue
 
-            flat_config = sample_random_config(seed=seed + i)
+            flat_config = sample_random_config(
+                seed=seed + i, exclude_models=exclude_models
+            )
             db.insert_trial(i, flat_config)
 
             t0 = time.perf_counter()
@@ -125,7 +202,10 @@ def _run_local(
 
             if p.is_alive():
                 p.terminate()
-                p.join()
+                p.join(timeout=5)
+                if p.is_alive():
+                    p.kill()
+                    p.join()
                 error_msg = f"timeout after {trial_timeout}s"
                 result = TrialResult(
                     trial_number=i,

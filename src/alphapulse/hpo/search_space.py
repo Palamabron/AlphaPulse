@@ -11,11 +11,19 @@ FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
 
 
-def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
+def _sample_model_type(
+    phase: str, rng: _random_mod.Random, exclude: frozenset[str] | None = None
+) -> str:
     if phase != "phase_a":
         roll = rng.random()
         if roll < FOUNDATION_SAMPLE_PROB:
-            return rng.choice(FOUNDATION_MODELS)
+            available = (
+                [m for m in FOUNDATION_MODELS if m not in exclude]
+                if exclude
+                else FOUNDATION_MODELS
+            )
+            if available:
+                return rng.choice(available)
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -26,7 +34,10 @@ def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
 
 
 def sample_random_config(
-    seed: int | None = None, *, phase: str = "phase_b"
+    seed: int | None = None,
+    *,
+    phase: str = "phase_b",
+    exclude_models: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -81,9 +92,9 @@ def sample_random_config(
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
         "num_models": rng.choice([1, 2, 3]),
-        "model_1_type": _sample_model_type("phase_b", rng),
-        "model_2_type": _sample_model_type("phase_b", rng),
-        "model_3_type": _sample_model_type("phase_b", rng),
+        "model_1_type": _sample_model_type("phase_b", rng, exclude_models),
+        "model_2_type": _sample_model_type("phase_b", rng, exclude_models),
+        "model_3_type": _sample_model_type("phase_b", rng, exclude_models),
         "n_subs": rng.choice([5, 8, 10, 15]),
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
