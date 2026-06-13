@@ -15,6 +15,11 @@ WF_N_SPLITS = 3
 WF_N_PURGE = 4
 WF_MIN_TRAIN_ERAS = 20
 
+HPO_FAST_HOLDOUT_ERAS = 52
+HPO_FAST_WF_N_SPLITS = 2
+HPO_FAST_MAX_TRAIN_ERAS = 120
+HPO_FAST_N_SUBS_CAP = 5
+
 _NAN_METRICS: dict[str, float] = {
     "mean_per_era_correlation": float("nan"),
     "std_per_era_correlation": float("nan"),
@@ -81,6 +86,7 @@ class EraSplitEvaluator:
         n_purge: int = 4,
         n_embargo: int = 0,
         n_splits: int | None = None,
+        max_train_eras: int | None = None,
         neutralizer: "FeatureNeutralizer | None" = None,
     ) -> None:
         if n_purge < 0:
@@ -94,6 +100,7 @@ class EraSplitEvaluator:
         self.n_purge = n_purge
         self.n_embargo = n_embargo
         self.n_splits = n_splits
+        self.max_train_eras = max_train_eras
         self.neutralizer = neutralizer
 
     def evaluate_walk_forward(
@@ -212,6 +219,7 @@ class EraSplitEvaluator:
             n_purge=self.n_purge,
             n_embargo=self.n_embargo,
             min_train_eras=self.min_train_eras,
+            max_train_eras=self.max_train_eras,
         )
         for train_eras, test_eras in cv.split_eras(era_series):
             train_mask = era_series.isin(set(train_eras))
@@ -238,6 +246,10 @@ class EraSplitEvaluator:
 
 
 __all__ = [
+    "HPO_FAST_HOLDOUT_ERAS",
+    "HPO_FAST_MAX_TRAIN_ERAS",
+    "HPO_FAST_N_SUBS_CAP",
+    "HPO_FAST_WF_N_SPLITS",
     "WF_MIN_TRAIN_ERAS",
     "WF_N_PURGE",
     "WF_N_SPLITS",

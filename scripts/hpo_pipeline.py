@@ -4,9 +4,9 @@ Supports two modes:
   --local   Random search (no extra dependencies).
   (default) Ray Tune distributed search (requires ``pip install 'alphapulse[hpo]'``).
 
-Each trial is scored via walk-forward backtesting (3 folds, n_purge=4) so
-that the objective reflects temporal out-of-sample performance rather than a
-fixed holdout split. The default objective is corr_sharpe from walk-forward.
+Each trial is scored via era holdout (fast mode, default) or walk-forward backtesting
+(3 folds with --no-fast) so the objective reflects temporal out-of-sample performance.
+Fast mode targets sub-30-minute trials on full data.
 
 Pass --wandb-project <name> to log every trial to Weights & Biases.
 Pass --resume to skip already-completed trials recorded in the trial database.
@@ -95,6 +95,7 @@ def _run_local(
     resume: bool = False,
     trial_timeout: int = 1800,
     gpu: bool = False,
+    fast: bool = True,
 ) -> None:
     """Local random-search HPO with subprocess isolation and SQLite trial DB."""
 
@@ -153,10 +154,20 @@ def _run_local(
                 )
                 continue
 
-            flat_config = sample_random_config(seed=seed + i)
+            flat_config = sample_random_config(seed=seed + i, fast=fast)
             if gpu:
                 flat_config["use_gpu"] = True
+            if fast:
+                flat_config["hpo_fast"] = True
             db.insert_trial(i, flat_config)
+
+            logger.info(
+                "Trial {}/{} starting (fast={}, models={})",
+                i + 1,
+                num_trials,
+                fast,
+                flat_config.get("model_1_type", "?"),
+            )
 
             t0 = time.perf_counter()
             result_queue: multiprocessing.Queue = _MP_CTX.Queue()
@@ -436,6 +447,7 @@ def main(
     wandb_project: str | None = None,
     trial_timeout: int = 1800,
     gpu: bool = False,
+    fast: bool = True,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
@@ -444,7 +456,10 @@ def main(
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     Pass --resume to continue an interrupted sweep (requires --local).
     Pass --trial-timeout N to cap each subprocess trial at N seconds (default: 1800).
-    Pass --gpu to enable CUDA for XGBoost and GPU task type for CatBoost.
+    Pass --gpu to enable CUDA for XGBoost, LightGBM, and CatBoost.
+    Fast mode (default) uses era holdout and a tighter search space so trials
+    finish within ~30 minutes on full data.
+    Pass --no-fast for full walk-forward evaluation (slower).
     """
     set_global_seed(seed)
     if local:
@@ -460,6 +475,7 @@ def main(
             resume=resume,
             trial_timeout=trial_timeout,
             gpu=gpu,
+            fast=fast,
         )
     else:
         _run_ray(

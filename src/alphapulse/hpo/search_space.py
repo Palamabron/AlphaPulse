@@ -6,6 +6,8 @@ try:
 except ImportError:
     tune = None
 
+from ..evaluation.era_split import HPO_FAST_N_SUBS_CAP
+
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
@@ -115,7 +117,7 @@ def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
 
 
 def sample_random_config(
-    seed: int | None = None, *, phase: str = "phase_b"
+    seed: int | None = None, *, phase: str = "phase_b", fast: bool = False
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -123,6 +125,8 @@ def sample_random_config(
         seed: Random seed for reproducibility. *None* for non-deterministic.
         phase: Search phase (``"phase_a"`` for conservative exploration,
             ``"phase_b"`` for full search space).
+        fast: When True, sample tighter hyperparameters for sub-30-minute trials
+            on full data (lower rounds, fewer era subs, smaller foundation caps).
 
     Returns:
         Flat dictionary of hyperparameter values consumable by
@@ -131,7 +135,7 @@ def sample_random_config(
     rng = _random_mod.Random(seed)
 
     if phase == "phase_a":
-        return {
+        cfg = {
             "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
             "use_packboost": False,
             "packboost_n_worst_eras": 3,
@@ -161,8 +165,14 @@ def sample_random_config(
             "use_neutralization": False,
             "neutralization_proportion": 0.5,
         }
+        if fast:
+            cfg["hpo_fast"] = True
+            cfg["n_subs"] = rng.choice([3, 5])
+            cfg["xgb_n_rounds"] = rng.choice([150, 250, 350])
+            cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
+        return cfg
 
-    return {
+    cfg = {
         "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
         "use_packboost": rng.choice([True, False]),
         "packboost_n_worst_eras": rng.choice([3, 5, 7]),
@@ -199,6 +209,20 @@ def sample_random_config(
         "foundation_n_components": rng.choice([128, 256, 512]),
         "use_gpu": False,
     }
+    if fast:
+        cfg["hpo_fast"] = True
+        cfg["num_models"] = rng.choice([1, 2])
+        cfg["n_subs"] = rng.choice([3, 5])
+        cfg["xgb_n_rounds"] = rng.choice([150, 250, 400])
+        cfg["xgb_early_stopping"] = rng.choice([20, 30, 50])
+        cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
+        cfg["lgbm_early_stopping"] = rng.choice([30, 50])
+        cfg["packboost_n_rounds_base"] = rng.choice([150, 250, 350])
+        cfg["packboost_model_n_rounds_base"] = rng.choice([200, 300])
+        cfg["foundation_max_train_rows"] = rng.choice([3_000, 5_000, 8_000])
+        cfg["foundation_n_components"] = rng.choice([64, 128, 256])
+        cfg["use_packboost"] = False
+    return cfg
 
 
 def get_full_param_space() -> dict[str, Any]:
@@ -373,11 +397,15 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
+    n_subs_cap = HPO_FAST_N_SUBS_CAP if flat.get("hpo_fast") else None
     models = []
     for i, t in enumerate(types):
         spec: dict[str, Any] = {"type": t, "params": model_params(t, i)}
         if t in tree_models:
-            spec["n_subs"] = flat.get("n_subs", 10)
+            n_subs = int(flat.get("n_subs", 10))
+            if n_subs_cap is not None:
+                n_subs = min(n_subs, n_subs_cap)
+            spec["n_subs"] = n_subs
         models.append(spec)
 
     ensemble_method = flat.get("ensemble_method", "single")

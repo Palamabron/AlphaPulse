@@ -65,6 +65,23 @@ def test_run_trial_returns_metrics(
     assert "max_drawdown" in metrics
 
 
+def test_run_trial_fast_holdout(
+    toy_data_with_era: dict[str, Any], minimal_flat_config: dict[str, Any]
+) -> None:
+    fast_config = {**minimal_flat_config, "hpo_fast": True}
+    metrics = run_trial(fast_config, **toy_data_with_era)
+    assert isinstance(metrics, dict)
+    assert "corr_sharpe" in metrics
+
+
+def test_sample_random_config_fast_tighter_bounds() -> None:
+    config = sample_random_config(seed=42, fast=True)
+    assert config.get("hpo_fast") is True
+    assert config["n_subs"] <= 5
+    assert config["xgb_n_rounds"] <= 400
+    assert config["num_models"] <= 2
+
+
 def test_sample_random_config_returns_dict() -> None:
     config = sample_random_config(seed=42)
     assert isinstance(config, dict)
