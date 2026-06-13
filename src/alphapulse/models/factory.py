@@ -104,6 +104,11 @@ class ModelFactory:
             "verbosity": -1,
             "n_jobs": -1,
         }
+        if self.use_gpu:
+            params["device"] = "gpu"
+            params["gpu_platform_id"] = 0
+            params["gpu_device_id"] = 0
+            params.pop("n_jobs", None)
         n_est = trial.suggest_int(self._p("lgb_n_estimators"), 200, 2000, step=100)
         n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
         base_name = f"LGB_{n_est}r"

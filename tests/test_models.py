@@ -64,6 +64,17 @@ def test_instantiate_model_matches_model_factory() -> None:
     assert from_builder.n_subs == from_factory.n_subs == 3
 
 
+def test_apply_gpu_model_params_lightgbm_sets_device() -> None:
+    from alphapulse.hpo.search_space import apply_gpu_model_params
+
+    params = apply_gpu_model_params("LightGBM", {"params": {"verbosity": -1}})
+    inner = params["params"]
+    assert inner["device"] == "gpu"
+    assert inner["gpu_platform_id"] == 0
+    assert inner["gpu_device_id"] == 0
+    assert "n_jobs" not in inner
+
+
 def test_instantiate_catboost_gpu_strips_colsample_bylevel() -> None:
     from alphapulse.hpo.builder import instantiate_model
     from alphapulse.models.catboost_model import CatBoostModel

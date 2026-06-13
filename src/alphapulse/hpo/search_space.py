@@ -48,6 +48,15 @@ def apply_gpu_model_params(model_type: str, params: dict[str, Any]) -> dict[str,
             out["params"] = inner
         else:
             out["device"] = "cuda"
+    elif model_type == "LightGBM":
+        inner = out.get("params")
+        if isinstance(inner, dict):
+            inner = dict(inner)
+            inner["device"] = "gpu"
+            inner["gpu_platform_id"] = 0
+            inner["gpu_device_id"] = 0
+            inner.pop("n_jobs", None)
+            out["params"] = inner
     elif model_type == "CatBoost":
         inner = out.get("params")
         if isinstance(inner, dict):
@@ -281,15 +290,20 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 xgb_params["device"] = "cuda"
             return {"params": xgb_params}
         if t == "LightGBM":
+            lgb_params: dict[str, Any] = {
+                "num_leaves": flat.get("lgbm_num_leaves", 31),
+                "learning_rate": flat.get("lgbm_learning_rate", 0.01),
+                "min_child_samples": flat.get("lgbm_min_child_samples", 200),
+                "objective": "regression",
+                "metric": "rmse",
+                "verbosity": -1,
+            }
+            if flat.get("use_gpu"):
+                lgb_params["device"] = "gpu"
+                lgb_params["gpu_platform_id"] = 0
+                lgb_params["gpu_device_id"] = 0
             return {
-                "params": {
-                    "num_leaves": flat.get("lgbm_num_leaves", 31),
-                    "learning_rate": flat.get("lgbm_learning_rate", 0.01),
-                    "min_child_samples": flat.get("lgbm_min_child_samples", 200),
-                    "objective": "regression",
-                    "metric": "rmse",
-                    "verbosity": -1,
-                },
+                "params": lgb_params,
                 "n_estimators": flat.get("lgbm_n_rounds", 2000),
                 "early_stopping_rounds": flat.get("lgbm_early_stopping", 100),
             }
