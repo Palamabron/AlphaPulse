@@ -33,15 +33,36 @@ from alphapulse.logging_.leaderboard import (
 )
 from alphapulse.utils import set_global_seed
 
+_MP_CTX = multiprocessing.get_context("spawn")
+
 
 def _trial_worker(
     flat_config: dict,
-    trial_kwargs: dict,
+    data_dir: str,
+    train_subsample: float,
+    target_col: str,
+    seed: int,
     result_queue: "multiprocessing.Queue[dict]",
 ) -> None:
     """Run a single trial inside a subprocess and push the result to the queue."""
     try:
-        metrics = run_trial(flat_config, **trial_kwargs)
+        X_train, y_train, feature_cols = load_train_only_frame(
+            Path(data_dir),
+            train_subsample=train_subsample,
+            target_col=target_col,
+            seed=seed,
+            feature_columns=None,
+            need_era=True,
+        )
+        era_train = X_train["era"]
+        metrics = run_trial(
+            flat_config,
+            X_train=X_train,
+            y_train=y_train,
+            era_train=era_train,
+            feature_cols=feature_cols,
+            seed=seed,
+        )
         result_queue.put({"ok": True, "metrics": metrics})
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
@@ -85,7 +106,6 @@ def _run_local(
         feature_columns=None,
         need_era=True,
     )
-    era_train = X_train["era"]
     logger.info(
         "Data loaded: train={}, features={}",
         X_train.shape,
@@ -101,10 +121,9 @@ def _run_local(
         )
 
     trial_kwargs = {
-        "X_train": X_train,
-        "y_train": y_train,
-        "era_train": era_train,
-        "feature_cols": feature_cols,
+        "data_dir": str(data_dir),
+        "train_subsample": train_subsample,
+        "target_col": target_col,
     }
 
     results: list[TrialResult] = []
@@ -140,10 +159,17 @@ def _run_local(
             db.insert_trial(i, flat_config)
 
             t0 = time.perf_counter()
-            result_queue: multiprocessing.Queue = multiprocessing.Queue()
-            p = multiprocessing.Process(
+            result_queue: multiprocessing.Queue = _MP_CTX.Queue()
+            p = _MP_CTX.Process(
                 target=_trial_worker,
-                args=(flat_config, {**trial_kwargs, "seed": seed + i}, result_queue),
+                args=(
+                    flat_config,
+                    trial_kwargs["data_dir"],
+                    trial_kwargs["train_subsample"],
+                    trial_kwargs["target_col"],
+                    seed + i,
+                    result_queue,
+                ),
             )
             p.start()
             p.join(timeout=trial_timeout)
