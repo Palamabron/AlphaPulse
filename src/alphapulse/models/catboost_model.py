@@ -52,6 +52,8 @@ class CatBoostModel(BaseModel):
         )
 
         full_params = {**self.params, "iterations": iters}
+        if full_params.get("task_type") == "GPU":
+            full_params.pop("colsample_bylevel", None)
         cb_model = CatBoostRegressor(**full_params)
 
         feat_train = _numeric(X_train)

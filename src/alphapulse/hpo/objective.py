@@ -69,6 +69,10 @@ def run_trial(
         np.random.seed(rng.integers(0, 2**31))
 
     pipeline_cfg = resolve_flat_config(config)
+    if config.get("use_gpu"):
+        from .search_space import apply_gpu_pipeline_config
+
+        pipeline_cfg = apply_gpu_pipeline_config(pipeline_cfg)
     train_kwargs = get_train_kwargs_from_flat(config)
 
     def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:

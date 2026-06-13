@@ -8,6 +8,7 @@ from ..pipeline.pipeline import Pipeline
 from ..preprocessors.base import BasePreprocessor
 from ..preprocessors.grouped import GroupedPreprocessor
 from .registry import MODEL_REGISTRY, PREPROCESSOR_REGISTRY
+from .search_space import strip_catboost_gpu_incompatible_params
 
 TREE_MODEL_NAMES = frozenset(
     {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
@@ -84,6 +85,8 @@ def instantiate_model(
         raise ValueError(f"Unknown model type: {type_name}")
     cls, defaults = MODEL_REGISTRY[type_name]
     merged = _merge_params(defaults, override or {})
+    if type_name == "CatBoost":
+        merged = strip_catboost_gpu_incompatible_params(merged)
     if "name" not in merged:
         merged["name"] = f"{type_name}_{index}"
 

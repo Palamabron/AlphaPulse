@@ -64,6 +64,24 @@ def test_instantiate_model_matches_model_factory() -> None:
     assert from_builder.n_subs == from_factory.n_subs == 3
 
 
+def test_instantiate_catboost_gpu_strips_colsample_bylevel() -> None:
+    from alphapulse.hpo.builder import instantiate_model
+    from alphapulse.models.catboost_model import CatBoostModel
+    from alphapulse.models.era_ensemble_model import EraEnsembleModel
+
+    model = instantiate_model(
+        "CatBoost",
+        {"params": {"task_type": "GPU", "verbose": 0}},
+        index=0,
+        n_subs=2,
+    )
+    assert isinstance(model, EraEnsembleModel)
+    base = model.base_model_factory()
+    assert isinstance(base, CatBoostModel)
+    assert base.params.get("task_type") == "GPU"
+    assert "colsample_bylevel" not in base.params
+
+
 def test_ensemble_optimizer_fit_predict() -> None:
     rng = np.random.RandomState(0)
     n = 200

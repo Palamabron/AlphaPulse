@@ -12,6 +12,32 @@ FOUNDATION_SAMPLE_PROB = 0.05
 AUGMENTER_SAMPLE_PROB = 0.05
 
 
+def available_foundation_models() -> list[str]:
+    available: list[str] = []
+    try:
+        import tabpfn  # noqa: F401
+
+        available.extend(["TabPFN", "TabPFN3"])
+    except ImportError:
+        pass
+    try:
+        import tabicl  # noqa: F401
+
+        available.append("TabICL")
+    except ImportError:
+        pass
+    import os
+
+    if os.environ.get("TABPFN_API_KEY"):
+        try:
+            import tabpfn_client  # noqa: F401
+
+            available.append("TabPFN3Reasoning")
+        except ImportError:
+            pass
+    return available
+
+
 def apply_gpu_model_params(model_type: str, params: dict[str, Any]) -> dict[str, Any]:
     out = dict(params)
     if model_type == "XGBoost":
@@ -35,6 +61,16 @@ def apply_gpu_model_params(model_type: str, params: dict[str, Any]) -> dict[str,
     return out
 
 
+def strip_catboost_gpu_incompatible_params(params: dict[str, Any]) -> dict[str, Any]:
+    out = dict(params)
+    inner = out.get("params")
+    if isinstance(inner, dict) and inner.get("task_type") == "GPU":
+        inner = dict(inner)
+        inner.pop("colsample_bylevel", None)
+        out["params"] = inner
+    return out
+
+
 def apply_gpu_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
     cfg = dict(config)
     models = []
@@ -55,7 +91,9 @@ def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
     if phase != "phase_a":
         roll = rng.random()
         if roll < FOUNDATION_SAMPLE_PROB:
-            return rng.choice(FOUNDATION_MODELS)
+            foundation_models = available_foundation_models()
+            if foundation_models:
+                return rng.choice(foundation_models)
         if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
             return "SyntheticDataAugmenter"
     if phase == "phase_a":
