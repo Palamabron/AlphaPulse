@@ -15,7 +15,8 @@ from .sklearn_models import _load_sklearn, _save_sklearn
 COMPRESSION_METHODS = ("pca", "svd", "autoencoder")
 DEFAULT_COMPRESSION = "pca"
 DEFAULT_SEED = 42
-PREDICT_CHUNK_ROWS = 50_000
+DEFAULT_PREDICT_CHUNK_ROWS = 256
+PREDICT_CHUNK_ROWS = DEFAULT_PREDICT_CHUNK_ROWS
 
 TABPFN_MAX_TRAIN_ROWS = 10_000
 TABPFN_MAX_FEATURES = 500
@@ -25,6 +26,9 @@ TABPFN3_REASONING_MAX_TRAIN_ROWS = 10_000
 TABPFN3_REASONING_MAX_FEATURES = 500
 TABICL_MAX_TRAIN_ROWS = 60_000
 TABICL_MAX_FEATURES = 500
+TABPFN_PREDICT_CHUNK_ROWS = 256
+TABPFN3_PREDICT_CHUNK_ROWS = 128
+TABICL_PREDICT_CHUNK_ROWS = 2_048
 
 
 def _build_compressor(method: str, n_components: int, seed: int) -> BasePreprocessor:
@@ -57,6 +61,7 @@ class FoundationModel(BaseModel):
         max_features: int,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        predict_chunk_rows: int = DEFAULT_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = None,
     ) -> None:
@@ -65,6 +70,10 @@ class FoundationModel(BaseModel):
             raise ValueError(f"max_train_rows must be positive, got {max_train_rows}")
         if max_features < 1:
             raise ValueError(f"max_features must be positive, got {max_features}")
+        if predict_chunk_rows < 1:
+            raise ValueError(
+                f"predict_chunk_rows must be positive, got {predict_chunk_rows}"
+            )
         if compression is not None and compression not in COMPRESSION_METHODS:
             raise ValueError(
                 f"Unknown compression method: {compression!r}. "
@@ -74,6 +83,7 @@ class FoundationModel(BaseModel):
         self.max_features = max_features
         self.compression = compression
         self.compression_components = compression_components
+        self.predict_chunk_rows = predict_chunk_rows
         self.seed = seed
         self._compressor: BasePreprocessor | None = None
         self._medians: pd.Series | None = None
@@ -99,12 +109,13 @@ class FoundationModel(BaseModel):
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         self._require_trained()
         feat = self._prepare_predict(X)
+        chunk_rows = self.predict_chunk_rows
         chunks = [
             np.asarray(
-                self.model.predict(feat.iloc[start : start + PREDICT_CHUNK_ROWS]),
+                self.model.predict(feat.iloc[start : start + chunk_rows]),
                 dtype=np.float64,
             )
-            for start in range(0, len(feat), PREDICT_CHUNK_ROWS)
+            for start in range(0, len(feat), chunk_rows)
         ]
         return np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float64)
 
@@ -180,6 +191,7 @@ class TabPFNModel(FoundationModel):
         max_features: int = TABPFN_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        predict_chunk_rows: int = TABPFN_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN",
     ) -> None:
@@ -188,6 +200,7 @@ class TabPFNModel(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,
         )
@@ -224,6 +237,7 @@ class TabPFN3Model(FoundationModel):
         max_features: int = TABPFN3_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        predict_chunk_rows: int = TABPFN3_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN3",
     ) -> None:
@@ -232,6 +246,7 @@ class TabPFN3Model(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,
         )
@@ -326,6 +341,7 @@ class TabICLModel(FoundationModel):
         max_features: int = TABICL_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        predict_chunk_rows: int = TABPFN_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabICL",
     ) -> None:
@@ -334,6 +350,7 @@ class TabICLModel(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,
         )

@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_models
-from alphapulse.models import foundation_models
 from alphapulse.models.foundation_models import (
     TabICLModel,
     TabPFN3Model,
@@ -164,11 +163,9 @@ def test_train_imputes_nans_before_compression(
 
 def test_predict_is_chunked(
     toy_data: tuple[pd.DataFrame, pd.Series],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     X, y = toy_data
-    monkeypatch.setattr(foundation_models, "PREDICT_CHUNK_ROWS", 20)
-    model, fake = _faked(TabPFNModel())
+    model, fake = _faked(TabPFNModel(predict_chunk_rows=20))
     model.train(X, y)
     preds = model.predict(X)
     assert preds.shape == (N_ROWS,)
