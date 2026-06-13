@@ -3,8 +3,11 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from ..constants import _PROTECTED_COLS
 from .base import BasePreprocessor
+
+
+def _numeric_feature_cols(X: pd.DataFrame) -> list[str]:
+    return list(X.select_dtypes(include=[np.number]).columns)
 
 
 class VarianceFeatureSelector(BasePreprocessor):
@@ -24,19 +27,22 @@ class VarianceFeatureSelector(BasePreprocessor):
         self.selected_columns_: list[str] = []
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
-        variances = X[feat_cols].var(axis=0)
+        feature_cols = _numeric_feature_cols(X)
+        if not feature_cols:
+            raise ValueError("VarianceFeatureSelector: no numeric columns found.")
+        X_num = X[feature_cols]
+        variances = X_num.var(axis=0)
 
         if self.mode == "threshold":
             mask = variances > self.threshold
-            self.selected_columns_ = list(variances.index[mask])
+            self.selected_columns_ = list(X_num.columns[mask])
         else:
-            n_keep = max(1, int(len(feat_cols) * self.keep_fraction))
+            n_keep = max(1, int(len(feature_cols) * self.keep_fraction))
             ranked = variances.sort_values(ascending=False)
             self.selected_columns_ = list(ranked.index[:n_keep])
 
         if not self.selected_columns_:
-            self.selected_columns_ = list(X.columns[:1])
+            self.selected_columns_ = list(feature_cols[:1])
 
         self.is_fitted = True
         return self
@@ -73,9 +79,13 @@ class LGBMImportanceSelector(BasePreprocessor):
         if y is None:
             raise ValueError("LGBMImportanceSelector requires y for fit().")
 
+        feature_cols = _numeric_feature_cols(X)
+        if not feature_cols:
+            raise ValueError("LGBMImportanceSelector: no numeric columns found.")
+        X_num = X[feature_cols]
+
         import lightgbm as lgb
 
-        feat_X = X[[c for c in X.columns if c not in _PROTECTED_COLS]]
         model = lgb.LGBMRegressor(
             n_estimators=self.n_estimators,
             max_depth=self.max_depth,
@@ -84,14 +94,14 @@ class LGBMImportanceSelector(BasePreprocessor):
             verbosity=-1,
             n_jobs=1,
         )
-        model.fit(feat_X, y)
+        model.fit(X_num, y)
 
         importances = np.asarray(model.feature_importances_, dtype=np.float64)
         self.importances_ = importances
 
-        n_keep = max(1, int(len(feat_X.columns) * self.keep_fraction))
+        n_keep = max(1, int(len(feature_cols) * self.keep_fraction))
         top_indices = np.argsort(importances)[::-1][:n_keep]
-        self.selected_columns_ = [str(feat_X.columns[i]) for i in top_indices]
+        self.selected_columns_ = [str(feature_cols[i]) for i in top_indices]
 
         self.is_fitted = True
         return self

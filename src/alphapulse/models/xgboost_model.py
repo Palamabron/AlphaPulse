@@ -15,19 +15,38 @@ def _make_ray_callbacks() -> list[Any]:
         if ray_session.get_session() is None:
             return []
 
-        def _report_cb(env: Any) -> None:
-            eval_rmse: float | None = None
-            for item in getattr(env, "evaluation_result_list", []) or []:
-                if not isinstance(item, tuple) or len(item) < 3:
-                    continue
-                dataset, metric_name, value = item[0], item[1], item[2]
-                if dataset == "eval" and metric_name == "rmse":
-                    eval_rmse = float(value)
-                    break
-            if eval_rmse is not None:
-                ray_session.report({"eval_rmse": eval_rmse})
+        class _RayReportCallback(xgb.callback.TrainingCallback):
+            def after_iteration(
+                self,
+                model: Any,
+                _epoch: int,
+                evals_log: dict[
+                    str, dict[str, list[float] | list[tuple[float, float]]]
+                ],
+            ) -> bool:
+                eval_rmse: float | None = None
+                for dataset, metrics in (evals_log or {}).items():
+                    if dataset == "eval" and "rmse" in metrics:
+                        values = metrics["rmse"]
+                        if values:
+                            last = values[-1]
+                            eval_rmse = float(
+                                last[0] if isinstance(last, tuple) else last
+                            )
+                            break
+                if eval_rmse is None:
+                    for item in getattr(model, "evaluation_result_list", []) or []:
+                        if not isinstance(item, tuple) or len(item) < 3:
+                            continue
+                        dataset, metric_name, value = item[0], item[1], item[2]
+                        if dataset == "eval" and metric_name == "rmse":
+                            eval_rmse = float(value)
+                            break
+                if eval_rmse is not None:
+                    ray_session.report({"eval_rmse": eval_rmse})
+                return False
 
-        return [_report_cb]
+        return [_RayReportCallback()]
     except ImportError:
         return []
 

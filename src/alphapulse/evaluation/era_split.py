@@ -103,6 +103,7 @@ class EraSplitEvaluator:
         era: pd.Series,
         train_fn: Callable[[pd.DataFrame, pd.Series], PredictorProtocol],
         eras_order: list[Any] | None = None,
+        meta_model: pd.Series | None = None,
     ) -> dict[str, float]:
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
         df = pd.concat(
@@ -115,14 +116,30 @@ class EraSplitEvaluator:
         all_y_true: list[float] = []
         all_y_pred: list[float] = []
         all_era: list[Any] = []
+        all_meta: list[float] = []
 
         if self.n_splits is not None:
             self._collect_purged_cv(
-                df, X_use, train_fn, all_y_true, all_y_pred, all_era
+                df,
+                X_use,
+                train_fn,
+                all_y_true,
+                all_y_pred,
+                all_era,
+                meta_model=meta_model,
+                all_meta=all_meta if meta_model is not None else None,
             )
         else:
             self._collect_expanding(
-                df, X_use, eras_order, train_fn, all_y_true, all_y_pred, all_era
+                df,
+                X_use,
+                eras_order,
+                train_fn,
+                all_y_true,
+                all_y_pred,
+                all_era,
+                meta_model=meta_model,
+                all_meta=all_meta if meta_model is not None else None,
             )
 
         if not all_y_true:
@@ -131,7 +148,8 @@ class EraSplitEvaluator:
         y_s = pd.Series(all_y_true)
         era_s = pd.Series(all_era)
         pred_a = rank_normalize_per_era(np.asarray(all_y_pred, dtype=np.float64), era_s)
-        return calculate_metrics(y_s, pred_a, era_s)
+        meta_arr = np.asarray(all_meta, dtype=np.float64) if all_meta else None
+        return calculate_metrics(y_s, pred_a, era_s, meta_model_preds=meta_arr)
 
     def _collect_expanding(
         self,
@@ -142,6 +160,9 @@ class EraSplitEvaluator:
         all_y_true: list[float],
         all_y_pred: list[float],
         all_era: list[Any],
+        *,
+        meta_model: pd.Series | None = None,
+        all_meta: list[float] | None = None,
     ) -> None:
         step = self.n_embargo + 1
         first_test = self.min_train_eras + self.n_purge
@@ -170,6 +191,8 @@ class EraSplitEvaluator:
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend([test_era] * len(y_te))
+            if meta_model is not None and all_meta is not None:
+                all_meta.extend(meta_model.loc[y_te.index].tolist())
 
     def _collect_purged_cv(
         self,
@@ -179,6 +202,9 @@ class EraSplitEvaluator:
         all_y_true: list[float],
         all_y_pred: list[float],
         all_era: list[Any],
+        *,
+        meta_model: pd.Series | None = None,
+        all_meta: list[float] | None = None,
     ) -> None:
         era_series = df["era"]
         cv = PurgedEraCV(
@@ -207,6 +233,8 @@ class EraSplitEvaluator:
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend(era_series.loc[test_mask].tolist())
+            if meta_model is not None and all_meta is not None:
+                all_meta.extend(meta_model.loc[y_te.index].tolist())
 
 
 __all__ = [

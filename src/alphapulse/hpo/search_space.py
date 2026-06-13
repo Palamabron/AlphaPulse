@@ -9,21 +9,55 @@ except ImportError:
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
+AUGMENTER_SAMPLE_PROB = 0.05
 
 
-def _sample_model_type(
-    phase: str, rng: _random_mod.Random, exclude: frozenset[str] | None = None
-) -> str:
+def apply_gpu_model_params(model_type: str, params: dict[str, Any]) -> dict[str, Any]:
+    out = dict(params)
+    if model_type == "XGBoost":
+        inner = out.get("params")
+        if isinstance(inner, dict):
+            inner = dict(inner)
+            inner["device"] = "cuda"
+            out["params"] = inner
+        else:
+            out["device"] = "cuda"
+    elif model_type == "CatBoost":
+        inner = out.get("params")
+        if isinstance(inner, dict):
+            inner = dict(inner)
+            inner["task_type"] = "GPU"
+            inner.pop("colsample_bylevel", None)
+            out["params"] = inner
+        else:
+            out["task_type"] = "GPU"
+            out.pop("colsample_bylevel", None)
+    return out
+
+
+def apply_gpu_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
+    cfg = dict(config)
+    models = []
+    for item in cfg.get("models", []):
+        model_type = item.get("type", "")
+        params = dict(item.get("params") or {})
+        models.append(
+            {
+                **item,
+                "params": apply_gpu_model_params(model_type, params),
+            }
+        )
+    cfg["models"] = models
+    return cfg
+
+
+def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
     if phase != "phase_a":
         roll = rng.random()
         if roll < FOUNDATION_SAMPLE_PROB:
-            available = (
-                [m for m in FOUNDATION_MODELS if m not in exclude]
-                if exclude
-                else FOUNDATION_MODELS
-            )
-            if available:
-                return rng.choice(available)
+            return rng.choice(FOUNDATION_MODELS)
+        if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
+            return "SyntheticDataAugmenter"
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -34,10 +68,7 @@ def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
 
 
 def sample_random_config(
-    seed: int | None = None,
-    *,
-    phase: str = "phase_b",
-    exclude_models: frozenset[str] | None = None,
+    seed: int | None = None, *, phase: str = "phase_b"
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -91,18 +122,10 @@ def sample_random_config(
         "packboost_boost_weight": rng.uniform(0.1, 0.5),
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
-        "use_feature_selection": rng.choice([True, False]),
-        "feature_selection_type": rng.choice(
-            ["variance", "lgbm_importance", "era_stable"]
-        ),
-        "feature_selection_keep_fraction": rng.uniform(0.5, 0.9),
-        "era_stable_stability_weight": rng.uniform(0.3, 0.7),
-        "use_noise_injection": rng.choice([True, False]),
-        "noise_sigma": _loguniform(5e-3, 5e-2, rng),
         "num_models": rng.choice([1, 2, 3]),
-        "model_1_type": _sample_model_type("phase_b", rng, exclude_models),
-        "model_2_type": _sample_model_type("phase_b", rng, exclude_models),
-        "model_3_type": _sample_model_type("phase_b", rng, exclude_models),
+        "model_1_type": _sample_model_type("phase_b", rng),
+        "model_2_type": _sample_model_type("phase_b", rng),
+        "model_3_type": _sample_model_type("phase_b", rng),
         "n_subs": rng.choice([5, 8, 10, 15]),
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
@@ -124,6 +147,10 @@ def sample_random_config(
         "augmenter_top_fraction": rng.uniform(0.05, 0.20),
         "augmenter_n_synthetic": rng.choice([200, 500, 1000]),
         "augmenter_backend": "auto",
+        "foundation_max_train_rows": rng.choice([5_000, 10_000, 20_000]),
+        "foundation_compression": rng.choice(["pca", "svd"]),
+        "foundation_n_components": rng.choice([128, 256, 512]),
+        "use_gpu": False,
     }
 
 
@@ -140,14 +167,6 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_boost_weight": tune.uniform(0.1, 0.5),
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
-        "use_feature_selection": tune.choice([True, False]),
-        "feature_selection_type": tune.choice(
-            ["variance", "lgbm_importance", "era_stable"]
-        ),
-        "feature_selection_keep_fraction": tune.uniform(0.5, 0.9),
-        "era_stable_stability_weight": tune.uniform(0.3, 0.7),
-        "use_noise_injection": tune.choice([True, False]),
-        "noise_sigma": tune.loguniform(5e-3, 5e-2),
         "num_models": tune.choice([1, 2, 3]),
         "model_1_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
         "model_2_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
@@ -170,6 +189,9 @@ def get_full_param_space() -> dict[str, Any]:
         "stacking_meta_learner": tune.choice(["ridge", "xgboost"]),
         "use_neutralization": tune.choice([True, False]),
         "neutralization_proportion": tune.uniform(0.1, 0.8),
+        "foundation_max_train_rows": tune.choice([5_000, 10_000, 20_000]),
+        "foundation_compression": tune.choice(["pca", "svd"]),
+        "foundation_n_components": tune.choice([128, 256, 512]),
     }
 
 
@@ -207,51 +229,19 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 },
             }
         )
-    if flat.get("use_feature_selection"):
-        fs_type = flat.get("feature_selection_type", "variance")
-        keep = float(flat.get("feature_selection_keep_fraction", 0.75))
-        if fs_type == "lgbm_importance":
-            preprocessors.append(
-                {"type": "LGBMImportanceSelector", "params": {"keep_fraction": keep}}
-            )
-        elif fs_type == "era_stable":
-            preprocessors.append(
-                {
-                    "type": "EraStableSelector",
-                    "params": {
-                        "keep_fraction": keep,
-                        "stability_weight": float(
-                            flat.get("era_stable_stability_weight", 0.5)
-                        ),
-                    },
-                }
-            )
-        else:
-            preprocessors.append(
-                {
-                    "type": "VarianceSelector",
-                    "params": {"keep_fraction": keep, "mode": "quantile"},
-                }
-            )
-    if flat.get("use_noise_injection"):
-        preprocessors.append(
-            {
-                "type": "GaussianNoise",
-                "params": {"sigma": float(flat.get("noise_sigma", 0.01))},
-            }
-        )
 
     def model_params(t: str, index: int) -> dict[str, Any]:
         if t == "XGBoost":
-            return {
-                "params": {
-                    "max_depth": flat.get("xgb_max_depth", 5),
-                    "learning_rate": flat.get("xgb_learning_rate", 0.01),
-                    "tree_method": "hist",
-                    "objective": "reg:squarederror",
-                    "eval_metric": "rmse",
-                },
+            xgb_params = {
+                "max_depth": flat.get("xgb_max_depth", 5),
+                "learning_rate": flat.get("xgb_learning_rate", 0.01),
+                "tree_method": "hist",
+                "objective": "reg:squarederror",
+                "eval_metric": "rmse",
             }
+            if flat.get("use_gpu"):
+                xgb_params["device"] = "cuda"
+            return {"params": xgb_params}
         if t == "LightGBM":
             return {
                 "params": {
@@ -266,16 +256,23 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "early_stopping_rounds": flat.get("lgbm_early_stopping", 100),
             }
         if t == "CatBoost":
+            cb_params = {
+                "depth": flat.get("catboost_depth", 6),
+                "learning_rate": flat.get("catboost_learning_rate", 0.03),
+                "l2_leaf_reg": flat.get("catboost_l2_leaf_reg", 5.0),
+                "min_data_in_leaf": flat.get("catboost_min_data_in_leaf", 200),
+                "loss_function": "RMSE",
+                "verbose": 0,
+                "allow_writing_files": False,
+            }
+            if flat.get("use_gpu"):
+                cb_params["task_type"] = "GPU"
+            else:
+                cb_params["colsample_bylevel"] = flat.get(
+                    "catboost_colsample_bylevel", 0.3
+                )
             return {
-                "params": {
-                    "depth": flat.get("catboost_depth", 6),
-                    "learning_rate": flat.get("catboost_learning_rate", 0.03),
-                    "l2_leaf_reg": flat.get("catboost_l2_leaf_reg", 5.0),
-                    "min_data_in_leaf": flat.get("catboost_min_data_in_leaf", 200),
-                    "loss_function": "RMSE",
-                    "verbose": 0,
-                    "allow_writing_files": False,
-                },
+                "params": cb_params,
                 "iterations": flat.get("catboost_iterations", 2000),
                 "early_stopping_rounds": flat.get("catboost_early_stopping", 100),
             }
@@ -308,8 +305,13 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "n_rounds_base": flat.get("packboost_model_n_rounds_base", 500),
                 "n_rounds_boost": flat.get("packboost_model_n_rounds_boost", 200),
             }
-        if t in ("TabPFN", "TabPFN3", "TabICL", "TabPFN3Reasoning"):
-            return {}
+        if t in FOUNDATION_MODELS:
+            keys = {
+                "foundation_max_train_rows": "max_train_rows",
+                "foundation_compression": "compression",
+                "foundation_n_components": "compression_components",
+            }
+            return {param: flat[key] for key, param in keys.items() if key in flat}
         if t == "SyntheticDataAugmenter":
             return {
                 "top_fraction": flat.get("augmenter_top_fraction", 0.10),
@@ -318,13 +320,12 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             }
         return {}
 
+    tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
     models = []
     for i, t in enumerate(types):
-        spec: dict[str, Any] = {
-            "type": t,
-            "params": model_params(t, i),
-            "use_era_ensemble": False,
-        }
+        spec: dict[str, Any] = {"type": t, "params": model_params(t, i)}
+        if t in tree_models:
+            spec["n_subs"] = flat.get("n_subs", 10)
         models.append(spec)
 
     ensemble_method = flat.get("ensemble_method", "single")

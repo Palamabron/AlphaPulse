@@ -1,3 +1,4 @@
+from .autoencoder import AutoencoderPreprocessor
 from .base import BasePreprocessor, TrainEvalPreprocessor
 from .compression import PCAPreprocessor, TruncatedSVDPreprocessor
 from .era_stable import EraStableFeatureSelector
@@ -9,6 +10,7 @@ from .packboost import PackboostPreprocessor
 from .scaling import RobustScalerPreprocessor, StandardScalerPreprocessor
 
 __all__ = [
+    "AutoencoderPreprocessor",
     "BasePreprocessor",
     "EraStableFeatureSelector",
     "GaussianNoiseInjector",

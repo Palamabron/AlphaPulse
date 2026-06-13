@@ -14,6 +14,7 @@ def main(
     artifact_dir: Path | None = Path("artifacts/experiments"),
     seed: int = 42,
     wandb_project: str | None = None,
+    gpu: bool = False,
 ) -> None:
     """Load experiment file, train, evaluate; print metrics and config hash.
 
@@ -22,6 +23,7 @@ def main(
         artifact_dir: Directory to save artifacts. None to disable.
         seed: Random seed.
         wandb_project: WandB project name. When set, logs config and metrics.
+        gpu: Enable CUDA/GPU params for XGBoost and CatBoost models.
     """
     set_global_seed(seed)
     from alphapulse.experiments import run_experiment_from_path
@@ -32,10 +34,15 @@ def main(
         init_wandb_run(
             project=wandb_project,
             name=config.stem,
-            config={"config_path": str(config), "seed": seed},
+            config={"config_path": str(config), "seed": seed, "gpu": gpu},
         )
 
-    result = run_experiment_from_path(config, artifact_dir=artifact_dir)
+    result = run_experiment_from_path(
+        config,
+        artifact_dir=artifact_dir,
+        use_gpu=gpu,
+        log_wandb_diagnostics=bool(wandb_project),
+    )
 
     if wandb_project:
         from alphapulse.logging_.wandb_utils import (

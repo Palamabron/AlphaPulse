@@ -17,15 +17,14 @@ import multiprocessing
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-import pandas as pd
 import tyro
 from loguru import logger
 
 from alphapulse.experiments.data import load_train_only_frame
 from alphapulse.hpo.objective import TrialResult, run_trial
-from alphapulse.hpo.search_space import FOUNDATION_MODELS, sample_random_config
+from alphapulse.hpo.search_space import sample_random_config
 from alphapulse.hpo.trial_db import TrialDB
 from alphapulse.logging_.leaderboard import (
     entry_from_hpo_result,
@@ -48,71 +47,18 @@ def _trial_worker(
         result_queue.put({"ok": False, "error": str(exc)})
 
 
-def _probe_model_worker(
-    model_type: str,
-    X: pd.DataFrame,
-    y: pd.Series,
-    q: "multiprocessing.Queue[dict[str, Any]]",
-) -> None:
-    try:
-        from alphapulse.hpo.registry import MODEL_REGISTRY
-
-        cls, defaults = MODEL_REGISTRY[model_type]
-        model = cls(**defaults)
-        model.train(X, y)
-        model.predict(X.iloc[:5])
-        q.put({"ok": True})
-    except Exception as exc:
-        q.put({"ok": False, "error": str(exc)})
-
-
-def _probe_foundation_models(
-    X_train: pd.DataFrame, y_train: pd.Series, timeout: int = 60
-) -> frozenset[str]:
-    """Smoke-test each foundation model on a tiny sample.
-
-    Returns the set of model names that failed or timed out.
-    These will be excluded from the HPO search space.
-    """
-    n = min(500, len(X_train))
-    X_sample = X_train.iloc[:n].copy()
-    y_sample = y_train.iloc[:n].copy()
-
-    excluded: set[str] = set()
-    for model_type in FOUNDATION_MODELS:
-        logger.info("Probing foundation model: {}", model_type)
-        q: multiprocessing.Queue = multiprocessing.Queue()
-        p = multiprocessing.Process(
-            target=_probe_model_worker,
-            args=(model_type, X_sample, y_sample, q),
-        )
-        p.start()
-        p.join(timeout=timeout)
-
-        if p.is_alive():
-            p.terminate()
-            p.join(timeout=5)
-            if p.is_alive():
-                p.kill()
-                p.join()
-            excluded.add(model_type)
-            logger.warning(
-                "  {} timed out after {}s — excluded from HPO", model_type, timeout
-            )
-        else:
-            result: dict[str, Any] = (
-                q.get_nowait() if not q.empty() else {"ok": False, "error": "no result"}
-            )
-            if result.get("ok"):
-                logger.info("  {} OK — included in HPO", model_type)
-            else:
-                excluded.add(model_type)
-                logger.warning(
-                    "  {} failed: {} — excluded from HPO",
-                    model_type,
-                    result.get("error", "unknown"),
-                )
-    return frozenset(excluded)
+def _best_from_db(db: TrialDB, objective: str) -> tuple[float, dict]:
+    best_score = float("-inf")
+    best_config: dict = {}
+    for row in db.load_all_trials():
+        if row["status"] != "completed" or not row["metrics"]:
+            continue
+        metrics = row["metrics"]
+        score = float(metrics.get(objective, metrics.get("corr_sharpe", float("-inf"))))
+        if score > best_score:
+            best_score = score
+            best_config = row["flat_config"]
+    return best_score, best_config
 
 
 def _run_local(
@@ -127,6 +73,7 @@ def _run_local(
     wandb_project: str | None = None,
     resume: bool = False,
     trial_timeout: int = 1800,
+    gpu: bool = False,
 ) -> None:
     """Local random-search HPO with subprocess isolation and SQLite trial DB."""
 
@@ -144,13 +91,6 @@ def _run_local(
         X_train.shape,
         len(feature_cols),
     )
-
-    logger.info("Probing foundation models on 500-row sample (timeout=60s each)...")
-    exclude_models = _probe_foundation_models(X_train, y_train, timeout=60)
-    if exclude_models:
-        logger.info("Excluded from HPO: {}", sorted(exclude_models))
-    else:
-        logger.info("All foundation models passed — none excluded")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     db_path = output_dir / "trials.db"
@@ -173,6 +113,15 @@ def _run_local(
 
     with TrialDB(db_path) as db:
         already_done = db.completed_trials() if resume else set()
+        if resume:
+            best_score, best_config = _best_from_db(db, objective)
+            if best_config:
+                logger.info(
+                    "Resuming: global best {}={:.4f} from {} completed trial(s)",
+                    objective,
+                    best_score,
+                    len(already_done),
+                )
         if resume and already_done:
             logger.info(
                 "Resuming: {} trial(s) already completed, skipping.", len(already_done)
@@ -185,9 +134,9 @@ def _run_local(
                 )
                 continue
 
-            flat_config = sample_random_config(
-                seed=seed + i, exclude_models=exclude_models
-            )
+            flat_config = sample_random_config(seed=seed + i)
+            if gpu:
+                flat_config["use_gpu"] = True
             db.insert_trial(i, flat_config)
 
             t0 = time.perf_counter()
@@ -305,6 +254,8 @@ def _run_local(
             if trial_score > best_score:
                 best_score = trial_score
                 best_config = flat_config
+
+        best_score, best_config = _best_from_db(db, objective)
 
     best_path = output_dir / "best_config.json"
     with open(best_path, "w", encoding="utf-8") as f:
@@ -458,6 +409,7 @@ def main(
     ] = "corr_sharpe",
     wandb_project: str | None = None,
     trial_timeout: int = 1800,
+    gpu: bool = False,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
@@ -466,6 +418,7 @@ def main(
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     Pass --resume to continue an interrupted sweep (requires --local).
     Pass --trial-timeout N to cap each subprocess trial at N seconds (default: 1800).
+    Pass --gpu to enable CUDA for XGBoost and GPU task type for CatBoost.
     """
     set_global_seed(seed)
     if local:
@@ -480,6 +433,7 @@ def main(
             wandb_project=wandb_project,
             resume=resume,
             trial_timeout=trial_timeout,
+            gpu=gpu,
         )
     else:
         _run_ray(

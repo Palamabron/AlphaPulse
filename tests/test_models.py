@@ -95,3 +95,28 @@ def test_synthetic_data_augmenter_kde_fit_once() -> None:
     X2, _ = aug.generate()
     assert len(X1) == len(X2) == 10
     assert list(X1.columns) == list("ABC")
+
+
+def test_xgboost_ray_callbacks_return_training_callback_instances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    import types
+
+    import xgboost as xgb
+
+    from alphapulse.models import xgboost_model
+
+    fake_ray = types.ModuleType("ray")
+    fake_tune = types.ModuleType("ray.tune")
+    fake_session = types.ModuleType("ray.tune.session")
+    fake_session.get_session = lambda: object()  # type: ignore[attr-defined]
+    fake_session.report = lambda metrics: None  # type: ignore[attr-defined]
+    fake_tune.session = fake_session  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "ray", fake_ray)
+    monkeypatch.setitem(sys.modules, "ray.tune", fake_tune)
+    monkeypatch.setitem(sys.modules, "ray.tune.session", fake_session)
+
+    callbacks = xgboost_model._make_ray_callbacks()
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], xgb.callback.TrainingCallback)

@@ -1,9 +1,17 @@
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from alphapulse.preprocessors.compression import PCAPreprocessor
+from alphapulse.preprocessors.autoencoder import AutoencoderPreprocessor
+from alphapulse.preprocessors.compression import (
+    PCAPreprocessor,
+    TruncatedSVDPreprocessor,
+)
 from alphapulse.preprocessors.noise import GaussianNoiseInjector
+
+HAS_TORCH = importlib.util.find_spec("torch") is not None
 
 
 def test_gaussian_noise_inference_safe_after_fit() -> None:
@@ -60,6 +68,92 @@ def test_pca_with_era_column() -> None:
     out = pca.transform(X)
     assert out.shape == (15, 2)
     assert list(out.columns) == ["pca_0", "pca_1"]
+
+
+def test_pca_deterministic_with_seed() -> None:
+    rng = np.random.RandomState(3)
+    X = pd.DataFrame(rng.randn(30, 6), columns=[f"f{i}" for i in range(6)])
+    out_a = PCAPreprocessor(n_components=3, random_state=0).fit_transform(X)
+    out_b = PCAPreprocessor(n_components=3, random_state=0).fit_transform(X)
+    pd.testing.assert_frame_equal(out_a, out_b)
+
+
+def test_truncated_svd_shape_and_columns() -> None:
+    rng = np.random.RandomState(2)
+    X = pd.DataFrame(rng.randn(20, 8), columns=[f"f{i}" for i in range(8)])
+    svd = TruncatedSVDPreprocessor(n_components=3, random_state=0)
+    out = svd.fit_transform(X)
+    assert out.shape == (20, 3)
+    assert list(out.columns) == ["svd_0", "svd_1", "svd_2"]
+
+
+def test_truncated_svd_deterministic_with_seed() -> None:
+    rng = np.random.RandomState(4)
+    X = pd.DataFrame(rng.randn(25, 5), columns=[f"f{i}" for i in range(5)])
+    out_a = TruncatedSVDPreprocessor(n_components=2, random_state=1).fit_transform(X)
+    out_b = TruncatedSVDPreprocessor(n_components=2, random_state=1).fit_transform(X)
+    pd.testing.assert_frame_equal(out_a, out_b)
+
+
+def test_autoencoder_registered_in_registry() -> None:
+    from alphapulse.hpo.builder import build_preprocessors
+
+    steps = build_preprocessors([{"type": "Autoencoder", "params": {"latent_dim": 2}}])
+    assert isinstance(steps[0], AutoencoderPreprocessor)
+    assert steps[0].latent_dim == 2
+
+
+def test_autoencoder_invalid_latent_dim_raises() -> None:
+    with pytest.raises(ValueError, match="latent_dim"):
+        AutoencoderPreprocessor(latent_dim=0)
+
+
+@pytest.mark.skipif(HAS_TORCH, reason="torch installed — error path unreachable")
+def test_autoencoder_requires_torch() -> None:
+    X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    with pytest.raises(ImportError, match=r"alphapulse\[deep\]"):
+        AutoencoderPreprocessor(latent_dim=1).fit(X)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed — skip")
+def test_autoencoder_fit_transform_shape() -> None:
+    rng = np.random.RandomState(0)
+    X = pd.DataFrame(rng.randn(40, 8), columns=[f"f{i}" for i in range(8)])
+    ae = AutoencoderPreprocessor(latent_dim=3, epochs=2, batch_size=16, seed=0)
+    out = ae.fit_transform(X)
+    assert out.shape == (40, 3)
+    assert list(out.columns) == ["ae_0", "ae_1", "ae_2"]
+    assert np.isfinite(out.values).all()
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed — skip")
+def test_autoencoder_deterministic_with_seed() -> None:
+    rng = np.random.RandomState(1)
+    X = pd.DataFrame(rng.randn(30, 6), columns=[f"f{i}" for i in range(6)])
+    out_a = AutoencoderPreprocessor(latent_dim=2, epochs=2, seed=5).fit_transform(X)
+    out_b = AutoencoderPreprocessor(latent_dim=2, epochs=2, seed=5).fit_transform(X)
+    pd.testing.assert_frame_equal(out_a, out_b)
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed — skip")
+def test_autoencoder_nan_safe() -> None:
+    rng = np.random.RandomState(2)
+    X = pd.DataFrame(rng.randn(30, 6), columns=[f"f{i}" for i in range(6)])
+    X.iloc[0, 0] = np.nan
+    X.iloc[5, 3] = np.nan
+    ae = AutoencoderPreprocessor(latent_dim=2, epochs=2, seed=0)
+    out = ae.fit_transform(X)
+    assert np.isfinite(out.values).all()
+
+
+@pytest.mark.skipif(not HAS_TORCH, reason="torch not installed — skip")
+def test_autoencoder_ignores_non_numeric_columns() -> None:
+    rng = np.random.RandomState(3)
+    X = pd.DataFrame(rng.randn(20, 5), columns=[f"f{i}" for i in range(5)])
+    X["era"] = ["e1"] * 10 + ["e2"] * 10
+    ae = AutoencoderPreprocessor(latent_dim=2, epochs=2, seed=0)
+    out = ae.fit_transform(X)
+    assert out.shape == (20, 2)
 
 
 def test_era_stable_selector_reduces_features() -> None:

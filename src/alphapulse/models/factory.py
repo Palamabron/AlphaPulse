@@ -14,9 +14,12 @@ ALL_MODEL_TYPES = TREE_MODEL_TYPES + ("ft_transformer", "mlp", "ridge")
 
 
 class ModelFactory:
-    def __init__(self, *, include_dl: bool = False, prefix: str = "model") -> None:
+    def __init__(
+        self, *, include_dl: bool = False, prefix: str = "model", use_gpu: bool = False
+    ) -> None:
         self.include_dl = include_dl
         self.prefix = prefix
+        self.use_gpu = use_gpu
 
     def _p(self, name: str) -> str:
         return f"{self.prefix}_{name}"
@@ -65,6 +68,8 @@ class ModelFactory:
             "objective": "reg:squarederror",
             "eval_metric": "rmse",
         }
+        if self.use_gpu:
+            params["device"] = "cuda"
         n_rounds = trial.suggest_int(self._p("xgb_n_rounds"), 200, 2000, step=100)
         n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
         base_name = f"XGB_{n_rounds}r"
@@ -121,11 +126,16 @@ class ModelFactory:
             "bagging_temperature": trial.suggest_float(
                 self._p("cb_bagging_temp"), 0.0, 1.0
             ),
-            "colsample_bylevel": trial.suggest_float(self._p("cb_colsample"), 0.1, 0.5),
             "verbose": 0,
             "thread_count": -1,
             "allow_writing_files": False,
         }
+        if self.use_gpu:
+            params["task_type"] = "GPU"
+        else:
+            params["colsample_bylevel"] = trial.suggest_float(
+                self._p("cb_colsample"), 0.1, 0.5
+            )
         iters = trial.suggest_int(self._p("cb_iterations"), 200, 2000, step=100)
         n_subs = trial.suggest_int(self._p("n_subs"), 5, 20)
         base_name = f"CB_{iters}i"

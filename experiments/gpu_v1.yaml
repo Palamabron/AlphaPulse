@@ -1,0 +1,31 @@
+# Experiment v1 — GPU-enabled XGBoost with CUDA device.
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.05
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: XGBoost
+    params:
+      params:
+        max_depth: 5
+        learning_rate: 0.01
+        tree_method: hist
+        objective: reg:squarederror
+        eval_metric: rmse
+        device: cuda
+ensemble_method: single
+ensemble_params: {}
+train:
+  n_rounds: 500
+  early_stopping_rounds: 50
+evaluation:
+  primary_metric: corr_sharpe
+  walk_forward: false

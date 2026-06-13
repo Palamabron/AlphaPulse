@@ -47,6 +47,7 @@ def _run_one_trial(
     era_train: pd.Series,
     feature_cols: list[str],
     seed: int,
+    meta_model: pd.Series | None = None,
 ) -> tuple[dict[str, float], float]:
     rng = np.random.default_rng(seed)
     np.random.seed(int(rng.integers(0, 2**31)))
@@ -72,7 +73,9 @@ def _run_one_trial(
         n_splits=WF_N_SPLITS,
         n_purge=WF_N_PURGE,
         min_train_eras=WF_MIN_TRAIN_ERAS,
-    ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)
+    ).evaluate_walk_forward(
+        X_train, y_train, era_train, train_fn, meta_model=meta_model
+    )
     return metrics, time.perf_counter() - t0
 
 
@@ -122,6 +125,7 @@ def run_autoresearch(
     agent_model: str = "claude-sonnet-4-6",
     resume: bool = False,
     wandb_project: str | None = None,
+    data_dir: Path | None = None,
 ) -> ResearchState:
     """Run the agent-driven research loop.
 
@@ -147,6 +151,14 @@ def run_autoresearch(
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "trials_summary.csv"
     state_path = output_dir / "research_state.json"
+
+    meta_model: pd.Series | None = None
+    if data_dir is not None:
+        from ..experiments.data import load_meta_model_series
+
+        meta_model = load_meta_model_series(data_dir, X_train.index)
+        if meta_model is not None:
+            logger.info("Loaded meta_model.parquet for MMC/payout scoring")
 
     if wandb_project:
         from ..logging_.wandb_utils import finish_wandb_run, init_wandb_run
@@ -222,6 +234,7 @@ def run_autoresearch(
                 era_train=era_train,
                 feature_cols=feature_cols,
                 seed=seed + trial_num,
+                meta_model=meta_model,
             )
             sharpe = metrics.get("corr_sharpe", float("-inf"))
             error = None

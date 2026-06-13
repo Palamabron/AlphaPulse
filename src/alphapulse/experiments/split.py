@@ -22,7 +22,7 @@ def internal_val_split(
         return X_train, y_train, None, None
 
     if era_train is not None:
-        unique_eras = era_train.unique()
+        unique_eras = sorted(era_train.unique(), key=str)
         if len(unique_eras) >= MIN_ERAS_FOR_INTERNAL_SPLIT:
             n_val_eras = max(1, int(len(unique_eras) * INTERNAL_VAL_ERA_FRACTION))
             val_eras = set(unique_eras[-n_val_eras:])
@@ -33,13 +33,17 @@ def internal_val_split(
                 X_train[mask],
                 y_train[mask],
             )
+        return X_train, y_train, None, None
 
     n_val = max(1, int(len(X_train) * INTERNAL_VAL_FRACTION))
     if n_val >= len(X_train):
         n_val = max(1, len(X_train) // 10)
+    sorted_idx = X_train.sort_index().index
+    X_sorted = X_train.loc[sorted_idx]
+    y_sorted = y_train.loc[sorted_idx]
     return (
-        X_train.iloc[:-n_val],
-        y_train.iloc[:-n_val],
-        X_train.tail(n_val),
-        y_train.tail(n_val),
+        X_sorted.iloc[:-n_val],
+        y_sorted.iloc[:-n_val],
+        X_sorted.iloc[-n_val:],
+        y_sorted.iloc[-n_val:],
     )

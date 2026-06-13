@@ -61,8 +61,8 @@ def main(
             benchmark = live_df[[benchmark_col]]
             predictions = predict_fn(live_df, benchmark)
         else:
-            # Fall back: call with live_df only
-            predictions = predict_fn(live_df, None)
+            # Fall back: call with empty benchmark DataFrame
+            predictions = predict_fn(live_df, pd.DataFrame())
     except Exception as exc:
         logger.error("Inference failed: {}", exc)
         raise SystemExit(1) from exc

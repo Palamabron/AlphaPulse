@@ -52,6 +52,28 @@ class TestMutations:
         with pytest.raises(ValueError, match="proportion"):
             mutations.set_neutralization(_base_config(), 1.5)
 
+    def test_tune_model_params_updates_nested_xgb_params(self) -> None:
+        cfg = {
+            "preprocessors": [],
+            "models": [
+                {
+                    "type": "XGBoost",
+                    "params": {
+                        "params": {
+                            "max_depth": 3,
+                            "learning_rate": 0.01,
+                        }
+                    },
+                }
+            ],
+            "ensemble_method": "single",
+            "ensemble_params": {},
+        }
+        updated = mutations.tune_model_params(cfg, 0, {"max_depth": 7})
+        inner = updated["models"][0]["params"]["params"]
+        assert inner["max_depth"] == 7
+        assert inner["learning_rate"] == 0.01
+
 
 class TestResearchState:
     def test_save_load_roundtrip(self, tmp_path: Any) -> None:

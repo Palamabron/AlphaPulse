@@ -1,38 +1,85 @@
+import os
+from abc import abstractmethod
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from ..preprocessors.autoencoder import AutoencoderPreprocessor
+from ..preprocessors.base import BasePreprocessor
+from ..preprocessors.compression import PCAPreprocessor, TruncatedSVDPreprocessor
 from .base import BaseModel, _numeric
 from .sklearn_models import _load_sklearn, _save_sklearn
 
+COMPRESSION_METHODS = ("pca", "svd", "autoencoder")
+DEFAULT_COMPRESSION = "pca"
+DEFAULT_SEED = 42
+PREDICT_CHUNK_ROWS = 50_000
 
-class TabPFNModel(BaseModel):
-    """TabPFN v2 regression via in-context learning.
+TABPFN_MAX_TRAIN_ROWS = 10_000
+TABPFN_MAX_FEATURES = 500
+TABPFN3_MAX_TRAIN_ROWS = 100_000
+TABPFN3_MAX_FEATURES = 2_000
+TABPFN3_REASONING_MAX_TRAIN_ROWS = 10_000
+TABPFN3_REASONING_MAX_FEATURES = 500
+TABICL_MAX_TRAIN_ROWS = 60_000
+TABICL_MAX_FEATURES = 500
 
-    A pre-trained foundation model that learns from context at inference time.
-    No gradient-based training occurs — fit() stores the data and predict()
-    performs in-context learning over it.
 
-    Requires: pip install 'alphapulse[foundation]'
+def _build_compressor(method: str, n_components: int, seed: int) -> BasePreprocessor:
+    if method == "pca":
+        return PCAPreprocessor(n_components=n_components, random_state=seed)
+    if method == "svd":
+        return TruncatedSVDPreprocessor(n_components=n_components, random_state=seed)
+    if method == "autoencoder":
+        return AutoencoderPreprocessor(latent_dim=n_components, seed=seed)
+    raise ValueError(
+        f"Unknown compression method: {method!r}. "
+        f"Expected one of {COMPRESSION_METHODS}."
+    )
 
-    Constraints:
-        - Up to 50 000 training samples and 2 000 features (TabPFN v2).
-        - GPU recommended; CPU feasible only for small datasets (≲1 000 rows).
+
+class FoundationModel(BaseModel):
+    """Base for in-context tabular foundation models (TabPFN/TabICL).
+
+    These models have hard limits on context size, so the wrapper makes them
+    work on Numerai-scale data by (1) randomly subsampling training rows to
+    ``max_train_rows``, (2) compressing features to at most ``max_features``
+    columns via PCA/SVD/autoencoder when the input is wider, and
+    (3) predicting in chunks to bound memory.
     """
 
     def __init__(
         self,
-        n_estimators: int = 8,
-        device: str | None = None,
-        ignore_pretraining_limits: bool = False,
-        name: str | None = "TabPFN",
+        *,
+        max_train_rows: int,
+        max_features: int,
+        compression: str | None = DEFAULT_COMPRESSION,
+        compression_components: int | None = None,
+        seed: int = DEFAULT_SEED,
+        name: str | None = None,
     ) -> None:
         super().__init__(name)
-        self.n_estimators = n_estimators
-        self.device = device
-        self.ignore_pretraining_limits = ignore_pretraining_limits
+        if max_train_rows < 1:
+            raise ValueError(f"max_train_rows must be positive, got {max_train_rows}")
+        if max_features < 1:
+            raise ValueError(f"max_features must be positive, got {max_features}")
+        if compression is not None and compression not in COMPRESSION_METHODS:
+            raise ValueError(
+                f"Unknown compression method: {compression!r}. "
+                f"Expected one of {COMPRESSION_METHODS} or None."
+            )
+        self.max_train_rows = max_train_rows
+        self.max_features = max_features
+        self.compression = compression
+        self.compression_components = compression_components
+        self.seed = seed
+        self._compressor: BasePreprocessor | None = None
+        self._medians: pd.Series | None = None
+
+    @abstractmethod
+    def _make_regressor(self) -> Any: ...
 
     def train(
         self,
@@ -42,44 +89,128 @@ class TabPFNModel(BaseModel):
         y_val: pd.Series | None = None,
         **kwargs: Any,
     ) -> dict[str, float]:
-        from tabpfn import TabPFNRegressor
+        regressor = self._make_regressor()
+        feat, y = self._prepare_train(X_train, y_train)
+        regressor.fit(feat, y)
+        self.model = regressor
+        self.is_trained = True
+        return {}
 
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        self._require_trained()
+        feat = self._prepare_predict(X)
+        chunks = [
+            np.asarray(
+                self.model.predict(feat.iloc[start : start + PREDICT_CHUNK_ROWS]),
+                dtype=np.float64,
+            )
+            for start in range(0, len(feat), PREDICT_CHUNK_ROWS)
+        ]
+        return np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float64)
+
+    def save(self, path: Path) -> None:
+        self._require_trained()
+        payload = {
+            "model": self.model,
+            "compressor": self._compressor,
+            "medians": self._medians,
+        }
+        _save_sklearn(payload, path)
+
+    def load(self, path: Path) -> "FoundationModel":
+        payload = _load_sklearn(path)
+        self.model = payload["model"]
+        self._compressor = payload["compressor"]
+        self._medians = payload["medians"]
+        self.is_trained = True
+        return self
+
+    def _prepare_train(
+        self, X_train: pd.DataFrame, y_train: pd.Series
+    ) -> tuple[pd.DataFrame, pd.Series]:
         feat = _numeric(X_train)
         if feat.shape[1] == 0:
             raise ValueError(f"{self.name}: no numeric feature columns found.")
+        feat, y = self._subsample(feat, y_train)
+        self._medians = feat.median()
+        feat = feat.fillna(self._medians)
+        feat = self._fit_compressor(feat, y)
+        return feat, y
+
+    def _subsample(
+        self, feat: pd.DataFrame, y: pd.Series
+    ) -> tuple[pd.DataFrame, pd.Series]:
+        if len(feat) <= self.max_train_rows:
+            return feat, y
+        rng = np.random.default_rng(self.seed)
+        idx = rng.choice(len(feat), size=self.max_train_rows, replace=False)
+        idx.sort()
+        return feat.iloc[idx], y.iloc[idx]
+
+    def _fit_compressor(self, feat: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
+        if self.compression is None or feat.shape[1] <= self.max_features:
+            self._compressor = None
+            return feat
+        n_components = self.compression_components or self.max_features
+        n_components = min(n_components, feat.shape[1] - 1, len(feat))
+        self._compressor = _build_compressor(self.compression, n_components, self.seed)
+        return self._compressor.fit_transform(feat, y)
+
+    def _prepare_predict(self, X: pd.DataFrame) -> pd.DataFrame:
+        feat = _numeric(X)
+        if self._medians is not None:
+            feat = feat.reindex(columns=self._medians.index).fillna(self._medians)
+        if self._compressor is not None:
+            feat = self._compressor.transform(feat)
+        return feat
+
+
+class TabPFNModel(FoundationModel):
+    """TabPFN v2 regression via in-context learning.
+
+    Requires: pip install 'alphapulse[foundation]'
+    """
+
+    def __init__(
+        self,
+        n_estimators: int = 8,
+        device: str | None = None,
+        ignore_pretraining_limits: bool = False,
+        max_train_rows: int = TABPFN_MAX_TRAIN_ROWS,
+        max_features: int = TABPFN_MAX_FEATURES,
+        compression: str | None = DEFAULT_COMPRESSION,
+        compression_components: int | None = None,
+        seed: int = DEFAULT_SEED,
+        name: str | None = "TabPFN",
+    ) -> None:
+        super().__init__(
+            max_train_rows=max_train_rows,
+            max_features=max_features,
+            compression=compression,
+            compression_components=compression_components,
+            seed=seed,
+            name=name,
+        )
+        self.n_estimators = n_estimators
+        self.device = device
+        self.ignore_pretraining_limits = ignore_pretraining_limits
+
+    def _make_regressor(self) -> Any:
+        from tabpfn import TabPFNRegressor
+
         init_kwargs: dict[str, Any] = {
             "n_estimators": self.n_estimators,
             "ignore_pretraining_limits": self.ignore_pretraining_limits,
         }
         if self.device is not None:
             init_kwargs["device"] = self.device
-        self.model = TabPFNRegressor(**init_kwargs)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        self._require_trained()
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        self._require_trained()
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "TabPFNModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return TabPFNRegressor(**init_kwargs)
 
 
-class TabPFN3Model(BaseModel):
+class TabPFN3Model(FoundationModel):
     """TabPFN v3 regression via in-context learning (local OSS).
 
     Requires: pip install 'alphapulse[foundation]'
-
-    Constraints:
-        - Up to ~1M training samples (TabPFN v3).
-        - GPU recommended for large datasets.
     """
 
     def __init__(
@@ -88,29 +219,31 @@ class TabPFN3Model(BaseModel):
         n_estimators: int = 8,
         device: str | None = None,
         ignore_pretraining_limits: bool = False,
-        random_state: int = 42,
+        random_state: int = DEFAULT_SEED,
+        max_train_rows: int = TABPFN3_MAX_TRAIN_ROWS,
+        max_features: int = TABPFN3_MAX_FEATURES,
+        compression: str | None = DEFAULT_COMPRESSION,
+        compression_components: int | None = None,
+        seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN3",
     ) -> None:
-        super().__init__(name)
+        super().__init__(
+            max_train_rows=max_train_rows,
+            max_features=max_features,
+            compression=compression,
+            compression_components=compression_components,
+            seed=seed,
+            name=name,
+        )
         self.model_path = model_path
         self.n_estimators = n_estimators
         self.device = device
         self.ignore_pretraining_limits = ignore_pretraining_limits
         self.random_state = random_state
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
+    def _make_regressor(self) -> Any:
         from tabpfn import TabPFNRegressor
 
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError(f"{self.name}: no numeric feature columns found.")
         init_kwargs: dict[str, Any] = {
             "model_path": self.model_path,
             "n_estimators": self.n_estimators,
@@ -119,31 +252,14 @@ class TabPFN3Model(BaseModel):
         }
         if self.device is not None:
             init_kwargs["device"] = self.device
-        self.model = TabPFNRegressor(**init_kwargs)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        self._require_trained()
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        self._require_trained()
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "TabPFN3Model":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return TabPFNRegressor(**init_kwargs)
 
 
-class TabPFN3ReasoningModel(BaseModel):
+class TabPFN3ReasoningModel(FoundationModel):
     """TabPFN v3 regression via Prior Labs API with reasoning mode.
 
     Requires: pip install 'alphapulse[foundation-api]' and TABPFN_API_KEY.
-
-    Note: fits are API-metered and slower than local TabPFN3Model.
+    Note: fits are API-metered, so the default row budget is conservative.
     """
 
     def __init__(
@@ -152,24 +268,27 @@ class TabPFN3ReasoningModel(BaseModel):
         thinking_effort: str = "medium",
         thinking_timeout_s: int = 300,
         thinking_metric: str = "rmse",
+        max_train_rows: int = TABPFN3_REASONING_MAX_TRAIN_ROWS,
+        max_features: int = TABPFN3_REASONING_MAX_FEATURES,
+        compression: str | None = DEFAULT_COMPRESSION,
+        compression_components: int | None = None,
+        seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN3Reasoning",
     ) -> None:
-        super().__init__(name)
+        super().__init__(
+            max_train_rows=max_train_rows,
+            max_features=max_features,
+            compression=compression,
+            compression_components=compression_components,
+            seed=seed,
+            name=name,
+        )
         self.thinking_mode = thinking_mode
         self.thinking_effort = thinking_effort
         self.thinking_timeout_s = thinking_timeout_s
         self.thinking_metric = thinking_metric
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
-        import os
-
+    def _make_regressor(self) -> Any:
         try:
             from tabpfn_client import TabPFNRegressor
         except ImportError as exc:
@@ -182,41 +301,16 @@ class TabPFN3ReasoningModel(BaseModel):
             raise ValueError(
                 "TabPFN3ReasoningModel requires TABPFN_API_KEY environment variable."
             )
-
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError(f"{self.name}: no numeric feature columns found.")
-        init_kwargs: dict[str, Any] = {
-            "thinking_mode": self.thinking_mode,
-            "thinking_effort": self.thinking_effort,
-            "thinking_timeout_s": self.thinking_timeout_s,
-            "thinking_metric": self.thinking_metric,
-        }
-        self.model = TabPFNRegressor(**init_kwargs)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        self._require_trained()
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        self._require_trained()
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "TabPFN3ReasoningModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return TabPFNRegressor(
+            thinking_mode=self.thinking_mode,
+            thinking_effort=self.thinking_effort,
+            thinking_timeout_s=self.thinking_timeout_s,
+            thinking_metric=self.thinking_metric,
+        )
 
 
-class TabICLModel(BaseModel):
+class TabICLModel(FoundationModel):
     """TabICL v2 regression via in-context learning.
-
-    A pre-trained tabular foundation model that scales to 600 K+ rows via
-    CPU/disk offloading. Like TabPFN, fit() stores the context and learning
-    occurs during predict().
 
     Requires: pip install 'alphapulse[foundation]'
     """
@@ -227,29 +321,31 @@ class TabICLModel(BaseModel):
         device: str | None = None,
         kv_cache: bool = False,
         batch_size: int = 8,
-        random_state: int = 42,
+        random_state: int = DEFAULT_SEED,
+        max_train_rows: int = TABICL_MAX_TRAIN_ROWS,
+        max_features: int = TABICL_MAX_FEATURES,
+        compression: str | None = DEFAULT_COMPRESSION,
+        compression_components: int | None = None,
+        seed: int = DEFAULT_SEED,
         name: str | None = "TabICL",
     ) -> None:
-        super().__init__(name)
+        super().__init__(
+            max_train_rows=max_train_rows,
+            max_features=max_features,
+            compression=compression,
+            compression_components=compression_components,
+            seed=seed,
+            name=name,
+        )
         self.n_estimators = n_estimators
         self.device = device
         self.kv_cache = kv_cache
         self.batch_size = batch_size
         self.random_state = random_state
 
-    def train(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        X_val: pd.DataFrame | None = None,
-        y_val: pd.Series | None = None,
-        **kwargs: Any,
-    ) -> dict[str, float]:
+    def _make_regressor(self) -> Any:
         from tabicl import TabICLRegressor
 
-        feat = _numeric(X_train)
-        if feat.shape[1] == 0:
-            raise ValueError(f"{self.name}: no numeric feature columns found.")
         init_kwargs: dict[str, Any] = {
             "n_estimators": self.n_estimators,
             "kv_cache": self.kv_cache,
@@ -258,20 +354,4 @@ class TabICLModel(BaseModel):
         }
         if self.device is not None:
             init_kwargs["device"] = self.device
-        self.model = TabICLRegressor(**init_kwargs)
-        self.model.fit(feat, y_train)
-        self.is_trained = True
-        return {}
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        self._require_trained()
-        return np.asarray(self.model.predict(_numeric(X)), dtype=np.float64)
-
-    def save(self, path: Path) -> None:
-        self._require_trained()
-        _save_sklearn(self.model, path)
-
-    def load(self, path: Path) -> "TabICLModel":
-        self.model = _load_sklearn(path)
-        self.is_trained = True
-        return self
+        return TabICLRegressor(**init_kwargs)

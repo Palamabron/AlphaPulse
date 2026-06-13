@@ -3,8 +3,8 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from ..constants import _PROTECTED_COLS
 from .base import BasePreprocessor
+from .feature_selection import _numeric_feature_cols
 
 _MIN_ERAS_REQUIRED = 2
 
@@ -72,17 +72,17 @@ class EraStableFeatureSelector(BasePreprocessor):
     ) -> Self:
         if y is None:
             raise ValueError("EraStableFeatureSelector requires y for fit().")
-        if eras is None and "era" in X.columns:
-            eras = X["era"]
 
         import lightgbm as lgb
 
-        feature_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+        feature_cols = _numeric_feature_cols(X)
+        if not feature_cols:
+            raise ValueError("EraStableFeatureSelector: no numeric columns found.")
+        X_num = X[feature_cols]
         n_features = len(feature_cols)
         n_keep = max(1, int(n_features * self.keep_fraction))
 
         if eras is None or len(pd.unique(eras)) < _MIN_ERAS_REQUIRED:
-            # No era info — fall back to single global importance
             model = lgb.LGBMRegressor(
                 n_estimators=self.n_estimators,
                 max_depth=4,
@@ -91,7 +91,7 @@ class EraStableFeatureSelector(BasePreprocessor):
                 verbosity=-1,
                 n_jobs=1,
             )
-            model.fit(X[feature_cols], y)
+            model.fit(X_num, y)
             importances = np.asarray(model.feature_importances_, dtype=np.float64)
             ranked = np.argsort(importances)[::-1][:n_keep]
             self.selected_columns_ = [str(feature_cols[i]) for i in ranked]
@@ -114,7 +114,7 @@ class EraStableFeatureSelector(BasePreprocessor):
         era_importances: list[np.ndarray] = []
         for era in unique_eras:
             mask = era_arr == era
-            X_era = X[mask][feature_cols]
+            X_era = X_num[mask]
             y_era = y[mask]
             if len(X_era) < 20:
                 continue
@@ -146,7 +146,7 @@ class EraStableFeatureSelector(BasePreprocessor):
                 verbosity=-1,
                 n_jobs=1,
             )
-            model.fit(X[feature_cols], y)
+            model.fit(X_num, y)
             importances = np.asarray(model.feature_importances_, dtype=np.float64)
             ranked = np.argsort(importances)[::-1][:n_keep]
             self.selected_columns_ = [str(feature_cols[i]) for i in ranked]

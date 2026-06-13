@@ -8,6 +8,7 @@ import pandas as pd
 from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
+from ..preprocessors.era_stable import EraStableFeatureSelector
 from .ensemble import EnsembleStrategy
 from .neutralizer import FeatureNeutralizer
 from .row_utils import (
@@ -119,7 +120,10 @@ class Pipeline:
         for pp in self.preprocessors:
             if isinstance(pp, TrainEvalPreprocessor):
                 pp.train()
-            pp.fit(X_fit, y)
+            if isinstance(pp, EraStableFeatureSelector) and era_meta is not None:
+                pp.fit(X_fit, y, eras=era_meta["era"])
+            else:
+                pp.fit(X_fit, y)
             X_fit = pp.transform(X_fit)
             X_fit = reattach_protected_columns(X_fit, era_meta)
 
@@ -238,14 +242,21 @@ class Pipeline:
         else:
             raw_preds = np.full(len(X), safe_median(valid_preds))
             if valid_mask is not None and post_nan_mask is not None:
-                combined = valid_mask.copy()
-                valid_indices = np.where(valid_mask)[0]
-                combined[valid_indices[~post_nan_mask]] = False
+                combined = valid_mask.to_numpy(dtype=bool).copy()
+                valid_positions = np.flatnonzero(combined)
+                post_arr = np.asarray(post_nan_mask, dtype=bool)
+                combined[valid_positions[~post_arr]] = False
                 raw_preds[combined] = valid_preds
             elif valid_mask is not None:
-                raw_preds[valid_mask] = valid_preds
+                raw_preds[valid_mask.to_numpy(dtype=bool)] = valid_preds
             else:
-                raw_preds[post_nan_mask] = valid_preds
+                assert post_nan_mask is not None
+                post_arr = (
+                    post_nan_mask.to_numpy(dtype=bool)
+                    if hasattr(post_nan_mask, "to_numpy")
+                    else np.asarray(post_nan_mask, dtype=bool)
+                )
+                raw_preds[post_arr] = valid_preds
 
         if self._neutralizer is None:
             return raw_preds
