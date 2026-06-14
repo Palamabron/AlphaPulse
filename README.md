@@ -2,6 +2,22 @@
 
 AlphaPulse is a config-driven framework for building, training, and deploying ML pipelines for the [Numerai](https://numer.ai) stock-market prediction tournament. It covers the full workflow: dataset download, experiment definition, backtesting, hyperparameter optimization (HPO), and automated weekly submission.
 
+## Architecture
+
+![AlphaPulse Architecture](docs/assets/architecture.drawio.png)
+
+The framework is organized into five layers:
+
+| Layer | Components | Purpose |
+|---|---|---|
+| **Data** | `NumeraiDataLoader`, parquet files, `features.json` | Downloads and loads Numerai dataset splits (train/validation/live) |
+| **Configuration** | `ExperimentV1` YAML schema, HPO search space, `TrialDB`, AutoResearch agent | Defines what to train — via static YAML, automated HPO, or Claude-agent-driven research |
+| **Core Pipeline** | Preprocessors, Models, `Pipeline` / `MultiHeadPipeline`, Ensemble, `FeatureNeutralizer` | Fits and combines models; handles feature routing, ensembling, and prediction neutralization |
+| **Evaluation** | `Backtester`, `PurgedEraCV`, SHAP report, W&B diagnostics | Computes era-aware metrics (CORR, Sharpe, MMC) and XAI reports |
+| **Export & Submission** | `predict.pkl`, live inference, submission validation, Numerai upload | Produces tournament-ready predictions and submits them |
+
+> The diagram is editable — open `docs/assets/architecture.drawio` in [draw.io](https://app.diagrams.net) to modify it.
+
 -----
 
 ## Table of Contents
@@ -347,7 +363,7 @@ evaluation:
 ### Advanced Features
 
   * **Feature Groups:** Define `features.groups` as a mapping of `group_name -> [columns]`. You can then assign specific models to specific groups using `models[].input_group: group_name`.
-  * **Available Preprocessors:** `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `GaussianNoise`, `VarianceSelector`, `LGBMImportanceSelector`, `Packboost`, and `GroupedPreprocessor`.
+  * **Available Preprocessors:** `StandardScaler`, `RobustScaler`, `PCA`, `TruncatedSVD`, `AutoencoderPreprocessor`, `CompressionPreprocessor`, `GaussianNoise`, `VarianceSelector`, `LGBMImportanceSelector`, `EraStableFeatureSelector`, `Packboost`, and `GroupedPreprocessor`.
   * **Available Models:**
     - **Gradient Boosting:** `XGBoost`, `LightGBM`, `CatBoost`, `Packboost`
     - **Tree Ensembles:** `RandomForest`, `ExtraTrees`
@@ -482,31 +498,35 @@ make eda-lint
 ├── data/            # Downloaded Numerai parquet files
 ├── experiments/     # YAML configuration files
 ├── scripts/         # Executable workflow scripts
-│   ├── download_dataset.py
-│   ├── run_experiment.py
-│   ├── hpo_pipeline.py
-│   ├── run_test_pipeline.py
-│   ├── export_numerai_pickle.py
-│   ├── export_from_yaml.py
-│   ├── live_inference.py
-│   ├── submit_predictions.py
-│   ├── make_feature_groups.py
-│   └── autoresearch.py
+│   ├── download_dataset.py       # Download Numerai dataset
+│   ├── run_experiment.py         # Run a YAML-defined experiment (+ W&B logging)
+│   ├── hpo_pipeline.py           # Automated hyperparameter search (Ray Tune)
+│   ├── run_test_pipeline.py      # Lightweight smoke test
+│   ├── export_numerai_pickle.py  # Export predict.pkl from HPO result
+│   ├── export_from_yaml.py       # Export predict.pkl from YAML experiment
+│   ├── live_inference.py         # Run trained model on live tournament data
+│   ├── submit_predictions.py     # Upload predictions to Numerai
+│   ├── make_feature_groups.py    # Generate feature group definitions
+│   ├── gpu_smoke_test.py         # Verify GPU availability for deep models
+│   ├── autoresearch.py           # Claude-agent-driven research loop
+│   └── wandb_sweep_config.yaml   # W&B sweep configuration
 ├── eda/             # Standalone Streamlit EDA dashboard
 │   ├── app.py         # Main entry point (streamlit run eda/app.py)
-│   ├── pages/         # Multi-page analysis modules
-│   └── utils/         # Config & data loading (uses NumeraiDataLoader)
+│   ├── pages/         # Multi-page analysis modules (8 pages)
+│   └── utils/         # Config, data loading, translations (EN/PL)
+├── docs/assets/     # Diagrams and documentation assets
+│   └── architecture.drawio.png  # Architecture diagram (editable in draw.io)
 ├── src/alphapulse/  # Core framework source code
-│   ├── autoresearch/  # Agent-driven research loop
-│   ├── evaluation/    # Backtesting, metrics, diagnostics, export validation
-│   ├── experiments/   # YAML schema, runner, data loading
-│   ├── hpo/           # HPO objective, search space, builder, registry
+│   ├── autoresearch/  # Agent-driven research loop (loop, agent, mutations, state)
+│   ├── evaluation/    # Backtesting, metrics, SHAP report, W&B diagnostics, submission validation
+│   ├── experiments/   # YAML schema (ExperimentV1), runner
+│   ├── hpo/           # HPO objective, search space, builder, registry, TrialDB (SQLite)
 │   ├── logging_/      # Leaderboard and W&B helpers
 │   ├── models/        # All model implementations + factory
-│   ├── pipeline/      # Pipeline, ensemble, neutralizer, stacker
-│   ├── preprocessors/ # All preprocessor implementations + factory
-│   ├── utils/         # Seed utility (set_global_seed)
-│   └── validation/    # Purged era cross-validation
+│   ├── pipeline/      # Pipeline, MultiHeadPipeline, MultiTargetPipeline, ensemble, neutralizer, stacker
+│   ├── preprocessors/ # All preprocessor implementations + factory (incl. autoencoder, compression, era-stable selector)
+│   ├── utils/         # Global seed utility
+│   └── validation/    # PurgedEraCV
 └── tests/           # Unit tests
 ```
 
@@ -529,13 +549,17 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 
 See [CHANGELOG.md](CHANGELOG.md) for completed releases.
 
-**Completed — v0.5.0 (Production Hardening):**
+**Completed — v0.5.0 (Production Hardening + XAI):**
 - **HPO fault tolerance:** Each local trial runs in an isolated subprocess; crashes mark the trial failed and the sweep continues. A SQLite-backed `TrialDB` persists trial state. `--resume` skips already-completed trials.
 - **Provenance artifact:** On every export, a hermetically sealed bundle is written: resolved config, `uv export` dependency snapshot, and git commit hash.
 - **Canonical artifact naming:** Exported models follow `<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>.pkl` with a `latest_predict.pkl` symlink.
 - **Masked loss for auxiliary targets:** `MultiTargetPipeline` drops NaN rows per-target; targets with fewer than 10 valid rows are skipped entirely.
-- **Feature neutralization in eval loop:** `Backtester` and `EraSplitEvaluator` accept an optional `FeatureNeutralizer`; predictions are neutralized before metric computation.
+- **Feature neutralization in eval loop:** `Backtester` accepts an optional `FeatureNeutralizer`; predictions are neutralized before metric computation.
 - **W&B experiment runner integration:** `scripts/run_experiment.py` logs configs, per-era metrics, and artifact paths to W&B via `--wandb-project`.
+- **XAI / SHAP reporting:** `shap_report.py` computes per-era feature importance; `wandb_diagnostics.py` pushes rich HPO and XAI plots to W&B.
+- **GPU HPO + foundation models:** `TabPFN3`, `TabICL`, and `TabularDL` (ft_transformer / mlp) with GPU-accelerated HPO via Ray Tune.
+- **Universal feature importance + era stability:** `EraStableFeatureSelector` ranks features by blended mean importance / cross-era stability; `feature_report.py` surfaces per-era diagnostics.
+- **Autoencoder + compression preprocessors:** `AutoencoderPreprocessor` and `CompressionPreprocessor` for learned low-dimensional representations.
 
 -----
 

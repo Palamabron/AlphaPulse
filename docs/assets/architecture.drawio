@@ -1,0 +1,373 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="AlphaPulse Architecture">
+    <mxGraphModel dx="1200" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- TITLE -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="title" value="AlphaPulse — ML Pipeline Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="960" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 0: EXTERNAL -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="numerai_api" value="Numerai API" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="80" width="130" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wandb_ext" value="Weights &amp; Biases" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="80" width="130" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 1: DATA LAYER -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="data_layer" value="Data Layer" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="80" y="190" width="1500" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="downloader" value="download_dataset.py&#xa;(Numerai API)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="data_layer">
+          <mxGeometry x="20" y="40" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="parquet" value="train.parquet&#xa;validation.parquet&#xa;live.parquet" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="data_layer">
+          <mxGeometry x="220" y="35" width="130" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dataloader" value="NumeraiDataLoader&#xa;(data.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="data_layer">
+          <mxGeometry x="400" y="40" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="dataset" value="NumeraiDataset&#xa;X · y · era" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="data_layer">
+          <mxGeometry x="600" y="40" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="features_json" value="features.json&#xa;(small / medium / all)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="data_layer">
+          <mxGeometry x="800" y="40" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Intra-data arrows -->
+        <mxCell id="e_dl1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="data_layer" source="downloader" target="parquet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dl2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="data_layer" source="parquet" target="dataloader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dl3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="data_layer" source="dataloader" target="dataset">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dl4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="data_layer" source="features_json" target="dataloader">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 2: CONFIG / ENTRY POINTS -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="config_layer" value="Experiment Configuration" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="80" y="330" width="1500" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="yaml_schema" value="ExperimentV1 YAML&#xa;(schema.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="20" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="exp_runner" value="Experiment Runner&#xa;(runner.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="210" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hpo_search" value="HPO Search Space&#xa;(search_space.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="420" y="38" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hpo_obj" value="HPO Objective&#xa;(objective.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="630" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="trial_db" value="TrialDB&#xa;(SQLite — trial_db.py)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="840" y="33" width="150" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="autoresearch_loop" value="AutoResearch Loop&#xa;(loop.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="1060" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ar_agent" value="Claude Agent&#xa;(agent.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="config_layer">
+          <mxGeometry x="1260" y="38" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_cfg1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="config_layer" source="yaml_schema" target="exp_runner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cfg2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="config_layer" source="hpo_search" target="hpo_obj">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cfg3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="config_layer" source="hpo_obj" target="trial_db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cfg4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="config_layer" source="autoresearch_loop" target="ar_agent">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 3: PREPROCESSING + MODELS (Pipeline Core) -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="pipeline_layer" value="Core Pipeline" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="80" y="470" width="1500" height="230" as="geometry" />
+        </mxCell>
+
+        <!-- Preprocessors sub-box -->
+        <mxCell id="preproc_box" value="Preprocessors" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="pipeline_layer">
+          <mxGeometry x="20" y="40" width="340" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pp_scale" value="Scaling&#xa;Standard · Robust" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="preproc_box">
+          <mxGeometry x="10" y="35" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_sel" value="Feature Selection&#xa;Variance · LGBM · EraStable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="preproc_box">
+          <mxGeometry x="175" y="35" width="155" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_dim" value="Dim Reduction&#xa;PCA · SVD · Autoencoder" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="preproc_box">
+          <mxGeometry x="10" y="85" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="pp_aug" value="Augmentation&#xa;GaussianNoise · Packboost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="preproc_box">
+          <mxGeometry x="175" y="85" width="155" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Pipeline orchestrator -->
+        <mxCell id="pipeline_core" value="Pipeline&#xa;(pipeline.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontStyle=1;" vertex="1" parent="pipeline_layer">
+          <mxGeometry x="390" y="80" width="150" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="multihead" value="MultiHeadPipeline&#xa;(multihead.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="pipeline_layer">
+          <mxGeometry x="390" y="165" width="150" height="45" as="geometry" />
+        </mxCell>
+
+        <!-- Models sub-box -->
+        <mxCell id="models_box" value="Models" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="pipeline_layer">
+          <mxGeometry x="570" y="40" width="530" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="m_gbm" value="Gradient Boosting&#xa;XGBoost · LightGBM · CatBoost" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="models_box">
+          <mxGeometry x="10" y="35" width="230" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="m_tree" value="Tree Ensembles&#xa;RandomForest · ExtraTrees" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="models_box">
+          <mxGeometry x="280" y="35" width="230" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="m_found" value="Foundation Models&#xa;TabPFN · TabPFN3 · TabICL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="models_box">
+          <mxGeometry x="10" y="85" width="230" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="m_deep" value="Deep Learning · Meta&#xa;TabularDL · EraEnsemble · SyntheticAugmenter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="models_box">
+          <mxGeometry x="280" y="85" width="230" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Ensemble / Neutralizer sub-box -->
+        <mxCell id="ensemble_box" value="Ensemble &amp; Neutralization" style="swimlane;startSize=25;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="pipeline_layer">
+          <mxGeometry x="1130" y="40" width="340" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ens_strat" value="EnsembleStrategy&#xa;single · weighted · stacking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="ensemble_box">
+          <mxGeometry x="10" y="35" width="310" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ens_opt" value="EnsembleOptimizer (SLSQP)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="ensemble_box">
+          <mxGeometry x="10" y="85" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="stacker" value="Stacker (OOF Ridge/XGB)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="ensemble_box">
+          <mxGeometry x="170" y="85" width="150" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="neutralizer" value="FeatureNeutralizer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="ensemble_box">
+          <mxGeometry x="10" y="130" width="150" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Pipeline internal arrows -->
+        <mxCell id="e_pp_pipe" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="pipeline_layer" source="preproc_box" target="pipeline_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pipe_mod" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="pipeline_layer" source="pipeline_core" target="models_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_mod_ens" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="pipeline_layer" source="models_box" target="ensemble_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 4: VALIDATION + EVALUATION -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="eval_layer" value="Validation &amp; Evaluation" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="80" y="740" width="1500" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="purgedcv" value="PurgedEraCV&#xa;(purged_cv.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="20" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="backtester" value="Backtester&#xa;(backtester.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="210" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="metrics" value="Metrics&#xa;CORR · Sharpe · MMC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="400" y="38" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="shap_rpt" value="SHAP Report&#xa;(shap_report.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="610" y="38" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ens_diag" value="Ensemble Diagnostics&#xa;(ensemble_diagnostics.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="810" y="38" width="190" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="feat_rpt" value="Feature Report&#xa;(feature_report.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="1050" y="38" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wandb_diag" value="W&amp;B Diagnostics&#xa;(wandb_diagnostics.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="eval_layer">
+          <mxGeometry x="1260" y="38" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ROW 5: EXPORT + SUBMISSION -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="export_layer" value="Export &amp; Submission" style="swimlane;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=12;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="80" y="890" width="1500" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="export_pkl" value="export_numerai_pickle.py&#xa;(predict.pkl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="20" y="35" width="190" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="export_val" value="Export Validation&#xa;(export_validation.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="250" y="35" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="live_inf" value="live_inference.py&#xa;(predictions.csv)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="480" y="35" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sub_val" value="Submission Validation&#xa;(submission.py)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="710" y="35" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="submit" value="submit_predictions.py&#xa;(Numerai API)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="940" y="35" width="180" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="provenance" value="Provenance Bundle&#xa;(config + deps + git hash)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="export_layer">
+          <mxGeometry x="1170" y="35" width="190" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_exp1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="export_layer" source="export_pkl" target="export_val">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_exp2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="export_layer" source="live_inf" target="sub_val">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_exp3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="export_layer" source="sub_val" target="submit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- EDA DASHBOARD (right side panel) -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <mxCell id="eda_box" value="EDA Dashboard (Streamlit)" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="1620" y="470" width="210" height="380" as="geometry" />
+        </mxCell>
+
+        <mxCell id="eda_target" value="Target Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="40" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_feat" value="Feature Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="80" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_corr" value="Correlations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="120" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_era" value="Era Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="160" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_dist" value="Feature Distributions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="200" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_imp" value="Feature Importance" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="240" width="185" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_clust" value="Clustering" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="10" y="280" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="eda_hpo" value="HPO Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;" vertex="1" parent="eda_box">
+          <mxGeometry x="105" y="280" width="95" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- INTER-LAYER ARROWS (between swimlanes) -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+
+        <!-- Numerai API -> downloader -->
+        <mxCell id="e_api_dl" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;" edge="1" parent="1" source="numerai_api" target="data_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Data layer -> config layer (dataset to runners) -->
+        <mxCell id="e_data_cfg" value="NumeraiDataset" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6c8ebf;fontSize=9;" edge="1" parent="1" source="data_layer" target="config_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Config layer -> pipeline layer -->
+        <mxCell id="e_cfg_pipe" value="built pipeline" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9673a6;fontSize=9;" edge="1" parent="1" source="config_layer" target="pipeline_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Pipeline -> Evaluation -->
+        <mxCell id="e_pipe_eval" value="predictions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#82b366;fontSize=9;" edge="1" parent="1" source="pipeline_layer" target="eval_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Evaluation -> Export -->
+        <mxCell id="e_eval_exp" value="metrics + config" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;fontSize=9;" edge="1" parent="1" source="eval_layer" target="export_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Submit -> Numerai API: routes in LEFT corridor (x=40), outside all swimlanes (x>=80) -->
+        <mxCell id="e_submit_api" value="predictions upload" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=9;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="export_layer" target="numerai_api">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="40" y="940" />
+              <mxPoint x="40" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Eval -> W&B: routes in RIGHT corridor (x=1600), between swimlanes (<=1580) and EDA (>=1620), then above all blocks -->
+        <mxCell id="e_eval_wandb" value="metrics / XAI" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="eval_layer" target="wandb_ext">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1600" y="795" />
+              <mxPoint x="1600" y="50" />
+              <mxPoint x="1445" y="50" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Data -> EDA: routes in RIGHT corridor (x=1605), between swimlanes and EDA, then enters EDA from left -->
+        <mxCell id="e_data_eda" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#b85450;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="data_layer" target="eda_box">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1605" y="240" />
+              <mxPoint x="1605" y="584" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- AutoResearch feedback loop arrow -->
+        <mxCell id="e_ar_loop" value="mutate config" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d79b00;dashed=1;fontSize=9;" edge="1" parent="1" source="ar_agent" target="hpo_obj">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
