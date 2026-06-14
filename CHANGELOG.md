@@ -4,6 +4,22 @@ All notable changes to AlphaPulse are documented here.
 
 ---
 
+## [Unreleased] — WandB XAI & Plot Quality Overhaul
+
+- **Universal feature importance:** `compute_universal_feature_importance` extracts and normalizes importance from any supported model type (XGBoost pred_contribs, LightGBM gain, CatBoost PredictionValuesChange, sklearn `feature_importances_`), averages across all models present, and logs a ranked bar chart to WandB.
+- **Era-stratified importance:** `_log_era_stratified_importance` slices validation data by era, computes importance per slice, and logs a `line_series` chart showing each feature's importance trajectory over eras — directly reveals temporal stability.
+- **Per-era stability report wired:** `compute_feature_report` (LightGBM proxy) now surfaces in WandB via `_log_feature_report`; logs top features by mean importance, top by era stability, and worst by era stability — each with bar charts.
+- **Best-trial diagnostics run:** After HPO, the best config is retrained on an 80/20 era split and all expensive diagnostics (`log_era_importance=True`, top-50 importance artifact) are logged to a dedicated `best-trial-diagnostics` WandB run.
+- **Prediction histogram fixed:** `_log_prediction_diagnostics` now uses `np.histogram(bins=50)` (50 rows) instead of logging every prediction row (50k+ rows).
+- **Per-era line charts fixed:** `era_index` (0, 1, 2…) used as x-axis — fixes alphabetical string sort that scrambled chronological order.
+- **Drawdown curve added:** Per-era drawdown from peak cumulative correlation logged alongside the cumulative correlation line chart.
+- **Correlation distribution histogram:** Distribution of per-era Spearman correlations logged as a bar chart — directly answers "how many negative eras does this model have?"
+- **Missing bar charts added:** Feature exposure top-15, ensemble model-pair correlation (A→B format), worst stability by era — all now have companion bar charts.
+- **HPO summary table expanded:** 18 → 30 columns; adds `model_1/2/3_type` (split, for WandB parallel coordinates), XGBoost/LightGBM hyperparams, feature selection, noise injection, augmentation flags.
+- **Convergence chart:** `log_hpo_convergence` logs all trial scores and running-best `corr_sharpe` in a single WandB run after the HPO search completes, rendering as a proper convergence curve.
+- **String metric bug fixed:** `feature_importance_model_type` moved from `wandb.log()` (coerced to NaN) to `wandb.run.summary`.
+- **Duplicate metric removed:** `metric/corr_sharpe` deduplicated in `log_hpo_trial_metrics`.
+
 ## [0.5.0] — Production Hardening
 
 - **HPO fault tolerance:** Each local trial runs in an isolated subprocess; a crash marks that trial failed and the sweep continues. A SQLite-backed `TrialDB` (`src/alphapulse/hpo/trial_db.py`) persists trial state across crashes. `--resume` flag skips already-completed trial numbers. `--trial-timeout` caps each subprocess.
