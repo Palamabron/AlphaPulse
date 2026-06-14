@@ -88,7 +88,18 @@ def test_sample_random_config_fast_tighter_bounds() -> None:
 
 
 def test_resolve_flat_config_fast_foundation_uses_autoencoder() -> None:
-    from alphapulse.hpo.search_space import resolve_flat_config
+    from alphapulse.hpo.search_space import (
+        _torch_available,
+        resolve_flat_config,
+        resolve_foundation_compression,
+    )
+
+    assert resolve_foundation_compression(None, hpo_fast=True) in {
+        "autoencoder",
+        "pca",
+    }
+    if not _torch_available():
+        assert resolve_foundation_compression("autoencoder") == "pca"
 
     flat = {
         "hpo_fast": True,
@@ -104,13 +115,14 @@ def test_resolve_flat_config_fast_foundation_uses_autoencoder() -> None:
     }
     cfg = resolve_flat_config(flat)
     params = cfg["models"][0]["params"]
-    assert params["compression"] == "autoencoder"
+    expected = "autoencoder" if _torch_available() else "pca"
+    assert params["compression"] == expected
     assert params["n_estimators"] == 2
     assert params["compression_epochs"] == 5
     assert cfg["neutralize_proportion"] == 0.0
 
 
-def test_resolve_flat_config_boosting_uses_neutralization() -> None:
+def test_resolve_flat_config_boosting_respects_neutralization_flag() -> None:
     from alphapulse.hpo.search_space import (
         MIN_NEUTRALIZATION_PROPORTION,
         resolve_flat_config,
@@ -126,10 +138,35 @@ def test_resolve_flat_config_boosting_uses_neutralization() -> None:
         "ensemble_method": "single",
     }
     cfg = resolve_flat_config(flat)
+    assert cfg["neutralize_proportion"] == 0.0
+
+    flat["use_neutralization"] = True
+    cfg = resolve_flat_config(flat)
+    assert cfg["neutralize_proportion"] >= MIN_NEUTRALIZATION_PROPORTION
+
+
+def test_resolve_flat_config_mixed_ensemble_uses_neutralization() -> None:
+    from alphapulse.hpo.search_space import (
+        MIN_NEUTRALIZATION_PROPORTION,
+        resolve_flat_config,
+    )
+
+    flat = {
+        "num_models": 2,
+        "model_1_type": "XGBoost",
+        "model_2_type": "TabPFN",
+        "use_neutralization": True,
+        "neutralization_proportion": 0.2,
+        "scaler_type": "StandardScaler",
+        "use_packboost": False,
+        "ensemble_method": "weighted",
+    }
+    cfg = resolve_flat_config(flat)
     assert cfg["neutralize_proportion"] >= MIN_NEUTRALIZATION_PROPORTION
 
 
 def test_sample_random_config_boosting_enables_neutralization() -> None:
+    foundation_types = {"TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"}
     for seed in range(20):
         config = sample_random_config(seed=seed, fast=True)
         types = [
@@ -137,7 +174,7 @@ def test_sample_random_config_boosting_enables_neutralization() -> None:
             config.get("model_2_type"),
             config.get("model_3_type"),
         ][: config["num_models"]]
-        if "TabPFN" in types or "TabICL" in types:
+        if all(t in foundation_types for t in types):
             assert config["neutralization_proportion"] == 0.0
             assert config["use_neutralization"] is False
         else:

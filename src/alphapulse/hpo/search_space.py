@@ -20,7 +20,7 @@ NEUTRALIZATION_PROPORTION_RANGE = (MIN_NEUTRALIZATION_PROPORTION, 0.8)
 
 
 def uses_neutralization_for_models(model_types: list[str]) -> bool:
-    return not any(t in FOUNDATION_MODELS for t in model_types)
+    return any(t not in FOUNDATION_MODELS for t in model_types)
 
 
 def _sampled_model_types(cfg: dict[str, Any]) -> list[str]:
@@ -53,10 +53,31 @@ def resolve_neutralize_proportion(
 ) -> float:
     if not uses_neutralization_for_models(model_types):
         return 0.0
+    if not flat.get("use_neutralization", True):
+        return 0.0
     proportion = float(
         flat.get("neutralization_proportion", DEFAULT_NEUTRALIZATION_PROPORTION)
     )
     return max(MIN_NEUTRALIZATION_PROPORTION, min(1.0, proportion))
+
+
+def _torch_available() -> bool:
+    try:
+        import torch  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def resolve_foundation_compression(
+    compression: str | None, *, hpo_fast: bool = False
+) -> str | None:
+    if compression is None and hpo_fast:
+        compression = "autoencoder"
+    if compression == "autoencoder" and not _torch_available():
+        return "pca"
+    return compression
 
 
 def available_foundation_models(*, hpo_fast: bool = False) -> list[str]:
@@ -445,8 +466,11 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "foundation_compression_epochs": "compression_epochs",
             }
             params = {param: flat[key] for key, param in key_map.items() if key in flat}
-            if flat.get("hpo_fast") and "compression" not in params:
-                params["compression"] = "autoencoder"
+            compression = resolve_foundation_compression(
+                params.get("compression"), hpo_fast=bool(flat.get("hpo_fast"))
+            )
+            if compression is not None:
+                params["compression"] = compression
             if flat.get("use_gpu"):
                 params["device"] = "cuda"
                 params["compression_device"] = "cuda"

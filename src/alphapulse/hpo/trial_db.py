@@ -34,11 +34,26 @@ class TrialDB:
         self._conn.commit()
 
     def insert_trial(self, trial_number: int, flat_config: dict[str, Any]) -> None:
-        self._conn.execute(
-            "INSERT OR IGNORE INTO trials (trial_number, status, flat_config) "
-            "VALUES (?, 'running', ?)",
-            (trial_number, json.dumps(flat_config)),
-        )
+        """Record a trial as running, replacing stale rows for failed retries."""
+        existing = self._conn.execute(
+            "SELECT status FROM trials WHERE trial_number=?",
+            (trial_number,),
+        ).fetchone()
+        if existing is not None:
+            if existing[0] == "completed":
+                return
+            self._conn.execute(
+                "UPDATE trials SET status='running', flat_config=?, "
+                "metrics=NULL, error=NULL, elapsed_seconds=NULL "
+                "WHERE trial_number=?",
+                (json.dumps(flat_config), trial_number),
+            )
+        else:
+            self._conn.execute(
+                "INSERT INTO trials (trial_number, status, flat_config) "
+                "VALUES (?, 'running', ?)",
+                (trial_number, json.dumps(flat_config)),
+            )
         self._conn.commit()
 
     def update_trial(

@@ -107,6 +107,10 @@ class EraSplitEvaluator:
         train_fn: Callable[[pd.DataFrame, pd.Series], PredictorProtocol],
         eras_order: list[Any] | None = None,
         meta_model: pd.Series | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> dict[str, float]:
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
         df = pd.concat(
@@ -131,6 +135,7 @@ class EraSplitEvaluator:
                 all_era,
                 meta_model=meta_model,
                 all_meta=all_meta if meta_model is not None else None,
+                last_fold_callback=last_fold_callback,
             )
         else:
             self._collect_expanding(
@@ -143,6 +148,7 @@ class EraSplitEvaluator:
                 all_era,
                 meta_model=meta_model,
                 all_meta=all_meta if meta_model is not None else None,
+                last_fold_callback=last_fold_callback,
             )
 
         if not all_y_true:
@@ -166,6 +172,10 @@ class EraSplitEvaluator:
         *,
         meta_model: pd.Series | None = None,
         all_meta: list[float] | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> None:
         step = self.n_embargo + 1
         first_test = self.min_train_eras + self.n_purge
@@ -196,6 +206,8 @@ class EraSplitEvaluator:
             all_era.extend([test_era] * len(y_te))
             if meta_model is not None and all_meta is not None:
                 all_meta.extend(meta_model.loc[y_te.index].tolist())
+            if last_fold_callback is not None:
+                last_fold_callback(predictor, X_te, y_te, era_labels)
 
     def _collect_purged_cv(
         self,
@@ -208,6 +220,10 @@ class EraSplitEvaluator:
         *,
         meta_model: pd.Series | None = None,
         all_meta: list[float] | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> None:
         era_series = df["era"]
         cv = PurgedEraCV(
@@ -239,6 +255,8 @@ class EraSplitEvaluator:
             all_era.extend(era_series.loc[test_mask].tolist())
             if meta_model is not None and all_meta is not None:
                 all_meta.extend(meta_model.loc[y_te.index].tolist())
+            if last_fold_callback is not None:
+                last_fold_callback(predictor, X_te, y_te, fold_eras)
 
 
 __all__ = [

@@ -225,12 +225,44 @@ def run_trial(
             seed=seed,
         )
 
-    return EraSplitEvaluator(
+    diagnostics_state: dict[str, Any] = {}
+
+    def last_fold_callback(
+        predictor: Any, X_te: pd.DataFrame, y_te: pd.Series, era_te: pd.Series
+    ) -> None:
+        diagnostics_state["pipeline"] = predictor
+        diagnostics_state["X_val"] = X_te
+        diagnostics_state["y_val"] = y_te
+        diagnostics_state["era_val"] = era_te
+
+    metrics = EraSplitEvaluator(
         feature_columns=feature_cols,
         n_splits=WF_N_SPLITS,
         n_purge=WF_N_PURGE,
         min_train_eras=WF_MIN_TRAIN_ERAS,
-    ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)
+    ).evaluate_walk_forward(
+        X_train,
+        y_train,
+        era_train,
+        train_fn,
+        last_fold_callback=last_fold_callback
+        if config.get("log_wandb_diagnostics")
+        else None,
+    )
+    if config.get("log_wandb_diagnostics") and diagnostics_state:
+        from ..evaluation.wandb_diagnostics import log_experiment_diagnostics
+
+        log_experiment_diagnostics(
+            pipeline=diagnostics_state["pipeline"],
+            X_val=diagnostics_state["X_val"],
+            y_val=diagnostics_state["y_val"],
+            era_val=diagnostics_state["era_val"],
+            feature_cols=feature_cols,
+            metrics=metrics,
+            log_shap=bool(config.get("wandb_log_shap", True)),
+            compute_fnc=False,
+        )
+    return metrics
 
 
 def run_trial_fast_walk_forward(

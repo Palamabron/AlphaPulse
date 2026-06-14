@@ -35,6 +35,40 @@ from alphapulse.logging_.leaderboard import (
 from alphapulse.utils import set_global_seed
 
 _MP_CTX = multiprocessing.get_context("spawn")
+_WANDB_GROUP_FILE = "wandb_group.txt"
+
+
+def _load_or_create_wandb_group(
+    output_dir: Path, wandb_project: str | None
+) -> str | None:
+    if not wandb_project:
+        return None
+    path = output_dir / _WANDB_GROUP_FILE
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    group = f"hpo-{uuid.uuid4().hex[:8]}"
+    path.write_text(group, encoding="utf-8")
+    return group
+
+
+def _trial_result_from_db_row(row: dict) -> TrialResult:
+    metrics = row["metrics"] or {}
+    corr_sharpe = float(metrics.get("corr_sharpe", float("-inf")))
+    flat_config = row["flat_config"]
+    return TrialResult(
+        trial_number=int(row["trial_number"]),
+        sharpe=corr_sharpe,
+        metrics=metrics,
+        model_type=str(flat_config.get("model_1_type", "XGBoost")),
+        elapsed_seconds=float(row["elapsed_seconds"] or 0.0),
+        params=flat_config,
+        error=row["error"],
+        corr_sharpe=corr_sharpe,
+    )
+
+
+def _all_results_from_db(db: TrialDB) -> list[TrialResult]:
+    return [_trial_result_from_db_row(row) for row in db.load_all_trials()]
 
 
 def _trial_worker(
@@ -51,6 +85,7 @@ def _trial_worker(
     wandb_diagnostics: bool = True,
 ) -> None:
     """Run a single trial inside a subprocess and push the result to the queue."""
+    wandb_initialized = False
     try:
         load_dotenv()
         worker_config = dict(flat_config)
@@ -85,6 +120,7 @@ def _trial_worker(
                 },
                 reinit=True,
             )
+            wandb_initialized = True
 
         t0 = time.perf_counter()
         X_train, y_train, feature_cols = load_train_only_frame(
@@ -105,10 +141,11 @@ def _trial_worker(
             seed=seed,
         )
         elapsed = time.perf_counter() - t0
-        if wandb_active:
+        if wandb_initialized:
+            assert trial_number is not None
             corr_sharpe = float(metrics.get("corr_sharpe", float("-inf")))
             trial_result = TrialResult(
-                trial_number=int(trial_number),
+                trial_number=trial_number,
                 sharpe=corr_sharpe,
                 metrics=metrics,
                 model_type=str(flat_config.get("model_1_type", "XGBoost")),
@@ -122,13 +159,15 @@ def _trial_worker(
                 model_types=model_types,
                 preprocessors=preprocessors,
             )
-            import wandb
-
-            wandb.finish(quiet=True)
 
         result_queue.put({"ok": True, "metrics": metrics, "elapsed_seconds": elapsed})
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
+    finally:
+        if wandb_initialized:
+            import wandb
+
+            wandb.finish(quiet=True)
 
 
 def _best_from_db(db: TrialDB, objective: str) -> tuple[float, dict]:
@@ -179,7 +218,7 @@ def _run_local(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     db_path = output_dir / "trials.db"
-    wandb_group = f"hpo-{uuid.uuid4().hex[:8]}" if wandb_project else None
+    wandb_group = _load_or_create_wandb_group(output_dir, wandb_project)
     if wandb_project:
         logger.info(
             "WandB logging enabled: project={} group={} diagnostics={}",
@@ -347,7 +386,7 @@ def _run_local(
             )
             print_leaderboard(
                 logger,
-                [entry_from_hpo_result(r) for r in results],
+                [entry_from_hpo_result(r) for r in _all_results_from_db(db)],
                 current_trial=i,
             )
 
@@ -372,6 +411,7 @@ def _run_local(
                 best_config = flat_config
 
         best_score, best_config = _best_from_db(db, objective)
+        results = _all_results_from_db(db)
 
     best_path = output_dir / "best_config.json"
     with open(best_path, "w", encoding="utf-8") as f:
