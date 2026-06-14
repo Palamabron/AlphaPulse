@@ -152,10 +152,8 @@ def log_hpo_summary_table(
             r.params.get("use_neutralization"),
             r.params.get("neutralization_proportion"),
             r.params.get("model_1_max_depth") or r.params.get("xgb_max_depth"),
-            r.params.get("model_1_learning_rate")
-            or r.params.get("xgb_learning_rate"),
-            r.params.get("model_1_num_leaves")
-            or r.params.get("lgbm_num_leaves"),
+            r.params.get("model_1_learning_rate") or r.params.get("xgb_learning_rate"),
+            r.params.get("model_1_num_leaves") or r.params.get("lgbm_num_leaves"),
             r.params.get("model_1_learning_rate_lgbm")
             or r.params.get("lgbm_learning_rate"),
             r.params.get("model_1_min_child_samples")
@@ -282,19 +280,21 @@ def log_hpo_trial(
     wandb.finish(quiet=True)
 
 
-def log_hpo_best_so_far(
-    trial_number: int,
-    corr_sharpe: float,
-    best_so_far: float,
+def log_hpo_convergence(
+    results: list[Any],
     *,
     project: str,
     group: str,
 ) -> None:
-    """Log trial corr_sharpe and running best to a convergence tracking run.
+    """Log per-trial corr_sharpe and running best in a single WandB convergence run.
 
-    Opens or reuses a 'search-convergence' run in the group, logging both the
-    trial score and the best seen so far at step=trial_number. Produces a chart
-    showing trial scores alongside the running maximum line.
+    All trials are logged as ordered steps within one run so that WandB renders
+    a proper convergence curve (trial scores + running maximum line).
+
+    Args:
+        results: All TrialResult objects from the HPO search, in trial order.
+        project: WandB project name.
+        group: WandB group name (same as HPO run group).
     """
     import wandb
 
@@ -305,8 +305,22 @@ def log_hpo_best_so_far(
         job_type="convergence",
         reinit=True,
     )
-    wandb.log(
-        {"trial_corr_sharpe": corr_sharpe, "best_corr_sharpe_so_far": best_so_far},
-        step=trial_number,
-    )
+    best_so_far = float("-inf")
+    for r in results:
+        if r.error:
+            continue
+        trial_corr = (
+            r.corr_sharpe
+            if r.corr_sharpe not in (float("-inf"), float("inf"))
+            else r.sharpe
+        )
+        if trial_corr > best_so_far:
+            best_so_far = trial_corr
+        wandb.log(
+            {
+                "trial_corr_sharpe": trial_corr,
+                "best_corr_sharpe_so_far": best_so_far,
+            },
+            step=r.trial_number,
+        )
     wandb.finish(quiet=True)
