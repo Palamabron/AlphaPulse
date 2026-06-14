@@ -388,6 +388,17 @@ class TestTrialDB:
                 db.insert_trial(0, {"lr": 0.9})
                 rows = db.load_all_trials()
             assert len(rows) == 1
+            assert rows[0]["flat_config"]["lr"] == pytest.approx(0.9)
+
+    def test_insert_skips_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "trials.db"
+            with TrialDB(db_path) as db:
+                db.insert_trial(0, {"lr": 0.1})
+                db.update_trial(0, status="completed")
+                db.insert_trial(0, {"lr": 0.9})
+                rows = db.load_all_trials()
+            assert len(rows) == 1
             assert rows[0]["flat_config"]["lr"] == pytest.approx(0.1)
 
     def test_persists_across_connections(self) -> None:
