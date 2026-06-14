@@ -75,7 +75,9 @@ def _catboost_pipeline(X: pd.DataFrame, y: pd.Series) -> Pipeline:
 
 
 def _rf_pipeline(X: pd.DataFrame, y: pd.Series) -> Pipeline:
-    model = RandomForestModel(params={"n_estimators": 10, "n_jobs": 1, "random_state": 0})
+    model = RandomForestModel(
+        params={"n_estimators": 10, "n_jobs": 1, "random_state": 0}
+    )
     pipe = Pipeline(preprocessors=[_IdentityPreprocessor()], model=model)
     pipe.fit(X, y)
     return pipe
@@ -104,7 +106,9 @@ class TestComputeUniversalFeatureImportance:
     def test_xgboost_scores_are_finite_and_nonneg(self) -> None:
         X, y = _make_data()
         pipe = _xgb_pipeline(X, y)
-        imp, _ = compute_universal_feature_importance(pipe, X, feature_cols=FEATURE_COLS)
+        imp, _ = compute_universal_feature_importance(
+            pipe, X, feature_cols=FEATURE_COLS
+        )
         assert all(np.isfinite(v) and v >= 0 for v in imp.values())
 
     def test_lgbm_returns_nonempty_dict(self) -> None:
@@ -155,14 +159,18 @@ class TestComputeUniversalFeatureImportance:
     def test_result_sorted_descending(self) -> None:
         X, y = _make_data()
         pipe = _xgb_pipeline(X, y)
-        imp, _ = compute_universal_feature_importance(pipe, X, feature_cols=FEATURE_COLS)
+        imp, _ = compute_universal_feature_importance(
+            pipe, X, feature_cols=FEATURE_COLS
+        )
         scores = list(imp.values())
         assert scores == sorted(scores, reverse=True)
 
     def test_keys_are_subset_of_feature_cols(self) -> None:
         X, y = _make_data()
         pipe = _xgb_pipeline(X, y)
-        imp, _ = compute_universal_feature_importance(pipe, X, feature_cols=FEATURE_COLS)
+        imp, _ = compute_universal_feature_importance(
+            pipe, X, feature_cols=FEATURE_COLS
+        )
         assert set(imp.keys()).issubset(set(FEATURE_COLS))
 
     def test_mixed_xgb_rf_pipeline_nonempty(self) -> None:

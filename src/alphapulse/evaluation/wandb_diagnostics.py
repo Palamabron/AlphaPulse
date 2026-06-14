@@ -181,7 +181,11 @@ def _log_per_era_correlation(
 
     table = wandb.Table(
         columns=[
-            "era_index", "era", "correlation", "cumulative_correlation", "drawdown"
+            "era_index",
+            "era",
+            "correlation",
+            "cumulative_correlation",
+            "drawdown",
         ]
     )
     for idx, (era, corr) in enumerate(per_era.items()):
@@ -519,9 +523,7 @@ def _log_era_stratified_importance(
         key=lambda f: -float(np.mean([imp.get(f, 0.0) for imp in era_imps])),
     )[:top_n]
 
-    imp_matrix = np.array(
-        [[imp.get(f, 0.0) for f in all_features] for imp in era_imps]
-    )
+    imp_matrix = np.array([[imp.get(f, 0.0) for f in all_features] for imp in era_imps])
     mean_imp = imp_matrix.mean(axis=0)
     std_imp = imp_matrix.std(axis=0, ddof=0)
     stability = mean_imp / (std_imp + 1e-10)
