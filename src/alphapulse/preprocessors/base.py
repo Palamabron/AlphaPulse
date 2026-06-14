@@ -3,8 +3,6 @@ from typing import Protocol, Self, runtime_checkable
 
 import pandas as pd
 
-from ..constants import _PROTECTED_COLS
-
 
 @runtime_checkable
 class TrainEvalPreprocessor(Protocol):
