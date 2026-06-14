@@ -1,11 +1,11 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
 
 from ..validation.purged_cv import PurgedEraCV
-from .backtester import Backtester
+from .backtester import Backtester, PredictorProtocol, predict_with_optional_eras
 from .metrics import calculate_metrics, rank_normalize_per_era
 
 if TYPE_CHECKING:
@@ -28,10 +28,6 @@ _NAN_METRICS: dict[str, float] = {
     "pct_positive_eras": float("nan"),
     "n_valid_eras": float("nan"),
 }
-
-
-class PredictorProtocol(Protocol):
-    def predict(self, X: pd.DataFrame) -> np.ndarray: ...
 
 
 def evaluate_holdout_last_n_eras(
@@ -191,9 +187,9 @@ class EraSplitEvaluator:
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
-            preds = predictor.predict(X_te)
+            era_labels = pd.Series([test_era] * len(y_te), index=y_te.index)
+            preds = predict_with_optional_eras(predictor, X_te, era_labels)
             if self.neutralizer is not None:
-                era_labels = pd.Series([test_era] * len(y_te), index=y_te.index)
                 preds = self.neutralizer.neutralize(preds, X_te, era_labels)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
@@ -234,9 +230,9 @@ class EraSplitEvaluator:
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
-            preds = predictor.predict(X_te)
+            fold_eras = era_series.loc[test_mask]
+            preds = predict_with_optional_eras(predictor, X_te, fold_eras)
             if self.neutralizer is not None:
-                fold_eras = era_series.loc[test_mask]
                 preds = self.neutralizer.neutralize(preds, X_te, fold_eras)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())

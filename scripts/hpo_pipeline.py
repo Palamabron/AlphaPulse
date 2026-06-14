@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 import tyro
+from dotenv import load_dotenv
 from loguru import logger
 
 from alphapulse.experiments.data import load_train_only_frame
@@ -43,9 +44,49 @@ def _trial_worker(
     target_col: str,
     seed: int,
     result_queue: "multiprocessing.Queue[dict]",
+    *,
+    wandb_project: str | None = None,
+    wandb_group: str | None = None,
+    trial_number: int | None = None,
+    wandb_diagnostics: bool = True,
 ) -> None:
     """Run a single trial inside a subprocess and push the result to the queue."""
     try:
+        load_dotenv()
+        worker_config = dict(flat_config)
+        wandb_active = (
+            wandb_project is not None
+            and wandb_group is not None
+            and trial_number is not None
+        )
+        if wandb_active:
+            worker_config["log_wandb_diagnostics"] = wandb_diagnostics
+            worker_config["wandb_log_shap"] = wandb_diagnostics
+            import wandb
+
+            from alphapulse.hpo.objective import TrialResult
+            from alphapulse.logging_.wandb_utils import log_hpo_trial_metrics
+
+            num = flat_config.get("num_models", 1)
+            model_types = "+".join(
+                str(flat_config.get(f"model_{i}_type", "?")) for i in range(1, num + 1)
+            )
+            preprocessors = flat_config.get("scaler_type", "StandardScaler")
+            if flat_config.get("use_packboost"):
+                preprocessors += "+Packboost"
+            wandb.init(
+                project=wandb_project,
+                group=wandb_group,
+                name=f"trial_{trial_number:03d}",
+                config={
+                    **flat_config,
+                    "model_types": model_types,
+                    "preprocessors": preprocessors,
+                },
+                reinit=True,
+            )
+
+        t0 = time.perf_counter()
         X_train, y_train, feature_cols = load_train_only_frame(
             Path(data_dir),
             train_subsample=train_subsample,
@@ -56,14 +97,36 @@ def _trial_worker(
         )
         era_train = X_train["era"]
         metrics = run_trial(
-            flat_config,
+            worker_config,
             X_train=X_train,
             y_train=y_train,
             era_train=era_train,
             feature_cols=feature_cols,
             seed=seed,
         )
-        result_queue.put({"ok": True, "metrics": metrics})
+        elapsed = time.perf_counter() - t0
+        if wandb_active:
+            corr_sharpe = float(metrics.get("corr_sharpe", float("-inf")))
+            trial_result = TrialResult(
+                trial_number=int(trial_number),
+                sharpe=corr_sharpe,
+                metrics=metrics,
+                model_type=str(flat_config.get("model_1_type", "XGBoost")),
+                elapsed_seconds=elapsed,
+                params=flat_config,
+                corr_sharpe=corr_sharpe,
+            )
+            log_hpo_trial_metrics(
+                trial_result,
+                corr_sharpe,
+                model_types=model_types,
+                preprocessors=preprocessors,
+            )
+            import wandb
+
+            wandb.finish(quiet=True)
+
+        result_queue.put({"ok": True, "metrics": metrics, "elapsed_seconds": elapsed})
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
 
@@ -96,6 +159,7 @@ def _run_local(
     trial_timeout: int = 1800,
     gpu: bool = False,
     fast: bool = True,
+    wandb_diagnostics: bool = True,
 ) -> None:
     """Local random-search HPO with subprocess isolation and SQLite trial DB."""
 
@@ -118,7 +182,10 @@ def _run_local(
     wandb_group = f"hpo-{uuid.uuid4().hex[:8]}" if wandb_project else None
     if wandb_project:
         logger.info(
-            "WandB logging enabled: project={} group={}", wandb_project, wandb_group
+            "WandB logging enabled: project={} group={} diagnostics={}",
+            wandb_project,
+            wandb_group,
+            wandb_diagnostics,
         )
 
     trial_kwargs = {
@@ -173,14 +240,18 @@ def _run_local(
             result_queue: multiprocessing.Queue = _MP_CTX.Queue()
             p = _MP_CTX.Process(
                 target=_trial_worker,
-                args=(
-                    flat_config,
-                    trial_kwargs["data_dir"],
-                    trial_kwargs["train_subsample"],
-                    trial_kwargs["target_col"],
-                    seed + i,
-                    result_queue,
-                ),
+                kwargs={
+                    "flat_config": flat_config,
+                    "data_dir": trial_kwargs["data_dir"],
+                    "train_subsample": trial_kwargs["train_subsample"],
+                    "target_col": trial_kwargs["target_col"],
+                    "seed": seed + i,
+                    "result_queue": result_queue,
+                    "wandb_project": wandb_project,
+                    "wandb_group": wandb_group,
+                    "trial_number": i,
+                    "wandb_diagnostics": wandb_diagnostics,
+                },
             )
             p.start()
             p.join(timeout=trial_timeout)
@@ -231,12 +302,15 @@ def _run_local(
                     metrics = payload["metrics"]
                     corr_sharpe = metrics.get("corr_sharpe", float("-inf"))
                     trial_score = float(metrics.get(objective, corr_sharpe))
+                    worker_elapsed = payload.get("elapsed_seconds")
                     result = TrialResult(
                         trial_number=i,
                         sharpe=corr_sharpe,
                         metrics=metrics,
                         model_type=flat_config.get("model_1_type", "XGBoost"),
-                        elapsed_seconds=elapsed,
+                        elapsed_seconds=float(worker_elapsed)
+                        if worker_elapsed is not None
+                        else elapsed,
                         params=flat_config,
                         corr_sharpe=corr_sharpe,
                     )
@@ -277,7 +351,12 @@ def _run_local(
                 current_trial=i,
             )
 
-            if wandb_project and wandb_group and not result.error:
+            if (
+                wandb_project
+                and wandb_group
+                and not result.error
+                and not wandb_diagnostics
+            ):
                 from alphapulse.logging_.wandb_utils import log_hpo_trial
 
                 log_hpo_trial(
@@ -448,12 +527,16 @@ def main(
     trial_timeout: int = 1800,
     gpu: bool = False,
     fast: bool = True,
+    wandb_diagnostics: bool = True,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
     Use --local for random search without Ray, or omit for Ray Tune.
     Use --objective to choose the optimization target (default: corr_sharpe).
     Pass --wandb-project <name> to log every trial to Weights & Biases.
+    With WandB enabled, diagnostics (per-era charts, feature exposure, SHAP
+    for XGBoost) are logged under the ``diagnostics/`` prefix in each trial run.
+    Pass --no-wandb-diagnostics to log metrics only.
     Pass --resume to continue an interrupted sweep (requires --local).
     Pass --trial-timeout N to cap each subprocess trial at N seconds (default: 1800).
     Pass --gpu to enable CUDA for XGBoost, LightGBM, and CatBoost.
@@ -461,6 +544,7 @@ def main(
     finish within ~30 minutes on full data.
     Pass --no-fast for full walk-forward evaluation (slower).
     """
+    load_dotenv()
     set_global_seed(seed)
     if local:
         _run_local(
@@ -476,6 +560,7 @@ def main(
             trial_timeout=trial_timeout,
             gpu=gpu,
             fast=fast,
+            wandb_diagnostics=wandb_diagnostics,
         )
     else:
         _run_ray(

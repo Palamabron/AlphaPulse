@@ -12,9 +12,54 @@ BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
 AUGMENTER_SAMPLE_PROB = 0.05
+HPO_FAST_FOUNDATION_SAMPLE_PROB = 0.03
+HPO_SLOW_FOUNDATION_TYPES = ("TabPFN3", "TabPFN3Reasoning")
+MIN_NEUTRALIZATION_PROPORTION = 0.15
+DEFAULT_NEUTRALIZATION_PROPORTION = 0.35
+NEUTRALIZATION_PROPORTION_RANGE = (MIN_NEUTRALIZATION_PROPORTION, 0.8)
 
 
-def available_foundation_models() -> list[str]:
+def uses_neutralization_for_models(model_types: list[str]) -> bool:
+    return not any(t in FOUNDATION_MODELS for t in model_types)
+
+
+def _sampled_model_types(cfg: dict[str, Any]) -> list[str]:
+    num_models = int(cfg.get("num_models", 1))
+    return [
+        str(cfg.get("model_1_type", "XGBoost")),
+        str(cfg.get("model_2_type", "XGBoost")),
+        str(cfg.get("model_3_type", "XGBoost")),
+    ][:num_models]
+
+
+def _finalize_neutralization_sampling(cfg: dict[str, Any]) -> dict[str, Any]:
+    types = _sampled_model_types(cfg)
+    if uses_neutralization_for_models(types):
+        cfg["use_neutralization"] = True
+        proportion = float(
+            cfg.get("neutralization_proportion", DEFAULT_NEUTRALIZATION_PROPORTION)
+        )
+        cfg["neutralization_proportion"] = max(
+            MIN_NEUTRALIZATION_PROPORTION, proportion
+        )
+    else:
+        cfg["use_neutralization"] = False
+        cfg["neutralization_proportion"] = 0.0
+    return cfg
+
+
+def resolve_neutralize_proportion(
+    flat: dict[str, Any], model_types: list[str]
+) -> float:
+    if not uses_neutralization_for_models(model_types):
+        return 0.0
+    proportion = float(
+        flat.get("neutralization_proportion", DEFAULT_NEUTRALIZATION_PROPORTION)
+    )
+    return max(MIN_NEUTRALIZATION_PROPORTION, min(1.0, proportion))
+
+
+def available_foundation_models(*, hpo_fast: bool = False) -> list[str]:
     available: list[str] = []
     try:
         import tabpfn  # noqa: F401
@@ -37,6 +82,8 @@ def available_foundation_models() -> list[str]:
             available.append("TabPFN3Reasoning")
         except ImportError:
             pass
+    if hpo_fast:
+        return [m for m in available if m not in HPO_SLOW_FOUNDATION_TYPES]
     return available
 
 
@@ -98,15 +145,18 @@ def apply_gpu_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
-def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
+def _sample_model_type(
+    phase: str, rng: _random_mod.Random, *, fast: bool = False
+) -> str:
     if phase != "phase_a":
         roll = rng.random()
-        if roll < FOUNDATION_SAMPLE_PROB:
-            foundation_models = available_foundation_models()
+        foundation_prob = (
+            HPO_FAST_FOUNDATION_SAMPLE_PROB if fast else FOUNDATION_SAMPLE_PROB
+        )
+        if roll < foundation_prob:
+            foundation_models = available_foundation_models(hpo_fast=fast)
             if foundation_models:
                 return rng.choice(foundation_models)
-        if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
-            return "SyntheticDataAugmenter"
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -143,9 +193,9 @@ def sample_random_config(
             "packboost_n_rounds_base": 200,
             "packboost_n_rounds_boost": 100,
             "num_models": 1,
-            "model_1_type": _sample_model_type("phase_a", rng),
-            "model_2_type": _sample_model_type("phase_a", rng),
-            "model_3_type": _sample_model_type("phase_a", rng),
+            "model_1_type": _sample_model_type("phase_a", rng, fast=fast),
+            "model_2_type": _sample_model_type("phase_a", rng, fast=fast),
+            "model_3_type": _sample_model_type("phase_a", rng, fast=fast),
             "n_subs": rng.choice([8, 10]),
             "xgb_max_depth": rng.choice([3, 5]),
             "xgb_learning_rate": _loguniform(3e-3, 0.05, rng),
@@ -162,15 +212,15 @@ def sample_random_config(
             "packboost_model_n_rounds_boost": 100,
             "ensemble_method": "single",
             "stacking_meta_learner": "ridge",
-            "use_neutralization": False,
-            "neutralization_proportion": 0.5,
+            "use_neutralization": True,
+            "neutralization_proportion": rng.uniform(*NEUTRALIZATION_PROPORTION_RANGE),
         }
         if fast:
             cfg["hpo_fast"] = True
             cfg["n_subs"] = rng.choice([3, 5])
             cfg["xgb_n_rounds"] = rng.choice([150, 250, 350])
             cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
-        return cfg
+        return _finalize_neutralization_sampling(cfg)
 
     cfg = {
         "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
@@ -180,9 +230,9 @@ def sample_random_config(
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
         "num_models": rng.choice([1, 2, 3]),
-        "model_1_type": _sample_model_type("phase_b", rng),
-        "model_2_type": _sample_model_type("phase_b", rng),
-        "model_3_type": _sample_model_type("phase_b", rng),
+        "model_1_type": _sample_model_type("phase_b", rng, fast=fast),
+        "model_2_type": _sample_model_type("phase_b", rng, fast=fast),
+        "model_3_type": _sample_model_type("phase_b", rng, fast=fast),
         "n_subs": rng.choice([5, 8, 10, 15]),
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
@@ -199,14 +249,12 @@ def sample_random_config(
         "packboost_model_n_rounds_boost": rng.choice([100, 200]),
         "ensemble_method": rng.choice(["single", "weighted", "stacking"]),
         "stacking_meta_learner": rng.choice(["ridge", "xgboost"]),
-        "use_neutralization": rng.choice([True, False]),
-        "neutralization_proportion": rng.uniform(0.1, 0.8),
+        "use_neutralization": True,
+        "neutralization_proportion": rng.uniform(*NEUTRALIZATION_PROPORTION_RANGE),
         "augmenter_top_fraction": rng.uniform(0.05, 0.20),
         "augmenter_n_synthetic": rng.choice([200, 500, 1000]),
         "augmenter_backend": "auto",
-        "foundation_max_train_rows": rng.choice([5_000, 10_000, 20_000]),
-        "foundation_compression": rng.choice(["pca", "svd"]),
-        "foundation_n_components": rng.choice([128, 256, 512]),
+        "use_augmentation": rng.random() < 0.05,
         "use_gpu": False,
     }
     if fast:
@@ -220,9 +268,13 @@ def sample_random_config(
         cfg["packboost_n_rounds_base"] = rng.choice([150, 250, 350])
         cfg["packboost_model_n_rounds_base"] = rng.choice([200, 300])
         cfg["foundation_max_train_rows"] = rng.choice([3_000, 5_000, 8_000])
+        cfg["foundation_compression"] = rng.choice(["autoencoder", "pca", "svd"])
         cfg["foundation_n_components"] = rng.choice([64, 128, 256])
+        cfg["foundation_n_estimators"] = rng.choice([2, 4])
+        cfg["foundation_compression_epochs"] = rng.choice([5, 10])
         cfg["use_packboost"] = False
-    return cfg
+        cfg["use_augmentation"] = rng.random() < 0.03
+    return _finalize_neutralization_sampling(cfg)
 
 
 def get_full_param_space() -> dict[str, Any]:
@@ -284,6 +336,9 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         flat.get("model_2_type", "XGBoost"),
         flat.get("model_3_type", "XGBoost"),
     ][:num_models]
+    types = [t for t in types if t != "SyntheticDataAugmenter"]
+    if not types:
+        types = ["XGBoost"]
 
     preprocessors: list[dict[str, Any]] = [
         {"type": flat.get("scaler_type", "StandardScaler"), "params": {}}
@@ -382,18 +437,20 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "n_rounds_boost": flat.get("packboost_model_n_rounds_boost", 200),
             }
         if t in FOUNDATION_MODELS:
-            keys = {
+            key_map = {
                 "foundation_max_train_rows": "max_train_rows",
                 "foundation_compression": "compression",
                 "foundation_n_components": "compression_components",
+                "foundation_n_estimators": "n_estimators",
+                "foundation_compression_epochs": "compression_epochs",
             }
-            return {param: flat[key] for key, param in keys.items() if key in flat}
-        if t == "SyntheticDataAugmenter":
-            return {
-                "top_fraction": flat.get("augmenter_top_fraction", 0.10),
-                "n_synthetic": flat.get("augmenter_n_synthetic", 500),
-                "backend": flat.get("augmenter_backend", "auto"),
-            }
+            params = {param: flat[key] for key, param in key_map.items() if key in flat}
+            if flat.get("hpo_fast") and "compression" not in params:
+                params["compression"] = "autoencoder"
+            if flat.get("use_gpu"):
+                params["device"] = "cuda"
+                params["compression_device"] = "cuda"
+            return params
         return {}
 
     tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
@@ -418,11 +475,7 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         ensemble_params["meta_learner"] = flat.get("stacking_meta_learner", "ridge")
         ensemble_params["meta_params"] = {}
 
-    neutralize_proportion = (
-        float(flat.get("neutralization_proportion", 0.5))
-        if flat.get("use_neutralization")
-        else 0.0
-    )
+    neutralize_proportion = resolve_neutralize_proportion(flat, types)
 
     return {
         "preprocessors": preprocessors,

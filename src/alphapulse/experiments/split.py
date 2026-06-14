@@ -17,6 +17,12 @@ def internal_val_split(
     *,
     force_internal: bool = False,
 ) -> tuple[Any, Any, Any, Any]:
+    if not y_train.index.equals(X_train.index):
+        X_train = X_train.reset_index(drop=True)
+        y_train = y_train.reset_index(drop=True)
+        if era_train is not None:
+            era_train = era_train.reset_index(drop=True)
+
     use_split = force_internal or len(X_train) > INTERNAL_VAL_THRESHOLD
     if not use_split:
         return X_train, y_train, None, None

@@ -24,6 +24,8 @@ models:
         eval_metric: rmse
 ensemble_method: single
 ensemble_params: {}
+neutralization:
+  proportion: 0.35
 train:
   n_rounds: 40
   early_stopping_rounds: 5

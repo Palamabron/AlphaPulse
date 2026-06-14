@@ -31,13 +31,22 @@ TABPFN3_PREDICT_CHUNK_ROWS = 128
 TABICL_PREDICT_CHUNK_ROWS = 2_048
 
 
-def _build_compressor(method: str, n_components: int, seed: int) -> BasePreprocessor:
+def _build_compressor(
+    method: str,
+    n_components: int,
+    seed: int,
+    *,
+    epochs: int = 20,
+    device: str | None = None,
+) -> BasePreprocessor:
     if method == "pca":
         return PCAPreprocessor(n_components=n_components, random_state=seed)
     if method == "svd":
         return TruncatedSVDPreprocessor(n_components=n_components, random_state=seed)
     if method == "autoencoder":
-        return AutoencoderPreprocessor(latent_dim=n_components, seed=seed)
+        return AutoencoderPreprocessor(
+            latent_dim=n_components, seed=seed, epochs=epochs, device=device
+        )
     raise ValueError(
         f"Unknown compression method: {method!r}. "
         f"Expected one of {COMPRESSION_METHODS}."
@@ -61,6 +70,8 @@ class FoundationModel(BaseModel):
         max_features: int,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        compression_epochs: int = 20,
+        compression_device: str | None = None,
         predict_chunk_rows: int = DEFAULT_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = None,
@@ -83,6 +94,8 @@ class FoundationModel(BaseModel):
         self.max_features = max_features
         self.compression = compression
         self.compression_components = compression_components
+        self.compression_epochs = compression_epochs
+        self.compression_device = compression_device
         self.predict_chunk_rows = predict_chunk_rows
         self.seed = seed
         self._compressor: BasePreprocessor | None = None
@@ -164,7 +177,13 @@ class FoundationModel(BaseModel):
             return feat
         n_components = self.compression_components or self.max_features
         n_components = min(n_components, feat.shape[1] - 1, len(feat))
-        self._compressor = _build_compressor(self.compression, n_components, self.seed)
+        self._compressor = _build_compressor(
+            self.compression,
+            n_components,
+            self.seed,
+            epochs=self.compression_epochs,
+            device=self.compression_device,
+        )
         return self._compressor.fit_transform(feat, y)
 
     def _prepare_predict(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -191,6 +210,8 @@ class TabPFNModel(FoundationModel):
         max_features: int = TABPFN_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        compression_epochs: int = 20,
+        compression_device: str | None = None,
         predict_chunk_rows: int = TABPFN_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN",
@@ -200,6 +221,8 @@ class TabPFNModel(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            compression_epochs=compression_epochs,
+            compression_device=compression_device,
             predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,
@@ -237,6 +260,8 @@ class TabPFN3Model(FoundationModel):
         max_features: int = TABPFN3_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        compression_epochs: int = 20,
+        compression_device: str | None = None,
         predict_chunk_rows: int = TABPFN3_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN3",
@@ -246,6 +271,8 @@ class TabPFN3Model(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            compression_epochs=compression_epochs,
+            compression_device=compression_device,
             predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,
@@ -287,6 +314,8 @@ class TabPFN3ReasoningModel(FoundationModel):
         max_features: int = TABPFN3_REASONING_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
+        compression_epochs: int = 20,
+        compression_device: str | None = None,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabPFN3Reasoning",
     ) -> None:
@@ -295,6 +324,8 @@ class TabPFN3ReasoningModel(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            compression_epochs=compression_epochs,
+            compression_device=compression_device,
             seed=seed,
             name=name,
         )
@@ -341,7 +372,9 @@ class TabICLModel(FoundationModel):
         max_features: int = TABICL_MAX_FEATURES,
         compression: str | None = DEFAULT_COMPRESSION,
         compression_components: int | None = None,
-        predict_chunk_rows: int = TABPFN_PREDICT_CHUNK_ROWS,
+        compression_epochs: int = 20,
+        compression_device: str | None = None,
+        predict_chunk_rows: int = TABICL_PREDICT_CHUNK_ROWS,
         seed: int = DEFAULT_SEED,
         name: str | None = "TabICL",
     ) -> None:
@@ -350,6 +383,8 @@ class TabICLModel(FoundationModel):
             max_features=max_features,
             compression=compression,
             compression_components=compression_components,
+            compression_epochs=compression_epochs,
+            compression_device=compression_device,
             predict_chunk_rows=predict_chunk_rows,
             seed=seed,
             name=name,

@@ -13,6 +13,19 @@ class PredictorProtocol(Protocol):
     def predict(self, X: pd.DataFrame) -> np.ndarray: ...
 
 
+def predict_with_optional_eras(
+    predictor: PredictorProtocol,
+    X: pd.DataFrame,
+    era: pd.Series,
+) -> np.ndarray:
+    if float(getattr(predictor, "neutralize_proportion", 0.0)) > 0.0:
+        return np.asarray(
+            predictor.predict(X, eras=era),  # type: ignore[call-arg]
+            dtype=np.float64,
+        )
+    return np.asarray(predictor.predict(X), dtype=np.float64)
+
+
 class Backtester:
     """Evaluate a fitted predictor on an (X, y, era) validation split.
 
@@ -68,7 +81,7 @@ class Backtester:
             ``mmc_sharpe``, ``payout_score``, ``fnc_sharpe``.
         """
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
-        preds = self.predictor.predict(X_use)
+        preds = predict_with_optional_eras(self.predictor, X_use, era)
 
         if self.neutralizer is not None:
             preds = self.neutralizer.neutralize(preds, X_use, era)
