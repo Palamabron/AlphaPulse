@@ -179,6 +179,36 @@ def log_hpo_trial_metrics(
     wandb.log(logged)
 
 
+def log_importance_artifact(
+    importance: dict[str, float],
+    *,
+    name: str = "feature-importance",
+) -> None:
+    """Log a feature importance dict as a WandB CSV Artifact on the active run.
+
+    Args:
+        importance: Mapping of feature name to importance score, sorted descending.
+        name: Artifact name (used as the WandB artifact identifier).
+    """
+    import io
+
+    import wandb
+
+    if wandb.run is None:
+        return
+
+    rows = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)
+    buf = io.StringIO()
+    buf.write("feature,importance\n")
+    for feat, score in rows:
+        buf.write(f"{feat},{score}\n")
+
+    artifact = wandb.Artifact(name=name, type="dataset")
+    with artifact.new_file("feature_importance.csv", mode="w") as f:
+        f.write(buf.getvalue())
+    wandb.run.log_artifact(artifact)
+
+
 def log_hpo_trial(
     result: "TrialResult",
     flat_config: dict[str, Any],

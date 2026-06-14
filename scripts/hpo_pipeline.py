@@ -184,6 +184,126 @@ def _best_from_db(db: TrialDB, objective: str) -> tuple[float, dict]:
     return best_score, best_config
 
 
+def _run_best_trial_diagnostics(
+    *,
+    best_config: dict,
+    data_dir: Path,
+    train_subsample: float,
+    target_col: str,
+    seed: int,
+    wandb_project: str,
+    wandb_group: str,
+    feature_cols: list[str],
+) -> None:
+    """Retrain the best config and log a comprehensive XAI diagnostic WandB run.
+
+    Splits the training data into an 80/20 era train/holdout split, retrains
+    the best pipeline on the train portion, and logs universal feature importance,
+    the per-era stability report, and era-stratified importance from the actual
+    trained models. Results are logged as a dedicated 'best-trial-diagnostics' run
+    within the same WandB group as the HPO trials.
+
+    Args:
+        best_config: Flat config dict of the best HPO trial.
+        data_dir: Path to the data directory.
+        train_subsample: Fraction of training data used (same as HPO).
+        target_col: Target column name.
+        seed: Random seed.
+        wandb_project: WandB project name.
+        wandb_group: WandB group name (same as HPO run group).
+        feature_cols: Feature column names.
+    """
+    import wandb
+
+    from alphapulse.evaluation.backtester import Backtester
+    from alphapulse.evaluation.shap_report import compute_universal_feature_importance
+    from alphapulse.evaluation.wandb_diagnostics import log_experiment_diagnostics
+    from alphapulse.hpo.objective import _fit_pipeline
+    from alphapulse.hpo.search_space import (
+        get_train_kwargs_from_flat,
+        resolve_flat_config,
+    )
+    from alphapulse.logging_.wandb_utils import log_importance_artifact
+
+    try:
+        X_train, y_train, _ = load_train_only_frame(
+            data_dir,
+            train_subsample=train_subsample,
+            target_col=target_col,
+            seed=seed,
+            feature_columns=None,
+            need_era=True,
+        )
+        era_train = X_train["era"]
+
+        eras_sorted = sorted(era_train.unique(), key=str)
+        n_holdout = max(5, len(eras_sorted) // 5)
+        holdout_set = set(eras_sorted[-n_holdout:])
+        train_mask = ~era_train.isin(holdout_set)
+
+        pipeline_cfg = resolve_flat_config(best_config)
+        if best_config.get("use_gpu"):
+            from alphapulse.hpo.search_space import apply_gpu_pipeline_config
+
+            pipeline_cfg = apply_gpu_pipeline_config(pipeline_cfg)
+        train_kwargs = get_train_kwargs_from_flat(best_config)
+
+        pipeline = _fit_pipeline(
+            pipeline_cfg,
+            feature_cols,
+            X_train.loc[train_mask],
+            y_train.loc[train_mask],
+            train_kwargs,
+            flat_config=best_config,
+            seed=seed,
+        )
+
+        ho_mask = era_train.isin(holdout_set)
+        X_ho = X_train.loc[ho_mask]
+        y_ho = y_train.loc[ho_mask]
+        era_ho = era_train.loc[ho_mask]
+
+        X_feat = X_ho[feature_cols]
+        metrics = Backtester(pipeline, feature_columns=feature_cols).evaluate(
+            X_ho, y_ho, era_ho
+        )
+
+        wandb.init(
+            project=wandb_project,
+            group=wandb_group,
+            name="best-trial-diagnostics",
+            job_type="diagnostics",
+            config=best_config,
+            reinit=True,
+        )
+
+        log_experiment_diagnostics(
+            pipeline=pipeline,
+            X_val=X_ho,
+            y_val=y_ho,
+            era_val=era_ho,
+            feature_cols=feature_cols,
+            metrics=metrics,
+            log_shap=True,
+            log_feature_report=True,
+            log_era_importance=True,
+        )
+
+        importance, _ = compute_universal_feature_importance(
+            pipeline, X_feat, feature_cols=feature_cols, top_n=50
+        )
+        if importance:
+            log_importance_artifact(importance, name="best-trial-feature-importance")
+
+        wandb.finish(quiet=True)
+    except Exception as exc:
+        logger.warning("Best-trial diagnostics failed: {}", exc)
+        try:
+            wandb.finish(quiet=True)
+        except Exception as finish_exc:
+            logger.debug("wandb.finish cleanup error: {}", finish_exc)
+
+
 def _run_local(
     *,
     data_dir: Path,
@@ -446,6 +566,19 @@ def _run_local(
 
         log_hpo_summary_table(results, project=wandb_project, group=wandb_group)
         logger.info("WandB summary table logged to project={}", wandb_project)
+
+    if wandb_project and wandb_group and best_config:
+        logger.info("Running best-trial XAI diagnostics in WandB...")
+        _run_best_trial_diagnostics(
+            best_config=best_config,
+            data_dir=data_dir,
+            train_subsample=train_subsample,
+            target_col=target_col,
+            seed=seed,
+            wandb_project=wandb_project,
+            wandb_group=wandb_group,
+            feature_cols=feature_cols,
+        )
 
 
 def _run_ray(

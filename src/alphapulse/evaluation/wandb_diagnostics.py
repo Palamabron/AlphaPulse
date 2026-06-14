@@ -14,6 +14,7 @@ MAX_SCATTER_POINTS = 5000
 MAX_HEXBIN_POINTS = 10_000
 FEATURE_EXPOSURE_TOP_N = 15
 MAX_FNC_FEATURES = 200
+_ERA_IMPORTANCE_MIN_ROWS = 10
 
 
 def _wandb_active() -> bool:
@@ -96,8 +97,26 @@ def log_experiment_diagnostics(
     metrics: dict[str, float],
     meta_model_preds: np.ndarray | None = None,
     log_shap: bool = True,
+    log_feature_report: bool = True,
+    log_era_importance: bool = False,
     compute_fnc: bool | None = None,
 ) -> None:
+    """Log comprehensive XAI and backtest diagnostics to the active WandB run.
+
+    Args:
+        pipeline: Trained pipeline.
+        X_val: Validation features (may include era column).
+        y_val: Validation targets.
+        era_val: Era labels aligned with X_val.
+        feature_cols: Feature column names (must not include "era").
+        metrics: Backtest metrics dict.
+        meta_model_preds: Optional meta-model predictions for MMC logging.
+        log_shap: If True, log universal feature importance (all model types).
+        log_feature_report: If True, log per-era stability report via LightGBM proxy.
+        log_era_importance: If True, log era-stratified importance from pipeline models
+            (expensive — recommended only for best-trial diagnostics).
+        compute_fnc: Whether to log FNC. Auto-detected from feature count when None.
+    """
     if not _wandb_active():
         return
 
@@ -133,9 +152,17 @@ def log_experiment_diagnostics(
         wandb.log({"diagnostics/fnc_sharpe": metrics["fnc_sharpe"]})
 
     if log_shap:
-        from ..evaluation.shap_report import log_xgboost_shap_importance
+        from ..evaluation.shap_report import log_universal_feature_importance
 
-        log_xgboost_shap_importance(pipeline, X_use, top_n=20)
+        log_universal_feature_importance(
+            pipeline, X_use, feature_cols=feature_cols, top_n=20
+        )
+
+    if log_feature_report:
+        _log_feature_report(X_use, y_val, era_val, feature_cols)
+
+    if log_era_importance:
+        _log_era_stratified_importance(pipeline, X_use, feature_cols, era_val)
 
 
 def _log_per_era_correlation(
@@ -278,3 +305,171 @@ def _log_ensemble_diagnostics(
             if j >= i:
                 table.add_data(a, b, corr[a][b])
     wandb.log({"diagnostics/ensemble_correlation_matrix": table})
+
+
+def _log_feature_report(
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    era_val: pd.Series,
+    feature_cols: list[str],
+    *,
+    top_n: int = 20,
+) -> None:
+    """Log per-era feature stability report (LightGBM proxy) to WandB.
+
+    Calls compute_feature_report and logs three tables: top features by mean
+    importance, top features by era stability, and worst features by stability.
+    Silently skips if lightgbm is not installed.
+    """
+    if not _wandb_active():
+        return
+
+    import wandb
+
+    try:
+        from ..evaluation.feature_report import compute_feature_report
+    except ImportError:
+        return
+
+    try:
+        X_feat = X_val[feature_cols] if feature_cols else X_val
+        report = compute_feature_report(X_feat, y_val, era_val, top_n=top_n)
+    except Exception:
+        return
+
+    wandb.log({"diagnostics/feature_n_eras_used": report["n_eras_used"]})
+
+    if report["top_by_mean"]:
+        table_mean = wandb.Table(columns=["feature", "mean_importance"])
+        for row in report["top_by_mean"]:
+            table_mean.add_data(row["feature"], row["mean_importance"])
+        wandb.log(
+            {
+                "diagnostics/feature_top_by_mean": table_mean,
+                "diagnostics/feature_importance_mean_bar": wandb.plot.bar(
+                    table_mean,
+                    "feature",
+                    "mean_importance",
+                    title="Top features by mean importance (LightGBM proxy, per era)",
+                ),
+            }
+        )
+
+    if report["top_by_stability"]:
+        table_stab = wandb.Table(columns=["feature", "stability", "mean_importance"])
+        for row in report["top_by_stability"]:
+            table_stab.add_data(
+                row["feature"], row["stability"], row["mean_importance"]
+            )
+        wandb.log(
+            {
+                "diagnostics/feature_top_by_stability": table_stab,
+                "diagnostics/feature_stability_bar": wandb.plot.bar(
+                    table_stab,
+                    "feature",
+                    "stability",
+                    title="Most stable features across eras (mean/std ratio)",
+                ),
+            }
+        )
+
+    if report["bottom_by_stability"]:
+        table_worst = wandb.Table(columns=["feature", "stability", "mean_importance"])
+        for row in report["bottom_by_stability"]:
+            table_worst.add_data(
+                row["feature"], row["stability"], row["mean_importance"]
+            )
+        wandb.log({"diagnostics/feature_worst_stability": table_worst})
+
+
+def _log_era_stratified_importance(
+    pipeline: Pipeline | MultiHeadPipeline,
+    X_val: pd.DataFrame,
+    feature_cols: list[str],
+    era_val: pd.Series,
+    *,
+    top_n: int = 20,
+    max_eras: int = 30,
+) -> None:
+    """Log era-stratified feature importance from the actual trained pipeline models.
+
+    Samples up to max_eras eras, computes universal feature importance on each
+    era slice, then summarizes stability (mean/std ratio) and logs a heatmap table.
+
+    Args:
+        pipeline: Trained pipeline.
+        X_val: Validation features (pre-selected to feature_cols).
+        feature_cols: Feature column names.
+        era_val: Era labels aligned with X_val.
+        top_n: Number of top features to include in the heatmap.
+        max_eras: Maximum eras to sample (keeps runtime bounded).
+    """
+    if not _wandb_active():
+        return
+
+    import wandb
+
+    from ..evaluation.shap_report import compute_universal_feature_importance
+
+    e_arr = np.asarray(era_val.to_numpy())
+    unique_eras = sorted(pd.unique(e_arr), key=str)
+
+    if len(unique_eras) > max_eras:
+        rng = np.random.default_rng(42)
+        unique_eras = list(rng.choice(unique_eras, size=max_eras, replace=False))
+
+    era_imps: list[dict[str, float]] = []
+    era_labels: list[str] = []
+
+    for era in unique_eras:
+        mask = e_arr == era
+        if mask.sum() < _ERA_IMPORTANCE_MIN_ROWS:
+            continue
+        X_era = X_val[mask]
+        imp, _ = compute_universal_feature_importance(
+            pipeline, X_era, feature_cols=feature_cols, top_n=top_n
+        )
+        if imp:
+            era_imps.append(imp)
+            era_labels.append(str(era))
+
+    if not era_imps:
+        return
+
+    all_features = sorted(
+        {f for imp in era_imps for f in imp},
+        key=lambda f: -float(np.mean([imp.get(f, 0.0) for imp in era_imps])),
+    )[:top_n]
+
+    imp_matrix = np.array(
+        [[imp.get(f, 0.0) for f in all_features] for imp in era_imps]
+    )
+    mean_imp = imp_matrix.mean(axis=0)
+    std_imp = imp_matrix.std(axis=0, ddof=0)
+    stability = mean_imp / (std_imp + 1e-10)
+
+    stab_table = wandb.Table(
+        columns=["feature", "mean_importance", "std_importance", "stability"]
+    )
+    for feat, mean_v, std_v, stab_v in zip(
+        all_features, mean_imp, std_imp, stability, strict=False
+    ):
+        stab_table.add_data(feat, float(mean_v), float(std_v), float(stab_v))
+    wandb.log(
+        {
+            "diagnostics/era_importance_stability": stab_table,
+            "diagnostics/era_importance_stability_bar": wandb.plot.bar(
+                stab_table,
+                "feature",
+                "stability",
+                title="Era-stratified importance stability (mean/std)",
+            ),
+        }
+    )
+
+    heatmap_cols = ["era"] + list(all_features)
+    heatmap_table = wandb.Table(columns=heatmap_cols)
+    for era_label, imp in zip(era_labels, era_imps, strict=False):
+        row = [era_label] + [float(imp.get(f, 0.0)) for f in all_features]
+        heatmap_table.add_data(*row)
+    wandb.log({"diagnostics/era_importance_heatmap": heatmap_table})
