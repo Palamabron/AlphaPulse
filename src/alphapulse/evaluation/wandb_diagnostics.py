@@ -175,39 +175,82 @@ def _log_per_era_correlation(
         return
 
     cumulative = per_era.cumsum()
-    table = wandb.Table(columns=["era", "correlation", "cumulative_correlation"])
-    for era, corr in per_era.items():
-        table.add_data(str(era), float(corr), float(cumulative.loc[era]))
+    cum_arr = cumulative.to_numpy(dtype=np.float64)
+    peak_arr = np.maximum.accumulate(cum_arr)
+    drawdown = pd.Series(peak_arr - cum_arr, index=per_era.index)
+
+    table = wandb.Table(
+        columns=[
+            "era_index", "era", "correlation", "cumulative_correlation", "drawdown"
+        ]
+    )
+    for idx, (era, corr) in enumerate(per_era.items()):
+        table.add_data(
+            idx,
+            str(era),
+            float(corr),
+            float(cumulative.loc[era]),
+            float(drawdown.loc[era]),
+        )
 
     wandb.log(
         {
             "diagnostics/per_era_correlation_table": table,
             "diagnostics/per_era_correlation": wandb.plot.line(
-                table, "era", "correlation", title="Per-era correlation"
+                table, "era_index", "correlation", title="Per-era Spearman correlation"
             ),
             "diagnostics/cumulative_correlation": wandb.plot.line(
                 table,
-                "era",
+                "era_index",
                 "cumulative_correlation",
                 title="Cumulative per-era correlation",
             ),
+            "diagnostics/drawdown_curve": wandb.plot.line(
+                table,
+                "era_index",
+                "drawdown",
+                title="Drawdown from peak cumulative correlation",
+            ),
         }
     )
+
+    valid_corrs = per_era.to_numpy(dtype=np.float64)
+    valid_corrs = valid_corrs[np.isfinite(valid_corrs)]
+    if len(valid_corrs) >= 5:
+        counts, edges = np.histogram(valid_corrs, bins=30, range=(-0.1, 0.1))
+        mid = 0.5 * (edges[:-1] + edges[1:])
+        dist_table = wandb.Table(columns=["bin_center", "count"])
+        for m, c in zip(mid, counts, strict=False):
+            dist_table.add_data(float(m), int(c))
+        wandb.log(
+            {
+                "diagnostics/corr_distribution": wandb.plot.bar(
+                    dist_table,
+                    "bin_center",
+                    "count",
+                    title="Distribution of per-era correlations",
+                )
+            }
+        )
 
 
 def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
     import wandb
 
     ranked = rank_normalize(preds)
-    hist_table = wandb.Table(columns=["rank_normalized_prediction"])
-    for value in ranked[np.isfinite(ranked)]:
-        hist_table.add_data(float(value))
+    finite_ranked = ranked[np.isfinite(ranked)]
+    counts, edges = np.histogram(finite_ranked, bins=50)
+    midpoints = 0.5 * (edges[:-1] + edges[1:])
+    hist_table = wandb.Table(columns=["bin_center", "count"])
+    for mid, cnt in zip(midpoints, counts, strict=False):
+        hist_table.add_data(float(mid), int(cnt))
     wandb.log(
         {
-            "diagnostics/prediction_histogram": wandb.plot.histogram(
+            "diagnostics/prediction_histogram": wandb.plot.bar(
                 hist_table,
-                "rank_normalized_prediction",
-                title="Rank-normalized predictions",
+                "bin_center",
+                "count",
+                title="Rank-normalized prediction distribution (50 bins)",
             )
         }
     )
@@ -264,7 +307,17 @@ def _log_feature_exposure(
         table = wandb.Table(columns=["feature", "mean_abs_corr"])
         for row in summary["top"]:
             table.add_data(row["feature"], row["mean_abs_corr"])
-        wandb.log({"diagnostics/feature_exposure_top": table})
+        wandb.log(
+            {
+                "diagnostics/feature_exposure_top": table,
+                "diagnostics/feature_exposure_bar": wandb.plot.bar(
+                    table,
+                    "feature",
+                    "mean_abs_corr",
+                    title="Feature exposure (top 15 by mean |corr| with predictions)",
+                ),
+            }
+        )
 
 
 def _log_ensemble_diagnostics(
@@ -304,7 +357,22 @@ def _log_ensemble_diagnostics(
         for j, b in enumerate(names):
             if j >= i:
                 table.add_data(a, b, corr[a][b])
-    wandb.log({"diagnostics/ensemble_correlation_matrix": table})
+
+    pair_table = wandb.Table(columns=["pair", "correlation"])
+    for i, a in enumerate(names):
+        for j, b in enumerate(names):
+            if j > i:
+                pair_table.add_data(f"{a}→{b}", corr[a][b])
+
+    logged: dict[str, Any] = {"diagnostics/ensemble_correlation_matrix": table}
+    if len(names) > 1:
+        logged["diagnostics/ensemble_correlation_bar"] = wandb.plot.bar(
+            pair_table,
+            "pair",
+            "correlation",
+            title="Model pair correlations (lower = more diverse ensemble)",
+        )
+    wandb.log(logged)
 
 
 def _log_feature_report(
@@ -379,7 +447,17 @@ def _log_feature_report(
             table_worst.add_data(
                 row["feature"], row["stability"], row["mean_importance"]
             )
-        wandb.log({"diagnostics/feature_worst_stability": table_worst})
+        wandb.log(
+            {
+                "diagnostics/feature_worst_stability": table_worst,
+                "diagnostics/feature_worst_stability_bar": wandb.plot.bar(
+                    table_worst,
+                    "feature",
+                    "stability",
+                    title="Least stable features across eras (worst to prune)",
+                ),
+            }
+        )
 
 
 def _log_era_stratified_importance(
@@ -467,9 +545,16 @@ def _log_era_stratified_importance(
         }
     )
 
-    heatmap_cols = ["era"] + list(all_features)
-    heatmap_table = wandb.Table(columns=heatmap_cols)
-    for era_label, imp in zip(era_labels, era_imps, strict=False):
-        row = [era_label] + [float(imp.get(f, 0.0)) for f in all_features]
-        heatmap_table.add_data(*row)
-    wandb.log({"diagnostics/era_importance_heatmap": heatmap_table})
+    xs = list(range(len(era_labels)))
+    ys = [[float(imp.get(f, 0.0)) for imp in era_imps] for f in all_features]
+    wandb.log(
+        {
+            "diagnostics/era_importance_over_time": wandb.plot.line_series(
+                xs=xs,
+                ys=ys,
+                keys=all_features,
+                title="Feature importance across eras (each line = one feature)",
+                xname="era_index",
+            ),
+        }
+    )
