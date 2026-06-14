@@ -3,7 +3,8 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from .base import _PROTECTED_COLS, BasePreprocessor
+from ..constants import _PROTECTED_COLS
+from .base import BasePreprocessor
 
 
 class VarianceFeatureSelector(BasePreprocessor):

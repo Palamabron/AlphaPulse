@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA, TruncatedSVD
 
-from .base import _PROTECTED_COLS, BasePreprocessor
+from ..constants import _PROTECTED_COLS
+from .base import BasePreprocessor
 
 
 class PCAPreprocessor(BasePreprocessor):

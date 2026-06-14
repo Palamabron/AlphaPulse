@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
-from .base import _PROTECTED_COLS, BasePreprocessor
+from ..constants import _PROTECTED_COLS
+from .base import BasePreprocessor
 
 
 class StandardScalerPreprocessor(BasePreprocessor):
