@@ -17,6 +17,7 @@ from alphapulse.pipeline import Pipeline
 from alphapulse.pipeline.ensemble import EnsembleStrategy
 from alphapulse.pipeline.multi_target import MultiTargetPipeline
 from alphapulse.preprocessors import PCAPreprocessor, StandardScalerPreprocessor
+from alphapulse.preprocessors.feature_selection import VarianceFeatureSelector
 
 
 @pytest.fixture
@@ -245,6 +246,19 @@ class TestInternalValSplit:
         assert len(X_tr) + len(X_va) == len(X)
         assert set(era.loc[X_va.index]).isdisjoint(set(era.loc[X_tr.index]))
 
+    def test_internal_val_split_uses_temporal_last_eras(self) -> None:
+        n_eras, rows_per_era = 10, 4
+        eras = [f"e{i:03d}" for i in range(n_eras)]
+        rng = np.random.RandomState(0)
+        order = rng.permutation(n_eras * rows_per_era)
+        era = pd.Series(np.repeat(eras, rows_per_era)[order])
+        X = pd.DataFrame({"a": np.arange(n_eras * rows_per_era)[order]})
+        y = pd.Series(np.arange(n_eras * rows_per_era)[order] * 0.1)
+        _, _, X_va, _ = internal_val_split(X, y, era_train=era, force_internal=True)
+        assert X_va is not None
+        val_eras = set(era.loc[X_va.index])
+        assert val_eras == {"e009"}
+
     def test_stacking_forces_internal_split(self) -> None:
         X = pd.DataFrame({"a": np.arange(100.0)})
         y = pd.Series(np.arange(100.0))
@@ -296,6 +310,39 @@ def test_all_nan_rows_returns_finite(toy_data: tuple[pd.DataFrame, pd.Series]) -
     preds = pipe.predict(X_bad)
     assert preds.shape == (len(X),)
     assert np.isfinite(preds).all()
+
+
+def test_pipeline_predict_string_index_invalid_row_imputation(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    X, y = toy_data
+    X = X.copy()
+    X.index = [f"row_{i}" for i in range(len(X))]
+    y.index = X.index
+    pipe = Pipeline(preprocessors=[StandardScalerPreprocessor()], model=_xgb())
+    pipe.fit(X, y, n_rounds=5)
+    X_mixed = X.copy()
+    X_mixed.iloc[0] = np.nan
+    X_mixed.iloc[3] = np.inf
+    preds = pipe.predict(X_mixed)
+    assert preds.shape == (len(X),)
+    assert np.isfinite(preds).all()
+    assert preds[0] == pytest.approx(np.median(preds[1:]), rel=0.05)
+
+
+def test_variance_selector_in_pipeline_with_era_column(
+    toy_data: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    X, y = toy_data
+    era = pd.Series(np.repeat(["e1", "e2"], len(X) // 2), index=X.index)
+    X = X.assign(era=era)
+    pipe = Pipeline(
+        preprocessors=[VarianceFeatureSelector(keep_fraction=0.5)],
+        model=_xgb(),
+    )
+    pipe.fit(X, y, n_rounds=5)
+    preds = pipe.predict(X)
+    assert preds.shape == (len(X),)
 
 
 def test_numerai_predict_passes_eras_when_neutralization_enabled(

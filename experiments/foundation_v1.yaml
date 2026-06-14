@@ -1,0 +1,33 @@
+# Foundation model experiment — compress 780 features via VAE/autoencoder before TabICL/TabPFN.
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 1.0
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: TabICL
+    params:
+      n_estimators: 4
+      max_train_rows: 8000
+      compression: autoencoder
+      compression_components: 128
+      compression_epochs: 10
+      kv_cache: false
+      batch_size: 8
+ensemble_method: single
+ensemble_params: {}
+neutralization:
+  proportion: 0.0
+train:
+  n_rounds: 1
+  early_stopping_rounds: 1
+evaluation:
+  primary_metric: corr_sharpe
+  walk_forward: false

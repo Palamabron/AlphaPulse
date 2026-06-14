@@ -90,6 +90,7 @@ def main(
         agent_model=agent_model,
         resume=resume,
         wandb_project=wandb_project,
+        data_dir=data_dir,
     )
 
     n_ok = sum(1 for t in state.trials if t.error is None)

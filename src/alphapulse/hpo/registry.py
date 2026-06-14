@@ -12,6 +12,7 @@ from ..models.lightgbm_model import LightGBMModel
 from ..models.packboost_model import PackboostModel
 from ..models.sklearn_models import ExtraTreesModel, RandomForestModel, RidgeModel
 from ..models.xgboost_model import XGBoostModel
+from ..preprocessors.autoencoder import AutoencoderPreprocessor
 from ..preprocessors.base import BasePreprocessor
 from ..preprocessors.compression import PCAPreprocessor, TruncatedSVDPreprocessor
 from ..preprocessors.era_stable import EraStableFeatureSelector
@@ -168,6 +169,10 @@ PREPROCESSOR_REGISTRY: dict[str, tuple[type[BasePreprocessor], dict[str, Any]]] 
     "TruncatedSVD": (
         TruncatedSVDPreprocessor,
         {"n_components": 10},
+    ),
+    "Autoencoder": (
+        AutoencoderPreprocessor,
+        {"latent_dim": 64},
     ),
     "VarianceSelector": (
         VarianceFeatureSelector,

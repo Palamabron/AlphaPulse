@@ -10,6 +10,9 @@ VALID_MODELS = [
     "LightGBM",
     "Packboost",
     "CatBoost",
+    "Ridge",
+    "RandomForest",
+    "ExtraTrees",
     "TabPFN",
     "TabPFN3",
     "TabPFN3Reasoning",
@@ -30,6 +33,25 @@ VALID_ENSEMBLE_METHODS = ["single", "weighted", "stacking"]
 MAX_MODELS = 4
 
 
+def _model_param_dict(model_entry: dict[str, Any]) -> dict[str, Any]:
+    params = model_entry.get("params") or {}
+    inner = params.get("params")
+    if isinstance(inner, dict):
+        return inner
+    return params
+
+
+def _set_model_param_dict(model_entry: dict[str, Any], updates: dict[str, Any]) -> None:
+    params = dict(model_entry.get("params") or {})
+    if "params" in params and isinstance(params["params"], dict):
+        inner = dict(params["params"])
+        inner.update(updates)
+        params["params"] = inner
+    else:
+        params.update(updates)
+    model_entry["params"] = params
+
+
 def tune_model_params(
     config: dict[str, Any], model_index: int, param_updates: dict[str, Any]
 ) -> dict[str, Any]:
@@ -39,9 +61,9 @@ def tune_model_params(
         raise ValueError(
             f"model_index {model_index} out of range (have {len(models)} models)"
         )
-    existing = dict(models[model_index].get("params") or {})
+    existing = dict(_model_param_dict(models[model_index]))
     existing.update(param_updates)
-    models[model_index]["params"] = existing
+    _set_model_param_dict(models[model_index], existing)
     config["models"] = models
     return config
 

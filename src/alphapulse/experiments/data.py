@@ -3,6 +3,43 @@ from pathlib import Path
 
 import pandas as pd
 
+META_MODEL_COLUMN_CANDIDATES = ("meta_model", "prediction", "meta")
+
+
+def load_meta_model_series(
+    data_dir: Path,
+    index: pd.Index,
+    *,
+    meta_model_path: str | None = None,
+) -> pd.Series | None:
+    path = (
+        Path(meta_model_path)
+        if meta_model_path
+        else Path(data_dir) / "meta_model.parquet"
+    )
+    if not path.exists():
+        return None
+
+    meta_df = pd.read_parquet(path)
+    value_col = next(
+        (c for c in META_MODEL_COLUMN_CANDIDATES if c in meta_df.columns),
+        None,
+    )
+    if value_col is None:
+        numeric_cols = meta_df.select_dtypes(include=["number"]).columns
+        if len(numeric_cols) == 0:
+            return None
+        value_col = str(numeric_cols[0])
+
+    if "id" in meta_df.columns:
+        aligned = meta_df.set_index("id")[value_col]
+        return aligned.reindex(index)
+    if meta_df.index.equals(index):
+        return meta_df[value_col]
+    if len(meta_df) == len(index):
+        return pd.Series(meta_df[value_col].to_numpy(), index=index)
+    return meta_df[value_col].reindex(index)
+
 
 def load_feature_names(
     data_dir: Path,
@@ -77,8 +114,8 @@ def load_train_val_frames(
     need_era: bool,
     benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.Series, list[str]]:
-    if train_subsample <= 0.0:
-        raise ValueError(f"train_subsample must be > 0, got {train_subsample}")
+    if not 0.0 < train_subsample <= 1.0:
+        raise ValueError(f"train_subsample must be in (0, 1], got {train_subsample}")
 
     train_path = data_dir / "train.parquet"
     val_path = data_dir / "validation.parquet"
@@ -110,6 +147,8 @@ def load_train_val_frames(
         raise ValueError("No feature columns resolved after excluding metadata.")
     read_cols = cols + (["era"] if need_era else [])
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
+    if "era" in train_df.columns:
+        train_df = train_df.sort_values("era", kind="mergesort")
     return (
         train_df[read_cols],
         train_df[target_col],
@@ -131,6 +170,9 @@ def load_train_only_frame(
     benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, list[str]]:
     """Load only train.parquet (no validation) with column pruning to reduce RAM."""
+    if not 0.0 < train_subsample <= 1.0:
+        raise ValueError(f"train_subsample must be in (0, 1], got {train_subsample}")
+
     train_path = data_dir / "train.parquet"
     if not train_path.exists():
         raise FileNotFoundError(f"Expected {train_path}")
@@ -159,6 +201,8 @@ def load_train_only_frame(
     read_cols = cols + (["era"] if need_era else [])
 
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
+    if "era" in train_df.columns:
+        train_df = train_df.sort_values("era", kind="mergesort")
     return train_df[read_cols], train_df[target_col], cols
 
 
@@ -171,6 +215,9 @@ def load_train_frame_with_era(
     need_era: bool,
     benchmark_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.Series, list[str]]:
+    if not 0.0 < train_subsample <= 1.0:
+        raise ValueError(f"train_subsample must be in (0, 1], got {train_subsample}")
+
     train_path = data_dir / "train.parquet"
     if not train_path.exists():
         raise FileNotFoundError(f"Expected {train_path}")
@@ -194,4 +241,6 @@ def load_train_frame_with_era(
         raise ValueError("No feature columns resolved after excluding metadata.")
     x_cols = cols + (["era"] if need_era else [])
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
+    if "era" in train_df.columns:
+        train_df = train_df.sort_values("era", kind="mergesort")
     return train_df[x_cols], train_df[target_col], train_df["era"], cols

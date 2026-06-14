@@ -64,6 +64,35 @@ def test_instantiate_model_matches_model_factory() -> None:
     assert from_builder.n_subs == from_factory.n_subs == 3
 
 
+def test_apply_gpu_model_params_lightgbm_sets_device() -> None:
+    from alphapulse.hpo.search_space import apply_gpu_model_params
+
+    params = apply_gpu_model_params("LightGBM", {"params": {"verbosity": -1}})
+    inner = params["params"]
+    assert inner["device"] == "gpu"
+    assert inner["gpu_platform_id"] == 0
+    assert inner["gpu_device_id"] == 0
+    assert "n_jobs" not in inner
+
+
+def test_instantiate_catboost_gpu_strips_colsample_bylevel() -> None:
+    from alphapulse.hpo.builder import instantiate_model
+    from alphapulse.models.catboost_model import CatBoostModel
+    from alphapulse.models.era_ensemble_model import EraEnsembleModel
+
+    model = instantiate_model(
+        "CatBoost",
+        {"params": {"task_type": "GPU", "verbose": 0}},
+        index=0,
+        n_subs=2,
+    )
+    assert isinstance(model, EraEnsembleModel)
+    base = model.base_model_factory()
+    assert isinstance(base, CatBoostModel)
+    assert base.params.get("task_type") == "GPU"
+    assert "colsample_bylevel" not in base.params
+
+
 def test_ensemble_optimizer_fit_predict() -> None:
     rng = np.random.RandomState(0)
     n = 200
@@ -95,3 +124,28 @@ def test_synthetic_data_augmenter_kde_fit_once() -> None:
     X2, _ = aug.generate()
     assert len(X1) == len(X2) == 10
     assert list(X1.columns) == list("ABC")
+
+
+def test_xgboost_ray_callbacks_return_training_callback_instances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    import types
+
+    import xgboost as xgb
+
+    from alphapulse.models import xgboost_model
+
+    fake_ray = types.ModuleType("ray")
+    fake_tune = types.ModuleType("ray.tune")
+    fake_session = types.ModuleType("ray.tune.session")
+    fake_session.get_session = lambda: object()  # type: ignore[attr-defined]
+    fake_session.report = lambda metrics: None  # type: ignore[attr-defined]
+    fake_tune.session = fake_session  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "ray", fake_ray)
+    monkeypatch.setitem(sys.modules, "ray.tune", fake_tune)
+    monkeypatch.setitem(sys.modules, "ray.tune.session", fake_session)
+
+    callbacks = xgboost_model._make_ray_callbacks()
+    assert len(callbacks) == 1
+    assert isinstance(callbacks[0], xgb.callback.TrainingCallback)

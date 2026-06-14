@@ -196,11 +196,12 @@ class MultiHeadPipeline:
             if X_g.isna().any().any():
                 post_nan_mask = ~X_g.isna().any(axis=1)
                 X_g = X_g[post_nan_mask]
-                combined_valid_mask = valid_mask.copy()
-                valid_indices = np.where(valid_mask)[0]
-                combined_valid_mask[valid_indices[~post_nan_mask]] = False
+                combined_valid_mask = valid_mask.to_numpy(dtype=bool).copy()
+                valid_positions = np.flatnonzero(combined_valid_mask)
+                post_arr = np.asarray(post_nan_mask, dtype=bool)
+                combined_valid_mask[valid_positions[~post_arr]] = False
             else:
-                combined_valid_mask = valid_mask
+                combined_valid_mask = valid_mask.to_numpy(dtype=bool)
 
             if len(X_g) == 0:
                 return np.full(len(X), 0.0)
@@ -245,7 +246,7 @@ class MultiHeadPipeline:
                 valid_preds = self._ensemble.combine(preds)
 
             raw_preds = np.full(len(X), safe_median(valid_preds))
-            raw_preds[nan_mask] = valid_preds
+            raw_preds[nan_mask.to_numpy(dtype=bool)] = valid_preds
             return raw_preds
 
         if len(self.heads) == 1:

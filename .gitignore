@@ -211,3 +211,5 @@ __marimo__/
 # AlphaPulse-specific
 artifacts/
 data/
+wandb/
+catboost_info/

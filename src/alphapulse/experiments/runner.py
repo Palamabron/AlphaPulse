@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import yaml
 from loguru import logger
 
@@ -13,7 +14,11 @@ from ..evaluation.era_split import EraSplitEvaluator, evaluate_holdout_last_n_er
 from ..hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
 from ..pipeline.multihead import MultiHeadPipeline
 from ..pipeline.pipeline import Pipeline
-from .data import load_train_frame_with_era, load_train_val_frames
+from .data import (
+    load_meta_model_series,
+    load_train_frame_with_era,
+    load_train_val_frames,
+)
 from .hashing import config_hash
 from .schema import ExperimentV1
 from .split import internal_val_split
@@ -54,7 +59,13 @@ def _need_era_column(exp: ExperimentV1) -> bool:
     return False
 
 
-def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> RunResult:
+def run_experiment(
+    exp: ExperimentV1,
+    *,
+    artifact_dir: Path | None = None,
+    use_gpu: bool = False,
+    log_wandb_diagnostics: bool | None = None,
+) -> RunResult:
     """Execute a full experiment: load data, build pipeline, train, and backtest.
 
     Args:
@@ -68,6 +79,10 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
     """
     t0 = time.perf_counter()
     pipeline_cfg = exp.to_pipeline_config()
+    if use_gpu:
+        from ..hpo.search_space import apply_gpu_pipeline_config
+
+        pipeline_cfg = apply_gpu_pipeline_config(pipeline_cfg)
     ch = config_hash(
         {
             "version": exp.version,
@@ -133,8 +148,47 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
         )
 
     gc.collect()
+    meta_path = exp.evaluation.meta_model_path
+    meta_model_preds = None
+    meta_series = load_meta_model_series(
+        data_dir, X_val.index, meta_model_path=meta_path
+    )
+    if meta_series is not None:
+        meta_model_preds = meta_series.reindex(X_val.index).to_numpy(dtype=np.float64)
+
+    compute_fnc = len(feature_cols) <= 200
     backtester = Backtester(pipeline, feature_columns=feature_cols)
-    metrics = backtester.evaluate(X_val, y_val, era_val)
+    metrics = backtester.evaluate(
+        X_val,
+        y_val,
+        era_val,
+        meta_model_preds=meta_model_preds,
+        compute_fnc=compute_fnc,
+        corr_weight=exp.evaluation.corr_weight,
+        mmc_weight=exp.evaluation.mmc_weight,
+    )
+
+    should_log_diag = log_wandb_diagnostics
+    if should_log_diag is None:
+        try:
+            import wandb
+
+            should_log_diag = wandb.run is not None
+        except ImportError:
+            should_log_diag = False
+    if should_log_diag:
+        from ..evaluation.wandb_diagnostics import log_experiment_diagnostics
+
+        log_experiment_diagnostics(
+            pipeline=pipeline,
+            X_val=X_val,
+            y_val=y_val,
+            era_val=era_val,
+            feature_cols=feature_cols,
+            metrics=metrics,
+            meta_model_preds=meta_model_preds,
+            compute_fnc=compute_fnc,
+        )
 
     ev = exp.evaluation
     if ev.era_holdout_last_n is not None:

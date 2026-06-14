@@ -150,6 +150,35 @@ def log_hpo_summary_table(
     wandb.finish(quiet=True)
 
 
+def log_hpo_trial_metrics(
+    result: "TrialResult",
+    objective: float,
+    *,
+    model_types: str | None = None,
+    preprocessors: str | None = None,
+) -> None:
+    import wandb
+
+    logged: dict[str, Any] = {
+        "sharpe": result.sharpe,
+        "objective": objective,
+        "elapsed_seconds": result.elapsed_seconds,
+    }
+    if model_types is not None:
+        logged["model_types"] = model_types
+    if preprocessors is not None:
+        logged["preprocessors"] = preprocessors
+    if result.corr_sharpe not in (float("-inf"), float("inf")):
+        logged["corr_sharpe"] = result.corr_sharpe
+    if result.mmc_sharpe is not None:
+        logged["mmc_sharpe"] = result.mmc_sharpe
+    if result.payout_score is not None:
+        logged["payout_score"] = result.payout_score
+    for k, v in (result.metrics or {}).items():
+        logged[f"metric/{k}"] = v
+    wandb.log(logged)
+
+
 def log_hpo_trial(
     result: "TrialResult",
     flat_config: dict[str, Any],
@@ -187,21 +216,7 @@ def log_hpo_trial(
         reinit=True,
     )
 
-    logged: dict[str, Any] = {
-        "sharpe": result.sharpe,
-        "objective": objective,
-        "elapsed_seconds": result.elapsed_seconds,
-        "model_types": model_types,
-        "preprocessors": preprocessors,
-    }
-    if result.corr_sharpe not in (float("-inf"), float("inf")):
-        logged["corr_sharpe"] = result.corr_sharpe
-    if result.mmc_sharpe is not None:
-        logged["mmc_sharpe"] = result.mmc_sharpe
-    if result.payout_score is not None:
-        logged["payout_score"] = result.payout_score
-    for k, v in (result.metrics or {}).items():
-        logged[f"metric/{k}"] = v
-
-    wandb.log(logged)
+    log_hpo_trial_metrics(
+        result, objective, model_types=model_types, preprocessors=preprocessors
+    )
     wandb.finish(quiet=True)

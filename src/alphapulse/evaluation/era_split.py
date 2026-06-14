@@ -1,11 +1,11 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
 
 from ..validation.purged_cv import PurgedEraCV
-from .backtester import Backtester
+from .backtester import Backtester, PredictorProtocol, predict_with_optional_eras
 from .metrics import calculate_metrics, rank_normalize_per_era
 
 if TYPE_CHECKING:
@@ -15,6 +15,11 @@ WF_N_SPLITS = 3
 WF_N_PURGE = 4
 WF_MIN_TRAIN_ERAS = 20
 
+HPO_FAST_HOLDOUT_ERAS = 52
+HPO_FAST_WF_N_SPLITS = 2
+HPO_FAST_MAX_TRAIN_ERAS = 120
+HPO_FAST_N_SUBS_CAP = 5
+
 _NAN_METRICS: dict[str, float] = {
     "mean_per_era_correlation": float("nan"),
     "std_per_era_correlation": float("nan"),
@@ -23,10 +28,6 @@ _NAN_METRICS: dict[str, float] = {
     "pct_positive_eras": float("nan"),
     "n_valid_eras": float("nan"),
 }
-
-
-class PredictorProtocol(Protocol):
-    def predict(self, X: pd.DataFrame) -> np.ndarray: ...
 
 
 def evaluate_holdout_last_n_eras(
@@ -81,6 +82,7 @@ class EraSplitEvaluator:
         n_purge: int = 4,
         n_embargo: int = 0,
         n_splits: int | None = None,
+        max_train_eras: int | None = None,
         neutralizer: "FeatureNeutralizer | None" = None,
     ) -> None:
         if n_purge < 0:
@@ -94,6 +96,7 @@ class EraSplitEvaluator:
         self.n_purge = n_purge
         self.n_embargo = n_embargo
         self.n_splits = n_splits
+        self.max_train_eras = max_train_eras
         self.neutralizer = neutralizer
 
     def evaluate_walk_forward(
@@ -103,6 +106,11 @@ class EraSplitEvaluator:
         era: pd.Series,
         train_fn: Callable[[pd.DataFrame, pd.Series], PredictorProtocol],
         eras_order: list[Any] | None = None,
+        meta_model: pd.Series | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> dict[str, float]:
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
         df = pd.concat(
@@ -115,14 +123,32 @@ class EraSplitEvaluator:
         all_y_true: list[float] = []
         all_y_pred: list[float] = []
         all_era: list[Any] = []
+        all_meta: list[float] = []
 
         if self.n_splits is not None:
             self._collect_purged_cv(
-                df, X_use, train_fn, all_y_true, all_y_pred, all_era
+                df,
+                X_use,
+                train_fn,
+                all_y_true,
+                all_y_pred,
+                all_era,
+                meta_model=meta_model,
+                all_meta=all_meta if meta_model is not None else None,
+                last_fold_callback=last_fold_callback,
             )
         else:
             self._collect_expanding(
-                df, X_use, eras_order, train_fn, all_y_true, all_y_pred, all_era
+                df,
+                X_use,
+                eras_order,
+                train_fn,
+                all_y_true,
+                all_y_pred,
+                all_era,
+                meta_model=meta_model,
+                all_meta=all_meta if meta_model is not None else None,
+                last_fold_callback=last_fold_callback,
             )
 
         if not all_y_true:
@@ -131,7 +157,8 @@ class EraSplitEvaluator:
         y_s = pd.Series(all_y_true)
         era_s = pd.Series(all_era)
         pred_a = rank_normalize_per_era(np.asarray(all_y_pred, dtype=np.float64), era_s)
-        return calculate_metrics(y_s, pred_a, era_s)
+        meta_arr = np.asarray(all_meta, dtype=np.float64) if all_meta else None
+        return calculate_metrics(y_s, pred_a, era_s, meta_model_preds=meta_arr)
 
     def _collect_expanding(
         self,
@@ -142,6 +169,13 @@ class EraSplitEvaluator:
         all_y_true: list[float],
         all_y_pred: list[float],
         all_era: list[Any],
+        *,
+        meta_model: pd.Series | None = None,
+        all_meta: list[float] | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> None:
         step = self.n_embargo + 1
         first_test = self.min_train_eras + self.n_purge
@@ -163,13 +197,17 @@ class EraSplitEvaluator:
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
-            preds = predictor.predict(X_te)
+            era_labels = pd.Series([test_era] * len(y_te), index=y_te.index)
+            preds = predict_with_optional_eras(predictor, X_te, era_labels)
             if self.neutralizer is not None:
-                era_labels = pd.Series([test_era] * len(y_te), index=y_te.index)
                 preds = self.neutralizer.neutralize(preds, X_te, era_labels)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend([test_era] * len(y_te))
+            if meta_model is not None and all_meta is not None:
+                all_meta.extend(meta_model.loc[y_te.index].tolist())
+            if last_fold_callback is not None:
+                last_fold_callback(predictor, X_te, y_te, era_labels)
 
     def _collect_purged_cv(
         self,
@@ -179,6 +217,13 @@ class EraSplitEvaluator:
         all_y_true: list[float],
         all_y_pred: list[float],
         all_era: list[Any],
+        *,
+        meta_model: pd.Series | None = None,
+        all_meta: list[float] | None = None,
+        last_fold_callback: Callable[
+            [PredictorProtocol, pd.DataFrame, pd.Series, pd.Series], None
+        ]
+        | None = None,
     ) -> None:
         era_series = df["era"]
         cv = PurgedEraCV(
@@ -186,6 +231,7 @@ class EraSplitEvaluator:
             n_purge=self.n_purge,
             n_embargo=self.n_embargo,
             min_train_eras=self.min_train_eras,
+            max_train_eras=self.max_train_eras,
         )
         for train_eras, test_eras in cv.split_eras(era_series):
             train_mask = era_series.isin(set(train_eras))
@@ -200,16 +246,24 @@ class EraSplitEvaluator:
             X_te = cast(pd.DataFrame, df.loc[test_mask, X_use.columns])
             y_te = cast(pd.Series, df.loc[test_mask, "y"])
             predictor = train_fn(X_tr, y_tr)
-            preds = predictor.predict(X_te)
+            fold_eras = era_series.loc[test_mask]
+            preds = predict_with_optional_eras(predictor, X_te, fold_eras)
             if self.neutralizer is not None:
-                fold_eras = era_series.loc[test_mask]
                 preds = self.neutralizer.neutralize(preds, X_te, fold_eras)
             all_y_true.extend(y_te.tolist())
             all_y_pred.extend(np.asarray(preds).ravel().tolist())
             all_era.extend(era_series.loc[test_mask].tolist())
+            if meta_model is not None and all_meta is not None:
+                all_meta.extend(meta_model.loc[y_te.index].tolist())
+            if last_fold_callback is not None:
+                last_fold_callback(predictor, X_te, y_te, fold_eras)
 
 
 __all__ = [
+    "HPO_FAST_HOLDOUT_ERAS",
+    "HPO_FAST_MAX_TRAIN_ERAS",
+    "HPO_FAST_N_SUBS_CAP",
+    "HPO_FAST_WF_N_SPLITS",
     "WF_MIN_TRAIN_ERAS",
     "WF_N_PURGE",
     "WF_N_SPLITS",
