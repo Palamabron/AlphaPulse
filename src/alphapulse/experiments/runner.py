@@ -163,7 +163,7 @@ def run_experiment(exp: ExperimentV1, *, artifact_dir: Path | None = None) -> Ru
             )
             era_col = X_tr["era"] if "era" in X_tr.columns else None
             X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-                X_tr, y_tr, era_train=era_col
+                X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
             )
             p.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kw)
             return p

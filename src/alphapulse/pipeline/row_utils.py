@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-PROTECTED_METADATA_COLUMNS = frozenset({"era"})
+PROTECTED_METADATA_COLUMNS = frozenset({"era", "id", "data_type"})
 
 
 def invalid_row_mask(X: pd.DataFrame, y: pd.Series | None = None) -> pd.Series:

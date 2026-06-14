@@ -76,8 +76,12 @@ def run_trial(
             pipeline_cfg, feature_columns=feature_cols, feature_groups=None
         )
         era_col = X_tr["era"] if "era" in X_tr.columns else None
+        stacking_needs_val = (
+            pipeline_cfg.get("ensemble_method") == "stacking"
+            and len(pipeline_cfg.get("models", [])) > 1
+        )
         X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-            X_tr, y_tr, era_train=era_col
+            X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
         )
         pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kwargs)
         return pipeline

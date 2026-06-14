@@ -58,6 +58,12 @@ class EnsembleStrategy:
                     f"Stacking validation predictions have {stack_X.shape[1]} "
                     f"columns but expected {n_models} (one per model)"
                 )
+
+            finite_mask = np.isfinite(stack_X).all(axis=1)
+            if not finite_mask.all():
+                stack_X = stack_X[finite_mask]
+                y_val = np.asarray(y_val, dtype=np.float64)[finite_mask]
+
             meta = self.params.get("meta_learner", "ridge")
             meta_params = self.params.get("meta_params") or {}
 

@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA, TruncatedSVD
 
+from ..constants import _PROTECTED_COLS
 from .base import BasePreprocessor
 
 
@@ -21,7 +22,10 @@ class PCAPreprocessor(BasePreprocessor):
         self._pca = PCA(n_components=n_components, random_state=random_state)
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        self._numeric_cols = list(X.select_dtypes(include=[np.number]).columns)
+        feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+        self._numeric_cols = list(
+            X[feat_cols].select_dtypes(include=[np.number]).columns
+        )
         if not self._numeric_cols:
             raise ValueError("PCAPreprocessor: no numeric columns found.")
         self._pca.fit(X[self._numeric_cols].values)
@@ -50,7 +54,10 @@ class TruncatedSVDPreprocessor(BasePreprocessor):
         self._svd = TruncatedSVD(n_components=n_components, random_state=random_state)
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:
-        self._numeric_cols = list(X.select_dtypes(include=[np.number]).columns)
+        feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+        self._numeric_cols = list(
+            X[feat_cols].select_dtypes(include=[np.number]).columns
+        )
         if not self._numeric_cols:
             raise ValueError("TruncatedSVDPreprocessor: no numeric columns found.")
         self._svd.fit(X[self._numeric_cols].values)

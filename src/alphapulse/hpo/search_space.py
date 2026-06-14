@@ -9,16 +9,21 @@ except ImportError:
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
 FOUNDATION_SAMPLE_PROB = 0.05
-AUGMENTER_SAMPLE_PROB = 0.05
 
 
-def _sample_model_type(phase: str, rng: _random_mod.Random) -> str:
+def _sample_model_type(
+    phase: str, rng: _random_mod.Random, exclude: frozenset[str] | None = None
+) -> str:
     if phase != "phase_a":
         roll = rng.random()
         if roll < FOUNDATION_SAMPLE_PROB:
-            return rng.choice(FOUNDATION_MODELS)
-        if roll < FOUNDATION_SAMPLE_PROB + AUGMENTER_SAMPLE_PROB:
-            return "SyntheticDataAugmenter"
+            available = (
+                [m for m in FOUNDATION_MODELS if m not in exclude]
+                if exclude
+                else FOUNDATION_MODELS
+            )
+            if available:
+                return rng.choice(available)
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
     return rng.choice(BOOSTING_MODELS)
@@ -29,7 +34,10 @@ def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
 
 
 def sample_random_config(
-    seed: int | None = None, *, phase: str = "phase_b"
+    seed: int | None = None,
+    *,
+    phase: str = "phase_b",
+    exclude_models: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -83,10 +91,18 @@ def sample_random_config(
         "packboost_boost_weight": rng.uniform(0.1, 0.5),
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
+        "use_feature_selection": rng.choice([True, False]),
+        "feature_selection_type": rng.choice(
+            ["variance", "lgbm_importance", "era_stable"]
+        ),
+        "feature_selection_keep_fraction": rng.uniform(0.5, 0.9),
+        "era_stable_stability_weight": rng.uniform(0.3, 0.7),
+        "use_noise_injection": rng.choice([True, False]),
+        "noise_sigma": _loguniform(5e-3, 5e-2, rng),
         "num_models": rng.choice([1, 2, 3]),
-        "model_1_type": _sample_model_type("phase_b", rng),
-        "model_2_type": _sample_model_type("phase_b", rng),
-        "model_3_type": _sample_model_type("phase_b", rng),
+        "model_1_type": _sample_model_type("phase_b", rng, exclude_models),
+        "model_2_type": _sample_model_type("phase_b", rng, exclude_models),
+        "model_3_type": _sample_model_type("phase_b", rng, exclude_models),
         "n_subs": rng.choice([5, 8, 10, 15]),
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
@@ -124,6 +140,14 @@ def get_full_param_space() -> dict[str, Any]:
         "packboost_boost_weight": tune.uniform(0.1, 0.5),
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
+        "use_feature_selection": tune.choice([True, False]),
+        "feature_selection_type": tune.choice(
+            ["variance", "lgbm_importance", "era_stable"]
+        ),
+        "feature_selection_keep_fraction": tune.uniform(0.5, 0.9),
+        "era_stable_stability_weight": tune.uniform(0.3, 0.7),
+        "use_noise_injection": tune.choice([True, False]),
+        "noise_sigma": tune.loguniform(5e-3, 5e-2),
         "num_models": tune.choice([1, 2, 3]),
         "model_1_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
         "model_2_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
@@ -181,6 +205,39 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                     "n_rounds_base": flat.get("packboost_n_rounds_base", 300),
                     "n_rounds_boost": flat.get("packboost_n_rounds_boost", 100),
                 },
+            }
+        )
+    if flat.get("use_feature_selection"):
+        fs_type = flat.get("feature_selection_type", "variance")
+        keep = float(flat.get("feature_selection_keep_fraction", 0.75))
+        if fs_type == "lgbm_importance":
+            preprocessors.append(
+                {"type": "LGBMImportanceSelector", "params": {"keep_fraction": keep}}
+            )
+        elif fs_type == "era_stable":
+            preprocessors.append(
+                {
+                    "type": "EraStableSelector",
+                    "params": {
+                        "keep_fraction": keep,
+                        "stability_weight": float(
+                            flat.get("era_stable_stability_weight", 0.5)
+                        ),
+                    },
+                }
+            )
+        else:
+            preprocessors.append(
+                {
+                    "type": "VarianceSelector",
+                    "params": {"keep_fraction": keep, "mode": "quantile"},
+                }
+            )
+    if flat.get("use_noise_injection"):
+        preprocessors.append(
+            {
+                "type": "GaussianNoise",
+                "params": {"sigma": float(flat.get("noise_sigma", 0.01))},
             }
         )
 
@@ -261,12 +318,13 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             }
         return {}
 
-    tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
     models = []
     for i, t in enumerate(types):
-        spec: dict[str, Any] = {"type": t, "params": model_params(t, i)}
-        if t in tree_models:
-            spec["n_subs"] = flat.get("n_subs", 10)
+        spec: dict[str, Any] = {
+            "type": t,
+            "params": model_params(t, i),
+            "use_era_ensemble": False,
+        }
         models.append(spec)
 
     ensemble_method = flat.get("ensemble_method", "single")

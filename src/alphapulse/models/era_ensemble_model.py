@@ -66,7 +66,7 @@ class EraEnsembleModel(BaseModel):
         if X_val is not None and self.era_column in X_val.columns:
             era_val = X_val[self.era_column]
 
-        unique_eras = era_train.unique()
+        unique_eras = np.sort(era_train.unique())
         n_parts = min(self.n_subs, len(unique_eras))
         era_partitions = np.array_split(unique_eras, n_parts)
 

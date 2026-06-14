@@ -7,6 +7,7 @@ import pandas as pd
 from ..evaluation.metrics import era_sharpe, rank_normalize
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor
+from .row_utils import filter_invalid_rows, filter_nan_rows
 
 _MIN_TRAIN_ROWS = 10
 _MIN_VAL_ROWS = 2
@@ -49,6 +50,11 @@ class MultiTargetPipeline:
     ) -> dict[str, float]:
         self.feature_columns = list(X.columns)
 
+        X, _ = filter_invalid_rows(X)
+        targets = targets.loc[X.index]
+        if era_train is not None:
+            era_train = era_train.loc[X.index]
+
         y_primary = (
             targets[self.primary_target]
             if self.primary_target in targets.columns
@@ -60,8 +66,15 @@ class MultiTargetPipeline:
             pp.fit(X_fit, y_primary)
             X_fit = pp.transform(X_fit)
 
+        X_fit, _ = filter_nan_rows(X_fit)
+        targets = targets.loc[X_fit.index]
+        if era_train is not None:
+            era_train = era_train.loc[X_fit.index]
+
+        era_val: pd.Series | None = None
         X_val_t: pd.DataFrame | None = None
         if X_val is not None:
+            era_val = X_val["era"] if "era" in X_val.columns else None
             X_val_t = X_val
             for pp in self.preprocessors:
                 X_val_t = pp.transform(X_val_t)
@@ -112,7 +125,9 @@ class MultiTargetPipeline:
                 all_metrics[f"{target_col}_{k}"] = v
 
         fitted_targets = [t for t in available_targets if t in self._models]
-        self._compute_weights(X_fit, targets, era_train, fitted_targets)
+        self._compute_weights(
+            X_fit, targets, era_train, fitted_targets, X_val_t, targets_val, era_val
+        )
         return all_metrics
 
     def _compute_weights(
@@ -121,6 +136,9 @@ class MultiTargetPipeline:
         targets: pd.DataFrame,
         era_train: pd.Series | None,
         fitted_targets: list[str],
+        X_val_t: pd.DataFrame | None = None,
+        targets_val: pd.DataFrame | None = None,
+        era_val: pd.Series | None = None,
     ) -> None:
         n = len(fitted_targets)
         if n <= 1 or self.blend_method == "equal":
@@ -129,21 +147,37 @@ class MultiTargetPipeline:
 
         if (
             self.blend_method == "sharpe"
+            and X_val_t is not None
+            and targets_val is not None
+            and era_val is not None
+            and self.primary_target in targets_val.columns
+        ):
+            y_prim = targets_val[self.primary_target]
+            valid = y_prim.notna()
+            y_prim = y_prim[valid]
+            X_eval: pd.DataFrame = X_val_t.loc[y_prim.index]
+            era_eval: pd.Series = era_val.loc[y_prim.index]
+        elif (
+            self.blend_method == "sharpe"
             and era_train is not None
             and self.primary_target in targets.columns
         ):
-            y_primary = targets[self.primary_target]
-            sharpes = []
-            for t in fitted_targets:
-                pred = self._models[t].predict(X_fit)
-                s = era_sharpe(y_primary, pred, era_train)
-                sharpes.append(max(s, 0.0) if np.isfinite(s) else 0.0)
+            y_prim = targets[self.primary_target]
+            X_eval = X_fit
+            era_eval = era_train
+        else:
+            self._weights = np.ones(n) / n
+            return
 
-            total = sum(sharpes)
-            if total > 0:
-                self._weights = np.array(sharpes, dtype=np.float64) / total
-            else:
-                self._weights = np.ones(n) / n
+        sharpes = []
+        for t in fitted_targets:
+            pred = self._models[t].predict(X_eval)
+            s = era_sharpe(y_prim, pred, era_eval)
+            sharpes.append(max(s, 0.0) if np.isfinite(s) else 0.0)
+
+        total = sum(sharpes)
+        if total > 0:
+            self._weights = np.array(sharpes, dtype=np.float64) / total
         else:
             self._weights = np.ones(n) / n
 

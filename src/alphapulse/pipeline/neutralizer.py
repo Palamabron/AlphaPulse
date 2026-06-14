@@ -2,12 +2,14 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
+from ..constants import _PROTECTED_COLS
 from ..evaluation.metrics import era_sharpe
 
 
 def _numeric_features(features: pd.DataFrame | np.ndarray) -> np.ndarray:
     if isinstance(features, pd.DataFrame):
-        numeric = features.select_dtypes(include=[np.number])
+        feat_cols = [c for c in features.columns if c not in _PROTECTED_COLS]
+        numeric = features[feat_cols].select_dtypes(include=[np.number])
         if numeric.shape[1] == 0:
             raise ValueError("FeatureNeutralizer: no numeric feature columns found.")
         return np.asarray(numeric.values, dtype=np.float64)

@@ -3,6 +3,8 @@ from typing import Any, Self
 import numpy as np
 import pandas as pd
 
+from ..constants import _PROTECTED_COLS
+
 _SDV_AVAILABLE = False
 try:
     from sdv.single_table import GaussianCopulaSynthesizer  # noqa: F401
@@ -38,7 +40,8 @@ class SyntheticDataAugmenter:
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Self:
         n_elite = max(1, int(len(y) * self.top_fraction))
         top_idx = y.nlargest(n_elite).index
-        self._elite_X = X.loc[top_idx].copy().reset_index(drop=True)
+        feat_cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+        self._elite_X = X.loc[top_idx, feat_cols].copy().reset_index(drop=True)
         self._elite_y = y.loc[top_idx].copy().reset_index(drop=True)
 
         use_sdv = (self.backend == "sdv") or (self.backend == "auto" and _SDV_AVAILABLE)

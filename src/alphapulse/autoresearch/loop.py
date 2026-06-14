@@ -18,6 +18,7 @@ from ..evaluation.era_split import (
     WF_N_SPLITS,
     EraSplitEvaluator,
 )
+from ..experiments.split import internal_val_split
 from ..hpo.builder import build_pipeline_or_multi
 from ..hpo.search_space import resolve_flat_config, sample_random_config
 from ..logging_.leaderboard import (
@@ -55,7 +56,15 @@ def _run_one_trial(
 
     def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:
         pipeline = build_pipeline_or_multi(config, feature_columns=feature_cols)
-        pipeline.fit(X_tr, y_tr)
+        era_col = X_tr["era"] if "era" in X_tr.columns else None
+        stacking_needs_val = (
+            config.get("ensemble_method") == "stacking"
+            and len(config.get("models", [])) > 1
+        )
+        X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
+            X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
+        )
+        pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner)
         return pipeline
 
     metrics = EraSplitEvaluator(

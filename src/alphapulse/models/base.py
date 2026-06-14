@@ -5,9 +5,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..constants import _PROTECTED_COLS
+
 
 def _numeric(X: pd.DataFrame) -> pd.DataFrame:
-    return X.select_dtypes(include=[np.number])
+    cols = [c for c in X.columns if c not in _PROTECTED_COLS]
+    return X[cols].select_dtypes(include=[np.number])
 
 
 class BaseModel(ABC):
