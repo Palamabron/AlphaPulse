@@ -99,6 +99,9 @@ def log_hpo_summary_table(
         "max_drawdown",
         "pct_positive_eras",
         "model_types",
+        "model_1_type",
+        "model_2_type",
+        "model_3_type",
         "scaler_type",
         "use_packboost",
         "num_models",
@@ -106,6 +109,15 @@ def log_hpo_summary_table(
         "ensemble_method",
         "use_neutralization",
         "neutralization_proportion",
+        "xgb_max_depth",
+        "xgb_learning_rate",
+        "lgbm_num_leaves",
+        "lgbm_learning_rate",
+        "lgbm_min_child_samples",
+        "use_noise_injection",
+        "feature_selection_type",
+        "use_feature_selection",
+        "use_augmentation",
         "elapsed_seconds",
     ]
     table = wandb.Table(columns=columns)
@@ -129,6 +141,9 @@ def log_hpo_summary_table(
             r.metrics.get("max_drawdown"),
             r.metrics.get("pct_positive_eras"),
             model_types,
+            r.params.get("model_1_type"),
+            r.params.get("model_2_type"),
+            r.params.get("model_3_type"),
             r.params.get("scaler_type"),
             r.params.get("use_packboost"),
             r.params.get("num_models", 1),
@@ -136,6 +151,19 @@ def log_hpo_summary_table(
             r.params.get("ensemble_method"),
             r.params.get("use_neutralization"),
             r.params.get("neutralization_proportion"),
+            r.params.get("model_1_max_depth") or r.params.get("xgb_max_depth"),
+            r.params.get("model_1_learning_rate")
+            or r.params.get("xgb_learning_rate"),
+            r.params.get("model_1_num_leaves")
+            or r.params.get("lgbm_num_leaves"),
+            r.params.get("model_1_learning_rate_lgbm")
+            or r.params.get("lgbm_learning_rate"),
+            r.params.get("model_1_min_child_samples")
+            or r.params.get("lgbm_min_child_samples"),
+            r.params.get("use_noise_injection"),
+            r.params.get("feature_selection_type"),
+            r.params.get("use_feature_selection"),
+            r.params.get("use_augmentation"),
             r.elapsed_seconds,
         )
 
@@ -174,8 +202,10 @@ def log_hpo_trial_metrics(
         logged["mmc_sharpe"] = result.mmc_sharpe
     if result.payout_score is not None:
         logged["payout_score"] = result.payout_score
+    top_level_keys = {"sharpe", "corr_sharpe", "mmc_sharpe", "payout_score"}
     for k, v in (result.metrics or {}).items():
-        logged[f"metric/{k}"] = v
+        if k not in top_level_keys:
+            logged[f"metric/{k}"] = v
     wandb.log(logged)
 
 
@@ -248,5 +278,35 @@ def log_hpo_trial(
 
     log_hpo_trial_metrics(
         result, objective, model_types=model_types, preprocessors=preprocessors
+    )
+    wandb.finish(quiet=True)
+
+
+def log_hpo_best_so_far(
+    trial_number: int,
+    corr_sharpe: float,
+    best_so_far: float,
+    *,
+    project: str,
+    group: str,
+) -> None:
+    """Log trial corr_sharpe and running best to a convergence tracking run.
+
+    Opens or reuses a 'search-convergence' run in the group, logging both the
+    trial score and the best seen so far at step=trial_number. Produces a chart
+    showing trial scores alongside the running maximum line.
+    """
+    import wandb
+
+    wandb.init(
+        project=project,
+        group=group,
+        name="search-convergence",
+        job_type="convergence",
+        reinit=True,
+    )
+    wandb.log(
+        {"trial_corr_sharpe": corr_sharpe, "best_corr_sharpe_so_far": best_so_far},
+        step=trial_number,
     )
     wandb.finish(quiet=True)

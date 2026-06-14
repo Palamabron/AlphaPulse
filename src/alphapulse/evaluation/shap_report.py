@@ -258,9 +258,10 @@ def log_universal_feature_importance(
                 "mean_abs_contribution",
                 title=f"Top feature importance ({model_type})",
             ),
-            "diagnostics/feature_importance_model_type": model_type,
         }
     )
+    if wandb.run is not None:
+        wandb.run.summary["diagnostics/feature_importance_model_type"] = model_type
     return importance
 
 

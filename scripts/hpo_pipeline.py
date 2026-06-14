@@ -526,6 +526,23 @@ def _run_local(
                     objective=trial_score,
                 )
 
+            if wandb_project and wandb_group and not result.error:
+                trial_corr = result.corr_sharpe or result.sharpe
+                best_seen = max(
+                    r.corr_sharpe or r.sharpe
+                    for r in results
+                    if not r.error
+                )
+                from alphapulse.logging_.wandb_utils import log_hpo_best_so_far
+
+                log_hpo_best_so_far(
+                    i,
+                    trial_corr,
+                    best_seen,
+                    project=wandb_project,
+                    group=wandb_group,
+                )
+
             if trial_score > best_score:
                 best_score = trial_score
                 best_config = flat_config
