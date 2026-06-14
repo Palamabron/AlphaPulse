@@ -318,7 +318,6 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             }
         return {}
 
-    tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
     models = []
     for i, t in enumerate(types):
         spec: dict[str, Any] = {
@@ -326,8 +325,6 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             "params": model_params(t, i),
             "use_era_ensemble": False,
         }
-        if t in tree_models and spec.get("use_era_ensemble", True):
-            spec["n_subs"] = flat.get("n_subs", 10)
         models.append(spec)
 
     ensemble_method = flat.get("ensemble_method", "single")
