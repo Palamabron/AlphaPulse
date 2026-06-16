@@ -145,6 +145,9 @@ def log_hpo_summary_table(
         "feature_selection_type",
         "use_feature_selection",
         "use_augmentation",
+        "active_groups",
+        "active_groups_count",
+        "routed_feature_count",
         "elapsed_seconds",
     ]
     table = wandb.Table(columns=columns)
@@ -187,6 +190,9 @@ def log_hpo_summary_table(
             r.params.get("feature_selection_type"),
             r.params.get("use_feature_selection"),
             r.params.get("use_augmentation"),
+            "+".join(r.params.get("active_groups", [])),
+            r.params.get("active_groups_count"),
+            r.params.get("routed_feature_count"),
             r.elapsed_seconds,
         )
 
@@ -240,6 +246,13 @@ def log_hpo_trial_metrics(
         logged["model_types"] = model_types
     if preprocessors is not None:
         logged["preprocessors"] = preprocessors
+    active_groups = result.params.get("active_groups", [])
+    if isinstance(active_groups, list):
+        logged["active_groups"] = "+".join(str(g) for g in active_groups)
+        logged["active_groups_count"] = len(active_groups)
+    routed_feature_count = result.params.get("routed_feature_count")
+    if routed_feature_count is not None:
+        logged["routed_feature_count"] = routed_feature_count
     if result.corr_sharpe not in (float("-inf"), float("inf")):
         logged["corr_sharpe"] = result.corr_sharpe
     if result.mmc_sharpe is not None:

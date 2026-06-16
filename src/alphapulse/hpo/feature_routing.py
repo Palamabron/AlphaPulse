@@ -1,15 +1,17 @@
 import random
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..features.catalog import SIZE_GROUPS, STAT_GROUPS, FeatureCatalog
+
+if TYPE_CHECKING:
+    import optuna
 
 BuildPath = Literal["default", "simple", "grouped", "multihead"]
 
 FAST_MAX_ACTIVE_GROUPS = 4
 SLOW_MAX_ACTIVE_GROUPS = 6
-ROUTING_SAMPLE_PROB_FAST = 0.40
-ROUTING_SAMPLE_PROB_SLOW = 0.50
+MAX_ROUTED_FEATURES = 1000
 
 LANE_PREPROCESSORS_FAST = ("StandardScaler", "RobustScaler", "VarianceFeatureSelector")
 LANE_PREPROCESSORS_SLOW = LANE_PREPROCESSORS_FAST + ("EraStableFeatureSelector",)
@@ -61,6 +63,34 @@ def _biased_group_choice(
     return chosen[:n]
 
 
+def _union_size(catalog: FeatureCatalog, groups: list[str]) -> int:
+    return len(catalog.union(groups))
+
+
+def _fit_groups_under_limit(
+    catalog: FeatureCatalog, candidate_groups: list[str]
+) -> list[str]:
+    groups: list[str] = []
+    for group in candidate_groups:
+        next_groups = groups + [group]
+        if _union_size(catalog, next_groups) <= MAX_ROUTED_FEATURES:
+            groups = next_groups
+    if groups:
+        return groups
+
+    searchable = sorted(
+        catalog.searchable_names,
+        key=lambda name: len(catalog.columns(name)),
+    )
+    for group in searchable:
+        if _union_size(catalog, [group]) <= MAX_ROUTED_FEATURES:
+            return [group]
+
+    raise ValueError(
+        f"No feature group fits the routing limit of {MAX_ROUTED_FEATURES} features"
+    )
+
+
 def sample_feature_routing(
     rng: random.Random,
     catalog: FeatureCatalog,
@@ -68,15 +98,11 @@ def sample_feature_routing(
     *,
     fast: bool = False,
 ) -> dict[str, Any]:
-    use_routing = rng.random() < (
-        ROUTING_SAMPLE_PROB_FAST if fast else ROUTING_SAMPLE_PROB_SLOW
-    )
-    if not use_routing:
-        return {"use_feature_routing": False}
-
     max_groups = FAST_MAX_ACTIVE_GROUPS if fast else SLOW_MAX_ACTIVE_GROUPS
     n_groups = rng.randint(1, min(max_groups, len(catalog.searchable_names)))
-    active_groups = _biased_group_choice(rng, catalog, n_groups)
+    sampled_groups = _biased_group_choice(rng, catalog, n_groups)
+    active_groups = _fit_groups_under_limit(catalog, sampled_groups)
+    routed_feature_columns = catalog.union(active_groups)
 
     lane_pool = LANE_PREPROCESSORS_FAST if fast else LANE_PREPROCESSORS_SLOW
     n_lanes = rng.randint(1, min(2, num_models))
@@ -102,10 +128,82 @@ def sample_feature_routing(
     flat: dict[str, Any] = {
         "use_feature_routing": True,
         "active_groups": active_groups,
+        "active_groups_count": len(active_groups),
+        "routed_feature_count": len(routed_feature_columns),
     }
     for model_idx in range(1, num_models + 1):
         flat[f"model_{model_idx}_groups"] = model_groups[model_idx]
         flat[f"model_{model_idx}_lane"] = rng.randint(0, n_lanes - 1)
+    for lane_id, steps in lane_steps.items():
+        flat[f"lane_{lane_id}_steps"] = steps
+    return flat
+
+
+def suggest_feature_routing(
+    trial: "optuna.Trial",
+    catalog: FeatureCatalog,
+    num_models: int,
+    *,
+    fast: bool = False,
+) -> dict[str, Any]:
+    size_pool = [g for g in catalog.searchable_names if g in SIZE_GROUPS and g != "all"]
+    candidate: list[str] = []
+    if size_pool:
+        size_group = trial.suggest_categorical("routing_size_group", size_pool)
+        candidate.append(size_group)
+
+    stat_pool = [g for g in catalog.searchable_names if g in STAT_GROUPS]
+    for group in stat_pool:
+        if trial.suggest_categorical(f"routing_use_{group}", [False, True]):
+            candidate.append(group)
+
+    if not candidate:
+        candidate = _fit_groups_under_limit(catalog, [])
+    active_groups = _fit_groups_under_limit(catalog, candidate)
+    routed_feature_columns = catalog.union(active_groups)
+
+    lane_pool = LANE_PREPROCESSORS_FAST if fast else LANE_PREPROCESSORS_SLOW
+    n_lanes = trial.suggest_int("routing_n_lanes", 1, min(2, num_models))
+    max_groups = FAST_MAX_ACTIVE_GROUPS if fast else SLOW_MAX_ACTIVE_GROUPS
+    lane_steps: dict[int, list[str]] = {}
+    for lane_id in range(2):
+        use_lane_pp = trial.suggest_categorical(
+            f"routing_lane_{lane_id}_use_pp", [False, True]
+        )
+        step = trial.suggest_categorical(
+            f"routing_lane_{lane_id}_step", list(lane_pool)
+        )
+        if lane_id < n_lanes:
+            if not use_lane_pp:
+                lane_steps[lane_id] = []
+            else:
+                lane_steps[lane_id] = (
+                    [step] if step not in ("StandardScaler", "RobustScaler") else []
+                )
+
+    model_groups: dict[int, list[str]] = {i: [] for i in range(1, num_models + 1)}
+    for group in catalog.searchable_names:
+        model_idx = trial.suggest_int(f"routing_assign_{group}_model", 1, 3)
+        if group in active_groups and model_idx <= num_models:
+            model_groups[model_idx].append(group)
+
+    flat: dict[str, Any] = {
+        "use_feature_routing": True,
+        "active_groups": active_groups,
+        "active_groups_count": len(active_groups),
+        "routed_feature_count": len(routed_feature_columns),
+    }
+    for model_idx in (1, 2, 3):
+        lane = trial.suggest_int(f"routing_model_{model_idx}_lane", 0, 1)
+        fallback_idx = trial.suggest_int(
+            f"routing_model_{model_idx}_fallback_idx", 0, max_groups - 1
+        )
+        if model_idx > num_models:
+            continue
+        if not model_groups[model_idx]:
+            model_groups[model_idx] = [active_groups[fallback_idx % len(active_groups)]]
+        flat[f"model_{model_idx}_groups"] = model_groups[model_idx]
+        flat[f"model_{model_idx}_lane"] = min(lane, n_lanes - 1)
     for lane_id, steps in lane_steps.items():
         flat[f"lane_{lane_id}_steps"] = steps
     return flat
@@ -152,6 +250,11 @@ def resolve_feature_routing(
     active_groups: list[str] = list(flat.get("active_groups") or [])
     feature_groups = {g: catalog.columns(g) for g in active_groups}
     feature_columns = catalog.union(active_groups)
+    if len(feature_columns) > MAX_ROUTED_FEATURES:
+        raise ValueError(
+            "Feature routing exceeds max feature limit: "
+            f"{len(feature_columns)} > {MAX_ROUTED_FEATURES}"
+        )
 
     model_group_map: dict[int, list[str]] = {}
     model_lane_map: dict[int, int] = {}
