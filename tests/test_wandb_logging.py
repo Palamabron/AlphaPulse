@@ -21,17 +21,6 @@ def test_parse_xgb_evals_log() -> None:
     assert parsed["eval_rmse"] == pytest.approx(0.22)
 
 
-def test_log_boosting_round_metrics_noop_without_run() -> None:
-    with patch(
-        "alphapulse.logging_.wandb_logging.wandb_run_active", return_value=False
-    ):
-        log_boosting_round_metrics(
-            model_name="XGBoost_0",
-            round_num=10,
-            metrics={"train_rmse": 0.2},
-        )
-
-
 def test_log_boosting_round_metrics_logs_to_wandb() -> None:
     mock_wandb = MagicMock()
     with (

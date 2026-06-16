@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from ..features.catalog import SIZE_GROUPS, STAT_GROUPS, FeatureCatalog
 
-BuildPath = Literal["legacy", "simple", "grouped", "multihead"]
+BuildPath = Literal["default", "simple", "grouped", "multihead"]
 
 FAST_MAX_ACTIVE_GROUPS = 4
 SLOW_MAX_ACTIVE_GROUPS = 6
@@ -140,7 +140,7 @@ def resolve_feature_routing(
     if not flat.get("use_feature_routing"):
         cols = catalog.columns("medium") if "medium" in catalog.feature_sets else []
         return FeatureRoutingResult(
-            build_path="legacy",
+            build_path="default",
             feature_groups={},
             feature_columns=cols,
             pipeline_config_patch={},
@@ -226,7 +226,7 @@ def merge_routing_into_pipeline_config(
     pipeline_cfg: dict[str, Any],
     routing: FeatureRoutingResult,
 ) -> dict[str, Any]:
-    if routing.build_path == "legacy":
+    if routing.build_path == "default":
         return pipeline_cfg
 
     cfg = dict(pipeline_cfg)

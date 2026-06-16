@@ -58,7 +58,7 @@ def test_instantiate_model_matches_model_factory() -> None:
 
     params = {"params": {"max_depth": 3, "learning_rate": 0.1}, "name": "TestXGB"}
     from_builder = instantiate_model("XGBoost", params, index=0, n_subs=3)
-    from_factory = ModelFactory().suggest_fixed("xgboost", params, n_subs=3)
+    from_factory = ModelFactory().suggest_fixed("XGBoost", params, n_subs=3)
     assert isinstance(from_builder, EraEnsembleModel)
     assert isinstance(from_factory, EraEnsembleModel)
     assert from_builder.n_subs == from_factory.n_subs == 3

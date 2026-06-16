@@ -178,13 +178,11 @@ def log_hpo_summary_table(
             r.params.get("ensemble_method"),
             r.params.get("use_neutralization"),
             r.params.get("neutralization_proportion"),
-            r.params.get("model_1_max_depth") or r.params.get("xgb_max_depth"),
-            r.params.get("model_1_learning_rate") or r.params.get("xgb_learning_rate"),
-            r.params.get("model_1_num_leaves") or r.params.get("lgbm_num_leaves"),
-            r.params.get("model_1_learning_rate_lgbm")
-            or r.params.get("lgbm_learning_rate"),
-            r.params.get("model_1_min_child_samples")
-            or r.params.get("lgbm_min_child_samples"),
+            r.params.get("xgb_max_depth"),
+            r.params.get("xgb_learning_rate"),
+            r.params.get("lgbm_num_leaves"),
+            r.params.get("lgbm_learning_rate"),
+            r.params.get("lgbm_min_child_samples"),
             r.params.get("use_noise_injection"),
             r.params.get("feature_selection_type"),
             r.params.get("use_feature_selection"),
@@ -244,20 +242,10 @@ def log_hpo_trial_metrics(
         logged["preprocessors"] = preprocessors
     if result.corr_sharpe not in (float("-inf"), float("inf")):
         logged["corr_sharpe"] = result.corr_sharpe
-    mmc_sharpe = result.mmc_sharpe
-    if mmc_sharpe is None and result.metrics:
-        raw_mmc = result.metrics.get("mmc_sharpe")
-        if raw_mmc is not None and np.isfinite(raw_mmc):
-            mmc_sharpe = float(raw_mmc)
-    payout_score = result.payout_score
-    if payout_score is None and result.metrics:
-        raw_payout = result.metrics.get("payout_score")
-        if raw_payout is not None and np.isfinite(raw_payout):
-            payout_score = float(raw_payout)
-    if mmc_sharpe is not None:
-        logged["mmc_sharpe"] = mmc_sharpe
-    if payout_score is not None:
-        logged["payout_score"] = payout_score
+    if result.mmc_sharpe is not None:
+        logged["mmc_sharpe"] = result.mmc_sharpe
+    if result.payout_score is not None:
+        logged["payout_score"] = result.payout_score
     top_level_keys = {"sharpe", "corr_sharpe", "mmc_sharpe", "payout_score"}
     for k, v in (result.metrics or {}).items():
         if k not in top_level_keys and v is not None:
@@ -369,11 +357,9 @@ def log_hpo_convergence(
     for r in results:
         if r.error:
             continue
-        trial_corr = (
-            r.corr_sharpe
-            if r.corr_sharpe not in (float("-inf"), float("inf"))
-            else r.sharpe
-        )
+        if r.corr_sharpe in (float("-inf"), float("inf")):
+            continue
+        trial_corr = r.corr_sharpe
         if trial_corr > best_so_far:
             best_so_far = trial_corr
         wandb.log(
