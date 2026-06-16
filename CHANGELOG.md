@@ -4,21 +4,23 @@ All notable changes to AlphaPulse are documented here.
 
 ---
 
-## [Unreleased] — WandB XAI & Plot Quality Overhaul
+## [Unreleased]
 
-- **Universal feature importance:** `compute_universal_feature_importance` extracts and normalizes importance from any supported model type (XGBoost pred_contribs, LightGBM gain, CatBoost PredictionValuesChange, sklearn `feature_importances_`), averages across all models present, and logs a ranked bar chart to WandB.
-- **Era-stratified importance:** `_log_era_stratified_importance` slices validation data by era, computes importance per slice, and logs a `line_series` chart showing each feature's importance trajectory over eras — directly reveals temporal stability.
-- **Per-era stability report wired:** `compute_feature_report` (LightGBM proxy) now surfaces in WandB via `_log_feature_report`; logs top features by mean importance, top by era stability, and worst by era stability — each with bar charts.
-- **Best-trial diagnostics run:** After HPO, the best config is retrained on an 80/20 era split and all expensive diagnostics (`log_era_importance=True`, top-50 importance artifact) are logged to a dedicated `best-trial-diagnostics` WandB run.
-- **Prediction histogram fixed:** `_log_prediction_diagnostics` now uses `np.histogram(bins=50)` (50 rows) instead of logging every prediction row (50k+ rows).
-- **Per-era line charts fixed:** `era_index` (0, 1, 2…) used as x-axis — fixes alphabetical string sort that scrambled chronological order.
-- **Drawdown curve added:** Per-era drawdown from peak cumulative correlation logged alongside the cumulative correlation line chart.
-- **Correlation distribution histogram:** Distribution of per-era Spearman correlations logged as a bar chart — directly answers "how many negative eras does this model have?"
-- **Missing bar charts added:** Feature exposure top-15, ensemble model-pair correlation (A→B format), worst stability by era — all now have companion bar charts.
-- **HPO summary table expanded:** 18 → 30 columns; adds `model_1/2/3_type` (split, for WandB parallel coordinates), XGBoost/LightGBM hyperparams, feature selection, noise injection, augmentation flags.
-- **Convergence chart:** `log_hpo_convergence` logs all trial scores and running-best `corr_sharpe` in a single WandB run after the HPO search completes, rendering as a proper convergence curve.
-- **String metric bug fixed:** `feature_importance_model_type` moved from `wandb.log()` (coerced to NaN) to `wandb.run.summary`.
-- **Duplicate metric removed:** `metric/corr_sharpe` deduplicated in `log_hpo_trial_metrics`.
+## [0.6.0] — MMC Scoring & W&B Chart Diagnostics
+
+- **MMC on validation split:** `load_mmc_validation_frame` aligns `validation.parquet` with `meta_model.parquet`; HPO merges `mmc`, `mmc_sharpe`, and `payout_score` after train-era holdout evaluation so W&B `metric/mmc` is no longer null.
+- **W&B diagnostics as charts:** Raw `diagnostics/` tables replaced with matplotlib horizontal bar charts, correlation heatmaps, and line charts; NaN metrics are skipped in trial logging.
+- **Live W&B training logs:** `wandb_logging.py` bridges loguru to the W&B Logs panel and logs per-round XGBoost metrics during training.
+- **MultiTarget diagnostics:** `pipeline/model_access.py` provides `iter_trained_models`, `model_prediction_map`, and `multitarget_blend_weights` for SHAP and ensemble diagnostics on multi-target pipelines.
+- **Feature catalog & HPO routing:** `features/catalog.py`, `hpo/feature_routing.py`, and `hpo/target_strategy.py` resolve feature sets and multi-target training from `features.json`.
+- **HPO export module:** `hpo/export.py` centralises pipeline fitting for Numerai pickle export from flat HPO configs.
+- **Universal feature importance:** `compute_universal_feature_importance` extracts importance from XGBoost, LightGBM, CatBoost, and sklearn tree models; logs ranked bar charts to W&B.
+- **Era-stratified importance:** `_log_era_stratified_importance` logs per-era importance `line_series` for temporal stability analysis.
+- **Per-era stability report:** `compute_feature_report` (LightGBM proxy) surfaces top/mean/worst stability features as bar charts in W&B.
+- **Best-trial diagnostics run:** After HPO, the best config is retrained and logged to a dedicated `best-trial-diagnostics` WandB run with full XAI artifacts.
+- **Per-era line charts fixed:** `era_index` used as x-axis for chronological ordering; drawdown and correlation distribution charts added.
+- **HPO summary expanded:** 30-column trial table plus scatter charts for corr Sharpe, MMC Sharpe, and runtime; `log_hpo_convergence` renders running-best curve in one W&B run.
+- **W&B metric fixes:** `feature_importance_model_type` stored in `wandb.run.summary`; duplicate `metric/corr_sharpe` removed; finite-check on NaN metrics.
 
 ## [0.5.0] — Production Hardening
 

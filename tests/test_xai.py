@@ -205,12 +205,15 @@ class TestLogUniversalFeatureImportance:
 def test_log_wandb_figure_accepts_matplotlib_figure() -> None:
     from unittest.mock import MagicMock
 
-    import matplotlib.pyplot as plt
     import numpy as np
 
-    from alphapulse.evaluation.wandb_diagnostics import _log_wandb_figure
+    from alphapulse.evaluation.wandb_diagnostics import (
+        _log_wandb_figure,
+        _new_figure,
+    )
 
-    fig, ax = plt.subplots()
+    fig = _new_figure(figsize=(4, 3))
+    ax = fig.add_subplot(111)
     ax.plot(np.linspace(0, 1, 10), np.linspace(0, 1, 10))
     mock_wandb = MagicMock()
     _log_wandb_figure(mock_wandb, "diagnostics/test", fig)

@@ -1,4 +1,4 @@
-# AlphaPulse v0.5.0
+# AlphaPulse v0.6.0
 
 AlphaPulse is a config-driven framework for building, training, and deploying ML pipelines for the [Numerai](https://numer.ai) stock-market prediction tournament. It covers the full workflow: dataset download, experiment definition, backtesting, hyperparameter optimization (HPO), and automated weekly submission.
 
@@ -13,7 +13,7 @@ The framework is organized into five layers:
 | **Data** | `NumeraiDataLoader`, parquet files, `features.json` | Downloads and loads Numerai dataset splits (train/validation/live) |
 | **Configuration** | `ExperimentV1` YAML schema, HPO search space, `TrialDB`, AutoResearch agent | Defines what to train — via static YAML, automated HPO, or Claude-agent-driven research |
 | **Core Pipeline** | Preprocessors, Models, `Pipeline` / `MultiHeadPipeline`, Ensemble, `FeatureNeutralizer` | Fits and combines models; handles feature routing, ensembling, and prediction neutralization |
-| **Evaluation** | `Backtester`, `PurgedEraCV`, SHAP report, W&B diagnostics | Computes era-aware metrics (CORR, Sharpe, MMC) and XAI reports |
+| **Evaluation** | `Backtester`, `PurgedEraCV`, SHAP report, W&B diagnostics (charts) | Era-aware metrics (CORR, Sharpe, MMC on validation split) and matplotlib XAI plots |
 | **Export & Submission** | `predict.pkl`, live inference, submission validation, Numerai upload | Produces tournament-ready predictions and submits them |
 
 > The diagram is editable — open `docs/assets/architecture.drawio` in [draw.io](https://app.diagrams.net) to modify it.
@@ -194,8 +194,21 @@ uv run python scripts/hpo_pipeline.py \
   --train-subsample 0.125 \
   --num-trials 30 \
   --output-dir artifacts/hpo_x8 \
-  --local
+  --local \
+  --wandb-project alphapulse-hpo
 ```
+
+**Useful flags:**
+- `--wandb-project <name>` — log every trial to Weights & Biases (project name is timestamped and saved for `--resume`)
+- `--resume` — skip trials already recorded in `trials.db`
+- `--trial-timeout <sec>` — kill stuck trials (default: 1800)
+- `--max-hours <h>` — stop after a time budget
+- `--objective corr_sharpe|mmc_sharpe|payout_score` — optimization target
+
+W&B trial runs include scalar metrics (`corr_sharpe`, `mmc_sharpe`, `metric/mmc`) and per-trial
+`diagnostics/` charts (per-era correlation, feature exposure, SHAP importance). After the search,
+a `best-trial-diagnostics` run and `search-convergence` / `hpo-summary` runs are logged to the
+same W&B group.
 
 The best resulting configuration will be saved to `artifacts/hpo_x8/best_config.json`.
 
@@ -519,11 +532,12 @@ make eda-lint
 ├── src/alphapulse/  # Core framework source code
 │   ├── autoresearch/  # Agent-driven research loop (loop, agent, mutations, state)
 │   ├── evaluation/    # Backtesting, metrics, SHAP report, W&B diagnostics, submission validation
-│   ├── experiments/   # YAML schema (ExperimentV1), runner
-│   ├── hpo/           # HPO objective, search space, builder, registry, TrialDB (SQLite)
-│   ├── logging_/      # Leaderboard and W&B helpers
+│   ├── experiments/   # YAML schema (ExperimentV1), runner, data loaders (incl. MMC validation frame)
+│   ├── features/      # Feature/target catalog loaded from features.json
+│   ├── hpo/           # HPO objective, search space, builder, registry, TrialDB (SQLite), export
+│   ├── logging_/      # Leaderboard, W&B helpers, live loguru → W&B Logs bridge
 │   ├── models/        # All model implementations + factory
-│   ├── pipeline/      # Pipeline, MultiHeadPipeline, MultiTargetPipeline, ensemble, neutralizer, stacker
+│   ├── pipeline/      # Pipeline, MultiHeadPipeline, MultiTargetPipeline, model_access, ensemble, neutralizer
 │   ├── preprocessors/ # All preprocessor implementations + factory (incl. autoencoder, compression, era-stable selector)
 │   ├── utils/         # Global seed utility
 │   └── validation/    # PurgedEraCV
@@ -548,6 +562,14 @@ Commit messages: prefer conventional commits (e.g. `feat: ...`, `fix: ...`, `doc
 ## Roadmap
 
 See [CHANGELOG.md](CHANGELOG.md) for completed releases.
+
+**Completed — v0.6.0 (MMC + W&B Diagnostics):**
+- **MMC on validation split:** HPO scores `mmc`, `mmc_sharpe`, and `payout_score` on `validation.parquet` rows aligned with `meta_model.parquet` (train holdout ids do not overlap meta-model ids).
+- **W&B diagnostics as charts:** `diagnostics/` logs matplotlib bar/heatmap/line charts instead of raw tables; horizontal bar charts for feature importance and exposure; ensemble correlation heatmap.
+- **Live W&B training logs:** loguru lines and per-round XGBoost metrics stream to W&B during HPO trials.
+- **MultiTarget diagnostics:** `pipeline/model_access.py` unifies model iteration and prediction collection for SHAP and ensemble diagnostics across `Pipeline` and `MultiTargetPipeline`.
+- **Feature catalog & routing:** `features/catalog.py` and HPO feature routing resolve `features.json` sets and YAML groups into per-model column lists.
+- **HPO summary charts:** scatter plots for trial corr Sharpe, MMC Sharpe, and runtime in the `hpo-summary` W&B run.
 
 **Completed — v0.5.0 (Production Hardening + XAI):**
 - **HPO fault tolerance:** Each local trial runs in an isolated subprocess; crashes mark the trial failed and the sweep continues. A SQLite-backed `TrialDB` persists trial state. `--resume` skips already-completed trials.
