@@ -140,6 +140,17 @@ class MultiHeadPipeline:
             X_h = reattach_protected_columns(X_h, era_meta)
         return reattach_protected_columns(X_h, era_meta)
 
+    def _with_era_column(
+        self,
+        frame: pd.DataFrame,
+        era: pd.Series | None,
+    ) -> pd.DataFrame:
+        if era is None or "era" in frame.columns:
+            return frame
+        out = frame.copy()
+        out["era"] = era.loc[frame.index]
+        return out
+
     def fit(
         self,
         X: pd.DataFrame,
@@ -148,6 +159,12 @@ class MultiHeadPipeline:
         y_val: pd.Series | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
+        era_train = model_train_kwargs.pop("era_train", None)
+        era_val = model_train_kwargs.pop("era_val", None)
+        X = self._with_era_column(X, era_train)
+        if X_val is not None:
+            X_val = self._with_era_column(X_val, era_val)
+
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
 

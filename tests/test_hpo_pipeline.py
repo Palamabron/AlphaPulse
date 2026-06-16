@@ -291,3 +291,108 @@ def test_xgb_defaults_when_type_xgb() -> None:
     flat = {"num_models": 1, "model_1_type": "XGBoost", "xgb_n_rounds": 400}
     kw = get_train_kwargs_from_flat(flat)
     assert kw["n_rounds"] == 400
+
+
+def test_multi_blend_packboost_multihead_forwards_era(
+    tmp_path: Path,
+) -> None:
+    from alphapulse.features.catalog import load_feature_catalog
+    from alphapulse.hpo.feature_routing import (
+        merge_routing_into_pipeline_config,
+        resolve_feature_routing,
+    )
+    from alphapulse.hpo.objective import _fit_pipeline
+    from alphapulse.hpo.search_space import (
+        get_train_kwargs_from_flat,
+        resolve_flat_config,
+    )
+    from alphapulse.models.foundation_models import TabPFNModel
+    from alphapulse.pipeline.multi_target import MultiTargetPipeline
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    feature_cols = [f"f_{i}" for i in range(12)]
+    payload = {
+        "feature_sets": {
+            "medium": feature_cols[:8],
+            "agility": feature_cols[4:10],
+            "dexterity": feature_cols[6:12],
+            "serenity": feature_cols[2:8],
+        },
+        "targets": ["target", "target_alpha_20"],
+    }
+    (data_dir / "features.json").write_text(json.dumps(payload), encoding="utf-8")
+    catalog = load_feature_catalog(data_dir)
+
+    flat = {
+        "num_models": 2,
+        "model_1_type": "TabPFN",
+        "model_2_type": "Packboost",
+        "target_mode": "multi_blend",
+        "primary_target": "target",
+        "auxiliary_targets": ["target_alpha_20"],
+        "target_blend_method": "equal",
+        "foundation_max_train_rows": 200,
+        "foundation_compression": "pca",
+        "foundation_n_components": 4,
+        "scaler_type": "RobustScaler",
+        "use_packboost": False,
+        "ensemble_method": "single",
+        "use_feature_routing": True,
+        "active_groups": ["medium", "agility", "dexterity", "serenity"],
+        "model_1_groups": ["medium", "serenity"],
+        "model_2_groups": ["agility", "dexterity"],
+        "model_1_lane": 0,
+        "model_2_lane": 0,
+        "lane_0_steps": [],
+        "hpo_fast": True,
+        "packboost_model_n_worst_eras": 2,
+        "packboost_model_boost_weight": 0.3,
+        "packboost_model_n_rounds_base": 20,
+        "packboost_model_n_rounds_boost": 10,
+    }
+    routing = resolve_feature_routing(flat, catalog)
+    cfg = merge_routing_into_pipeline_config(resolve_flat_config(flat), routing)
+
+    def fast_tabpfn_train(
+        self: TabPFNModel,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        **kwargs: Any,
+    ) -> dict[str, float]:
+        self.is_trained = True
+        self.model = type("M", (), {"predict": lambda _s, x: np.zeros(len(x))})()
+        return {}
+
+    TabPFNModel.train = fast_tabpfn_train  # type: ignore[method-assign, assignment]
+
+    rng = np.random.default_rng(0)
+    n_eras = 30
+    rows_per_era = 10
+    n = n_eras * rows_per_era
+    cols = routing.feature_columns
+    X = pd.DataFrame(rng.standard_normal((n, len(cols))), columns=cols)
+    X["era"] = np.repeat([f"era_{i:04d}" for i in range(n_eras)], rows_per_era)
+    targets = pd.DataFrame(
+        {
+            "target": pd.Series(rng.standard_normal(n)),
+            "target_alpha_20": pd.Series(rng.standard_normal(n)),
+        }
+    )
+    pipeline = _fit_pipeline(
+        cfg,
+        cols,
+        X,
+        targets["target"],
+        get_train_kwargs_from_flat(flat),
+        flat_config=flat,
+        seed=42,
+        feature_groups=routing.feature_groups,
+        targets_df=targets,
+    )
+    assert isinstance(pipeline, MultiTargetPipeline)
+    preds = pipeline.predict(X.drop(columns=["era"]))
+    assert preds.shape == (n,)
+    assert np.all(np.isfinite(preds))

@@ -176,6 +176,11 @@ def _fit_pipeline(
             else None
         )
         era_train_fit = era_col.loc[X_fit.index] if era_col is not None else None
+        era_val_fit = (
+            era_col.loc[X_val_inner.index]
+            if era_col is not None and X_val_inner is not None
+            else None
+        )
         pipeline.fit(
             X_fit.drop(columns=["era"], errors="ignore"),
             targets_train,
@@ -184,6 +189,7 @@ def _fit_pipeline(
             else None,
             targets_val=targets_val,
             era_train=era_train_fit,
+            era_val=era_val_fit,
             **train_kwargs,
         )
         return pipeline

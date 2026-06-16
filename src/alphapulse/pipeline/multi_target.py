@@ -47,6 +47,7 @@ class MultiTargetPipeline:
         X_val: pd.DataFrame | None = None,
         targets_val: pd.DataFrame | None = None,
         era_train: pd.Series | None = None,
+        era_val: pd.Series | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
         self.feature_columns = list(X.columns)
@@ -72,10 +73,10 @@ class MultiTargetPipeline:
         if era_train is not None:
             era_train = era_train.loc[X_fit.index]
 
-        era_val: pd.Series | None = None
         X_val_t: pd.DataFrame | None = None
         if X_val is not None:
-            era_val = X_val["era"] if "era" in X_val.columns else None
+            if era_val is None and "era" in X_val.columns:
+                era_val = X_val["era"]
             X_val_t = X_val
             for pp in self.preprocessors:
                 X_val_t = pp.transform(X_val_t)
@@ -114,12 +115,17 @@ class MultiTargetPipeline:
                     y_val_masked = None
 
             model = self.model_factory()
+            train_kw = dict(model_train_kwargs)
+            if era_train is not None:
+                train_kw["era_train"] = era_train.loc[X_fit_masked.index]
+            if era_val is not None and X_val_masked is not None:
+                train_kw["era_val"] = era_val.loc[X_val_masked.index]
             metrics = model.train(
                 X_fit_masked,
                 y_masked,
                 X_val=X_val_masked,
                 y_val=y_val_masked,
-                **model_train_kwargs,
+                **train_kw,
             )
             self._models[target_col] = model
             for k, v in metrics.items():
