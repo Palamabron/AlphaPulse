@@ -88,12 +88,6 @@ class NeutralizationConfig(BaseModel):
     features: list[str] | None = None
 
 
-_METRIC_ALIASES: dict[str, str] = {
-    "sharpe": "corr_sharpe",
-    "correlation": "mean_per_era_correlation",
-}
-
-
 class EvaluationConfig(BaseModel):
     primary_metric: Literal[
         "mean_per_era_correlation",
@@ -101,15 +95,6 @@ class EvaluationConfig(BaseModel):
         "payout_score",
         "mmc_sharpe",
     ] = "corr_sharpe"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _map_metric_aliases(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "primary_metric" in data:
-            data["primary_metric"] = _METRIC_ALIASES.get(
-                data["primary_metric"], data["primary_metric"]
-            )
-        return data
 
     era_holdout_last_n: int | None = None
     walk_forward: bool = False

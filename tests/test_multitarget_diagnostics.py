@@ -87,6 +87,9 @@ def test_log_experiment_diagnostics_multitarget() -> None:
     X_feat = X.drop(columns=["era"])
     metrics = {
         "corr_sharpe": 1.0,
+        "mmc": 0.01,
+        "mmc_sharpe": 0.5,
+        "payout_score": 1.2,
         "mean_per_era_correlation": 0.02,
         "std_per_era_correlation": 0.01,
         "max_drawdown": 0.05,
@@ -119,4 +122,9 @@ def test_log_experiment_diagnostics_multitarget() -> None:
             log_era_importance=False,
         )
 
+    keys: set[str] = set()
+    for call in mock_wandb.log.call_args_list:
+        keys.update(call.args[0].keys())
     assert mock_wandb.log.called
+    assert "diagnostics/mmc" in keys
+    assert not {k for k in keys if k.endswith(("_table", "_top"))}

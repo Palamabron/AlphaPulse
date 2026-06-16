@@ -4,25 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-META_MODEL_COLUMN_CANDIDATES = (
-    "numerai_meta_model",
-    "meta_model",
-    "prediction",
-    "meta",
-)
-
-
-def meta_model_value_column(meta_df: pd.DataFrame) -> str | None:
-    value_col = next(
-        (c for c in META_MODEL_COLUMN_CANDIDATES if c in meta_df.columns),
-        None,
-    )
-    if value_col is not None:
-        return value_col
-    numeric_cols = meta_df.select_dtypes(include=["number"]).columns
-    if len(numeric_cols) == 0:
-        return None
-    return str(numeric_cols[0])
+META_MODEL_COLUMN = "numerai_meta_model"
 
 
 def load_meta_model_series(
@@ -40,22 +22,15 @@ def load_meta_model_series(
         return None
 
     meta_df = pd.read_parquet(path)
-    value_col = meta_model_value_column(meta_df)
-    if value_col is None:
+    if META_MODEL_COLUMN not in meta_df.columns:
         return None
 
     if "id" in meta_df.columns:
-        aligned = meta_df.set_index("id")[value_col]
+        aligned = meta_df.set_index("id")[META_MODEL_COLUMN]
         return aligned.reindex(index)
-    if meta_df.index.name == "id" or (
-        meta_df.index.dtype == object and not meta_df.index.equals(index)
-    ):
-        return meta_df[value_col].reindex(index)
-    if meta_df.index.equals(index):
-        return meta_df[value_col]
-    if len(meta_df) == len(index):
-        return pd.Series(meta_df[value_col].to_numpy(), index=index)
-    return meta_df[value_col].reindex(index)
+    if meta_df.index.name == "id":
+        return meta_df[META_MODEL_COLUMN].reindex(index)
+    return None
 
 
 def load_mmc_validation_frame(
@@ -77,8 +52,7 @@ def load_mmc_validation_frame(
         return None
 
     meta_df = pd.read_parquet(meta_path)
-    value_col = meta_model_value_column(meta_df)
-    if value_col is None:
+    if META_MODEL_COLUMN not in meta_df.columns:
         return None
 
     read_cols = list(dict.fromkeys([*feature_cols, target_col, "era"]))
@@ -88,7 +62,7 @@ def load_mmc_validation_frame(
         return None
 
     val_df = val_df.loc[common_idx]
-    meta_series = meta_df[value_col].reindex(common_idx)
+    meta_series = meta_df[META_MODEL_COLUMN].reindex(common_idx)
     valid_meta = meta_series.notna()
     if not valid_meta.any():
         return None

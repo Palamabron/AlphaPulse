@@ -422,7 +422,7 @@ class TestExperimentV1Schema:
             models=[ModelSpec(type="XGBoost", params={"max_depth": 3})],
             ensemble_method="single",
             train=TrainConfig(n_rounds=10, early_stopping_rounds=5),
-            evaluation=EvaluationConfig(primary_metric="sharpe"),
+            evaluation=EvaluationConfig(primary_metric="corr_sharpe"),
         )
 
     def test_to_pipeline_config_keys(self, tmp_path: Path) -> None:

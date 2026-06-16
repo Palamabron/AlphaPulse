@@ -263,16 +263,7 @@ class ModelFactory:
                 name=p.get("name"),
             )
 
-        type_aliases = {
-            "xgboost": "XGBoost",
-            "lightgbm": "LightGBM",
-            "catboost": "CatBoost",
-            "random_forest": "RandomForest",
-            "extra_trees": "ExtraTrees",
-            "ridge": "Ridge",
-        }
-        registry_name = type_aliases.get(model_type, model_type)
-        return instantiate_model(registry_name, p, index=0, n_subs=n_subs)
+        return instantiate_model(model_type, p, index=0, n_subs=n_subs)
 
 
 def suggest_augmentation(

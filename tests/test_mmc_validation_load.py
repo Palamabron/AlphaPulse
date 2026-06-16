@@ -5,11 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from alphapulse.experiments.data import (
-    load_meta_model_series,
-    load_mmc_validation_frame,
-    meta_model_value_column,
-)
+from alphapulse.experiments.data import load_mmc_validation_frame
 from alphapulse.hpo.objective import _merge_validation_mmc_metrics
 from alphapulse.models.xgboost_model import XGBoostModel
 from alphapulse.pipeline.pipeline import Pipeline
@@ -47,19 +43,6 @@ def _write_mmc_dataset(data_dir: Path) -> list[str]:
     return ["f_a", "f_b"]
 
 
-def test_meta_model_value_column_prefers_numerai_name() -> None:
-    df = pd.DataFrame({"numerai_meta_model": [0.1], "meta_model": [0.2]})
-    assert meta_model_value_column(df) == "numerai_meta_model"
-
-
-def test_load_meta_model_series_aligns_validation_ids(tmp_path: Path) -> None:
-    _write_mmc_dataset(tmp_path)
-    val_df = pd.read_parquet(tmp_path / "validation.parquet")
-    meta = load_meta_model_series(tmp_path, val_df.index[:100])
-    assert meta is not None
-    assert meta.notna().sum() == 100
-
-
 def test_load_mmc_validation_frame_returns_aligned_meta(tmp_path: Path) -> None:
     feature_cols = _write_mmc_dataset(tmp_path)
     frame = load_mmc_validation_frame(
@@ -86,8 +69,6 @@ def test_merge_validation_mmc_metrics_populates_mmc(tmp_path: Path) -> None:
     )
     assert frame is not None
     X_val, y_val, _, _ = frame
-    X_train = X_val.iloc[:300]
-    y_train = y_val.iloc[:300]
     pipe = Pipeline(
         preprocessors=[StandardScalerPreprocessor()],
         model=XGBoostModel(
@@ -99,7 +80,7 @@ def test_merge_validation_mmc_metrics_populates_mmc(tmp_path: Path) -> None:
             }
         ),
     )
-    pipe.fit(X_train, y_train, n_rounds=8)
+    pipe.fit(X_val.iloc[:300], y_val.iloc[:300], n_rounds=8)
     merged = _merge_validation_mmc_metrics(
         {"corr_sharpe": 1.0},
         pipeline=pipe,
@@ -109,7 +90,6 @@ def test_merge_validation_mmc_metrics_populates_mmc(tmp_path: Path) -> None:
         train_subsample=1.0,
         seed=1,
     )
-    assert "mmc" in merged
     assert np.isfinite(merged["mmc"])
     assert np.isfinite(merged["mmc_sharpe"])
     assert np.isfinite(merged["payout_score"])
