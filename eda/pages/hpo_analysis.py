@@ -403,9 +403,14 @@ top_n = st.slider(
     max_value=min(100, len(df)),
     value=20,
 )
+rank_col = (
+    "payout_score"
+    if "payout_score" in df.columns and df["payout_score"].notna().any()
+    else "sharpe"
+)
 show_cols = [
     "trial",
-    "sharpe",
+    rank_col,
     "mean_era_corr",
     "std_era_corr",
     "max_drawdown",
@@ -416,12 +421,12 @@ show_cols = [
     "use_neutralization",
     "elapsed_seconds",
 ]
-if "payout_score" in df.columns:
-    show_cols.insert(2, "payout_score")
+if rank_col == "payout_score":
+    show_cols.insert(2, "corr_sharpe" if "corr_sharpe" in df.columns else "sharpe")
 
-leaderboard = df.nlargest(top_n, "sharpe")[show_cols]
+leaderboard = df.nlargest(top_n, rank_col)[show_cols]
 st.dataframe(
-    leaderboard.style.background_gradient(subset=["sharpe"], cmap="RdYlGn"),
+    leaderboard.style.background_gradient(subset=[rank_col], cmap="RdYlGn"),
     use_container_width=True,
     height=420,
 )
