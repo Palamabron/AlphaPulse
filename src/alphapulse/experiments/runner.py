@@ -17,7 +17,8 @@ from ..pipeline.pipeline import Pipeline
 from .data import (
     load_meta_model_series,
     load_train_frame_with_era,
-    load_train_val_frames,
+    load_train_only_frame,
+    load_validation_frames,
 )
 from .hashing import config_hash
 from .schema import ExperimentV1
@@ -59,6 +60,29 @@ def _need_era_column(exp: ExperimentV1) -> bool:
     return False
 
 
+def _describe_models(exp: ExperimentV1) -> str:
+    parts: list[str] = []
+    for m in exp.models:
+        era_tag = (
+            f", era_ensemble n_subs={m.n_subs}" if m.type in TREE_MODEL_NAMES else ""
+        )
+        parts.append(f"{m.type}{era_tag}")
+    return " + ".join(parts)
+
+
+def _describe_preprocessors(exp: ExperimentV1) -> str:
+    names = [p.type for p in exp.preprocessing]
+    return " -> ".join(names) if names else "none"
+
+
+def _describe_pipeline_models(
+    pipeline: Pipeline | MultiHeadPipeline,
+) -> str:
+    if isinstance(pipeline, MultiHeadPipeline):
+        return f"MultiHead({len(pipeline.heads)} heads)"
+    return " + ".join(m.name for m in pipeline.models)
+
+
 def run_experiment(
     exp: ExperimentV1,
     *,
@@ -78,6 +102,20 @@ def run_experiment(
         artifact paths, and any error string.
     """
     t0 = time.perf_counter()
+    from ..logging_.cli import configure_cli_logging
+
+    configure_cli_logging()
+    model_summary = _describe_models(exp)
+    logger.info(
+        "Experiment start: target={} train_subsample={} models=[{}] preprocessors=[{}] "
+        "ensemble={} n_rounds={}",
+        exp.data.target_col,
+        exp.data.train_subsample,
+        model_summary,
+        _describe_preprocessors(exp),
+        exp.ensemble_method,
+        exp.train.n_rounds,
+    )
     pipeline_cfg = exp.to_pipeline_config()
     if use_gpu:
         from ..hpo.search_space import apply_gpu_pipeline_config
@@ -95,8 +133,9 @@ def run_experiment(
     need_era = _need_era_column(exp)
     data_dir = Path(exp.data.data_dir)
 
+    logger.info("Loading train data from {} ...", data_dir)
     try:
-        X_train, y_train, X_val, y_val, era_val, feature_cols = load_train_val_frames(
+        X_train, y_train, feature_cols = load_train_only_frame(
             data_dir,
             train_subsample=exp.data.train_subsample,
             target_col=exp.data.target_col,
@@ -106,13 +145,21 @@ def run_experiment(
             benchmark_columns=exp.data.benchmark_columns or None,
         )
     except Exception as e:
-        logger.exception("Experiment data load failed")
+        logger.exception("Experiment train data load failed")
         return RunResult(
             error=str(e),
             config_hash=ch,
             duration_sec=time.perf_counter() - t0,
             pipeline_config=pipeline_cfg,
         )
+
+    n_eras = int(X_train["era"].nunique()) if "era" in X_train.columns else 0
+    logger.info(
+        "Train loaded: rows={} features={} eras={}",
+        len(X_train),
+        len(feature_cols),
+        n_eras,
+    )
 
     stacking_needs_val = exp.ensemble_method == "stacking" and len(exp.models) > 1
     era_train = X_train["era"] if "era" in X_train.columns else None
@@ -122,16 +169,28 @@ def run_experiment(
         era_train=era_train,
         force_internal=stacking_needs_val,
     )
+    if X_val_internal is not None:
+        logger.info(
+            "Internal val split: train_rows={} val_rows={}",
+            len(X_train_fit),
+            len(X_val_internal),
+        )
 
     pipeline: Pipeline | MultiHeadPipeline = build_pipeline_or_multi(
         pipeline_cfg, feature_columns=feature_cols, feature_groups=exp.features.groups
     )
+    logger.info("Pipeline built: {}", _describe_pipeline_models(pipeline))
     train_kw: dict[str, Any] = {
         "n_rounds": exp.train.n_rounds,
         "early_stopping_rounds": exp.train.early_stopping_rounds,
     }
+    logger.info(
+        "Training started (n_rounds={}, early_stopping={}) ...",
+        exp.train.n_rounds,
+        exp.train.early_stopping_rounds,
+    )
     try:
-        pipeline.fit(
+        train_metrics = pipeline.fit(
             X_train_fit,
             y_train_fit,
             X_val=X_val_internal,
@@ -146,8 +205,33 @@ def run_experiment(
             duration_sec=time.perf_counter() - t0,
             pipeline_config=pipeline_cfg,
         )
+    logger.info("Training finished: {}", train_metrics)
 
+    del X_train, y_train, X_train_fit, y_train_fit, X_val_internal, y_val_internal
+    if era_train is not None:
+        del era_train
     gc.collect()
+
+    logger.info("Loading validation data ...")
+    try:
+        X_val, y_val, era_val = load_validation_frames(
+            data_dir,
+            exp.data.target_col,
+            feature_cols,
+            need_era=need_era,
+        )
+    except Exception as e:
+        logger.exception("Experiment validation data load failed")
+        return RunResult(
+            error=str(e),
+            config_hash=ch,
+            duration_sec=time.perf_counter() - t0,
+            pipeline_config=pipeline_cfg,
+        )
+    logger.info(
+        "Validation loaded: rows={} eras={}", len(X_val), int(era_val.nunique())
+    )
+
     meta_path = exp.evaluation.meta_model_path
     meta_model_preds = None
     meta_series = load_meta_model_series(
@@ -158,6 +242,7 @@ def run_experiment(
 
     compute_fnc = len(feature_cols) <= 200
     backtester = Backtester(pipeline, feature_columns=feature_cols)
+    logger.info("Backtesting on validation set ...")
     metrics = backtester.evaluate(
         X_val,
         y_val,
@@ -166,6 +251,12 @@ def run_experiment(
         compute_fnc=compute_fnc,
         corr_weight=exp.evaluation.corr_weight,
         mmc_weight=exp.evaluation.mmc_weight,
+    )
+    logger.info(
+        "Backtest done: corr_sharpe={:.4f} mean_corr={:.4f} pct_positive_eras={:.1%}",
+        metrics.get("corr_sharpe", float("nan")),
+        metrics.get("mean_per_era_correlation", float("nan")),
+        metrics.get("pct_positive_eras", float("nan")),
     )
 
     should_log_diag = log_wandb_diagnostics
@@ -177,6 +268,7 @@ def run_experiment(
         except ImportError:
             should_log_diag = False
     if should_log_diag:
+        logger.info("Logging W&B diagnostics ...")
         from ..evaluation.wandb_diagnostics import log_experiment_diagnostics
 
         log_experiment_diagnostics(
@@ -245,10 +337,12 @@ def run_experiment(
             f.write(ch)
         paths["config_hash"] = str(hash_path)
 
+    duration = time.perf_counter() - t0
+    logger.info("Experiment complete in {:.1f}s", duration)
     return RunResult(
         metrics=metrics,
         config_hash=ch,
-        duration_sec=time.perf_counter() - t0,
+        duration_sec=duration,
         paths=paths,
         pipeline_config=pipeline_cfg,
     )

@@ -1,4 +1,5 @@
 import random as _random_mod
+from pathlib import Path
 from typing import Any
 
 try:
@@ -7,6 +8,9 @@ except ImportError:
     tune = None
 
 from ..evaluation.era_split import HPO_FAST_N_SUBS_CAP
+from ..features.catalog import load_feature_catalog, load_target_catalog
+from .feature_routing import sample_feature_routing
+from .target_strategy import apply_target_strategy_to_flat, sample_target_strategy
 
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
@@ -187,8 +191,41 @@ def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
     return float(low * (high / low) ** rng.random())
 
 
+def _enrich_hpo_sampling(
+    cfg: dict[str, Any],
+    rng: _random_mod.Random,
+    *,
+    fast: bool,
+    data_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if data_dir is not None:
+        target_catalog = load_target_catalog(data_dir)
+        strategy = sample_target_strategy(rng, target_catalog, fast=fast)
+        cfg = apply_target_strategy_to_flat(cfg, strategy)
+
+        feature_catalog = load_feature_catalog(data_dir)
+        routing_fragment = sample_feature_routing(
+            rng,
+            feature_catalog,
+            int(cfg.get("num_models", 1)),
+            fast=fast,
+        )
+        cfg.update(routing_fragment)
+    else:
+        cfg.setdefault("target_mode", "single")
+        cfg.setdefault("primary_target", "target")
+        cfg.setdefault("auxiliary_targets", [])
+        cfg.setdefault("target_blend_method", "equal")
+        cfg.setdefault("use_feature_routing", False)
+    return cfg
+
+
 def sample_random_config(
-    seed: int | None = None, *, phase: str = "phase_b", fast: bool = False
+    seed: int | None = None,
+    *,
+    phase: str = "phase_b",
+    fast: bool = False,
+    data_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -241,7 +278,9 @@ def sample_random_config(
             cfg["n_subs"] = rng.choice([3, 5])
             cfg["xgb_n_rounds"] = rng.choice([150, 250, 350])
             cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
-        return _finalize_neutralization_sampling(cfg)
+        return _enrich_hpo_sampling(
+            _finalize_neutralization_sampling(cfg), rng, fast=fast, data_dir=data_dir
+        )
 
     cfg = {
         "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
@@ -295,7 +334,9 @@ def sample_random_config(
         cfg["foundation_compression_epochs"] = rng.choice([5, 10])
         cfg["use_packboost"] = False
         cfg["use_augmentation"] = rng.random() < 0.03
-    return _finalize_neutralization_sampling(cfg)
+    return _enrich_hpo_sampling(
+        _finalize_neutralization_sampling(cfg), rng, fast=fast, data_dir=data_dir
+    )
 
 
 def get_full_param_space() -> dict[str, Any]:

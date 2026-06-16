@@ -7,8 +7,7 @@ import xgboost as xgb
 from ..models.base import _numeric
 from ..models.era_ensemble_model import EraEnsembleModel
 from ..models.xgboost_model import XGBoostModel
-from ..pipeline.multihead import MultiHeadPipeline
-from ..pipeline.pipeline import Pipeline
+from ..pipeline.model_access import PipelineLike, iter_trained_models
 
 SHAP_SAMPLE_ROWS = 2000
 
@@ -25,16 +24,11 @@ def _wandb_active() -> bool:
 
 
 def _collect_by_type(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     model_class: type,
 ) -> _ModelList:
     results: _ModelList = []
-    sources = (
-        [h.model for h in pipeline.heads]
-        if isinstance(pipeline, MultiHeadPipeline)
-        else pipeline.models
-    )
-    for m in sources:
+    for m in iter_trained_models(pipeline):
         if isinstance(m, model_class):
             results.append((m.name, m))
         elif isinstance(m, EraEnsembleModel):
@@ -44,23 +38,23 @@ def _collect_by_type(
     return results
 
 
-def _collect_xgboost_models(pipeline: Pipeline | MultiHeadPipeline) -> _ModelList:
+def _collect_xgboost_models(pipeline: PipelineLike) -> _ModelList:
     return _collect_by_type(pipeline, XGBoostModel)
 
 
-def _collect_lgbm_models(pipeline: Pipeline | MultiHeadPipeline) -> _ModelList:
+def _collect_lgbm_models(pipeline: PipelineLike) -> _ModelList:
     from ..models.lightgbm_model import LightGBMModel
 
     return _collect_by_type(pipeline, LightGBMModel)
 
 
-def _collect_catboost_models(pipeline: Pipeline | MultiHeadPipeline) -> _ModelList:
+def _collect_catboost_models(pipeline: PipelineLike) -> _ModelList:
     from ..models.catboost_model import CatBoostModel
 
     return _collect_by_type(pipeline, CatBoostModel)
 
 
-def _collect_sklearn_tree_models(pipeline: Pipeline | MultiHeadPipeline) -> _ModelList:
+def _collect_sklearn_tree_models(pipeline: PipelineLike) -> _ModelList:
     from ..models.sklearn_models import ExtraTreesModel, RandomForestModel
 
     results: _ModelList = []
@@ -141,7 +135,7 @@ def _aggregate_importance(
 
 
 def compute_universal_feature_importance(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X: pd.DataFrame,
     *,
     feature_cols: list[str],
@@ -218,7 +212,7 @@ def compute_universal_feature_importance(
 
 
 def log_universal_feature_importance(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X: pd.DataFrame,
     *,
     feature_cols: list[str],
@@ -246,19 +240,17 @@ def log_universal_feature_importance(
     if not importance:
         return {}
 
-    table = wandb.Table(columns=["feature", "mean_abs_contribution"])
-    for feature, score in importance.items():
-        table.add_data(feature, score)
-    wandb.log(
-        {
-            "diagnostics/feature_importance_top": table,
-            "diagnostics/feature_importance_bar": wandb.plot.bar(
-                table,
-                "feature",
-                "mean_abs_contribution",
-                title=f"Top feature importance ({model_type})",
-            ),
-        }
+    from .wandb_diagnostics import _log_horizontal_bar_chart
+
+    features = list(importance.keys())
+    scores = [float(importance[f]) for f in features]
+    _log_horizontal_bar_chart(
+        wandb,
+        labels=features,
+        values=scores,
+        key="diagnostics/feature_importance_bar",
+        title=f"Top feature importance ({model_type})",
+        xlabel="Mean |contribution|",
     )
     if wandb.run is not None:
         wandb.run.summary["diagnostics/feature_importance_model_type"] = model_type

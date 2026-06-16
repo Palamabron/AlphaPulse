@@ -1,4 +1,6 @@
+import gc
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -15,9 +17,18 @@ from ..evaluation.era_split import (
     EraSplitEvaluator,
 )
 from ..experiments.split import internal_val_split
+from ..features.catalog import FeatureCatalog, load_feature_catalog
 from ..models.diffusion_augmenter import SyntheticDataAugmenter
-from .builder import build_pipeline_or_multi
+from .builder import (
+    build_multi_target_from_config,
+    build_pipeline_or_multi,
+)
+from .feature_routing import (
+    merge_routing_into_pipeline_config,
+    resolve_feature_routing,
+)
 from .search_space import get_train_kwargs_from_flat, resolve_flat_config
+from .target_strategy import strategy_from_flat
 
 
 @dataclass(frozen=True)
@@ -36,6 +47,28 @@ class TrialResult:
 
 def ray_trainable(config: dict[str, Any], **kwargs: Any) -> dict[str, float]:
     return run_trial(config, **kwargs)
+
+
+def _resolve_pipeline_cfg(
+    config: dict[str, Any],
+    catalog: FeatureCatalog | None,
+) -> tuple[dict[str, Any], dict[str, list[str]] | None, list[str] | None]:
+    pipeline_cfg = resolve_flat_config(config)
+    if not config.get("use_feature_routing"):
+        return pipeline_cfg, None, None
+
+    cat = catalog
+    if cat is None:
+        data_dir = config.get("_data_dir")
+        if not data_dir:
+            raise ValueError("_data_dir required when use_feature_routing is enabled")
+        cat = load_feature_catalog(data_dir)
+
+    routing = resolve_feature_routing(config, cat)
+    pipeline_cfg = merge_routing_into_pipeline_config(pipeline_cfg, routing)
+    feature_groups = routing.feature_groups or None
+    feature_columns = routing.feature_columns or None
+    return pipeline_cfg, feature_groups, feature_columns
 
 
 def _apply_synthetic_augmentation(
@@ -74,6 +107,14 @@ def _apply_synthetic_augmentation(
     return X_out, y_out
 
 
+def _is_multi_target(flat_config: dict[str, Any] | None) -> bool:
+    if not flat_config:
+        return False
+    return flat_config.get("target_mode") == "multi_blend" and bool(
+        flat_config.get("auxiliary_targets")
+    )
+
+
 def _fit_pipeline(
     pipeline_cfg: dict[str, Any],
     feature_cols: list[str],
@@ -82,26 +123,118 @@ def _fit_pipeline(
     train_kwargs: dict[str, Any],
     flat_config: dict[str, Any] | None = None,
     seed: int | None = None,
+    feature_groups: dict[str, list[str]] | None = None,
+    targets_df: pd.DataFrame | None = None,
 ) -> Any:
     X_fit_src = X_tr
     y_fit_src = y_tr
-    if flat_config and flat_config.get("use_augmentation"):
+    targets_fit = targets_df
+    if (
+        flat_config
+        and flat_config.get("use_augmentation")
+        and not _is_multi_target(flat_config)
+    ):
         X_fit_src, y_fit_src = _apply_synthetic_augmentation(
             X_tr, y_tr, flat_config, feature_cols, seed
         )
-    pipeline = build_pipeline_or_multi(
-        pipeline_cfg, feature_columns=feature_cols, feature_groups=None
-    )
+        if targets_fit is not None:
+            targets_fit = targets_fit.loc[X_tr.index].reset_index(drop=True)
+            aug_targets = targets_fit.copy()
+            targets_fit = pd.concat(
+                [aug_targets, aug_targets.iloc[:0]], ignore_index=True
+            )
+
     era_col = X_fit_src["era"] if "era" in X_fit_src.columns else None
     stacking_needs_val = (
         pipeline_cfg.get("ensemble_method") == "stacking"
         and len(pipeline_cfg.get("models", [])) > 1
+    )
+
+    if _is_multi_target(flat_config):
+        assert flat_config is not None
+        pipeline: Any = build_multi_target_from_config(
+            pipeline_cfg,
+            flat_config,
+            feature_columns=feature_cols,
+            feature_groups=feature_groups,
+        )
+        X_fit, _, X_val_inner, _ = internal_val_split(
+            X_fit_src,
+            y_fit_src,
+            era_train=era_col,
+            force_internal=stacking_needs_val,
+        )
+        targets_split = (
+            targets_fit.loc[X_fit_src.index] if targets_fit is not None else None
+        )
+        targets_train = (
+            targets_split.loc[X_fit.index] if targets_split is not None else None
+        )
+        targets_val = (
+            targets_split.loc[X_val_inner.index]
+            if targets_split is not None and X_val_inner is not None
+            else None
+        )
+        era_train_fit = era_col.loc[X_fit.index] if era_col is not None else None
+        pipeline.fit(
+            X_fit.drop(columns=["era"], errors="ignore"),
+            targets_train,
+            X_val=X_val_inner.drop(columns=["era"], errors="ignore")
+            if X_val_inner is not None
+            else None,
+            targets_val=targets_val,
+            era_train=era_train_fit,
+            **train_kwargs,
+        )
+        return pipeline
+
+    pipeline = build_pipeline_or_multi(
+        pipeline_cfg,
+        feature_columns=feature_cols,
+        feature_groups=feature_groups,
     )
     X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
         X_fit_src, y_fit_src, era_train=era_col, force_internal=stacking_needs_val
     )
     pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kwargs)
     return pipeline
+
+
+def _merge_validation_mmc_metrics(
+    metrics: dict[str, float],
+    *,
+    pipeline: Any,
+    data_dir: Path,
+    feature_cols: list[str],
+    target_col: str,
+    train_subsample: float,
+    seed: int | None,
+) -> dict[str, float]:
+    from ..experiments.data import load_mmc_validation_frame
+
+    frame = load_mmc_validation_frame(
+        data_dir,
+        feature_cols=feature_cols,
+        target_col=target_col,
+        train_subsample=train_subsample,
+        seed=seed or 42,
+    )
+    if frame is None:
+        return metrics
+
+    X_val, y_val, era_val, meta_preds = frame
+    mmc_metrics = Backtester(pipeline, feature_columns=feature_cols).evaluate(
+        X_val,
+        y_val,
+        era_val,
+        meta_model_preds=meta_preds,
+    )
+    merged = dict(metrics)
+    for key in ("mmc", "mmc_sharpe", "payout_score"):
+        value = mmc_metrics.get(key)
+        if value is not None and np.isfinite(value):
+            merged[key] = float(value)
+    return merged
 
 
 def _evaluate_holdout(
@@ -115,6 +248,8 @@ def _evaluate_holdout(
     holdout_eras: int = HPO_FAST_HOLDOUT_ERAS,
     config: dict[str, Any] | None = None,
     seed: int | None = None,
+    feature_groups: dict[str, list[str]] | None = None,
+    targets_df: pd.DataFrame | None = None,
 ) -> dict[str, float]:
     eras_sorted = sorted(era_train.unique(), key=str)
     min_train = WF_MIN_TRAIN_ERAS
@@ -135,16 +270,32 @@ def _evaluate_holdout(
         train_kwargs,
         flat_config=config,
         seed=seed,
+        feature_groups=feature_groups,
+        targets_df=targets_df.loc[train_mask] if targets_df is not None else None,
     )
     ho_mask = era_train.isin(holdout_set)
     X_ho = X_train.loc[ho_mask]
     y_ho = y_train.loc[ho_mask]
     era_ho = era_train.loc[ho_mask]
+
     metrics = Backtester(pipeline, feature_columns=feature_cols).evaluate(
         X_ho,
         y_ho,
         era_ho,
     )
+    if config and config.get("_data_dir"):
+        data_dir = Path(str(config["_data_dir"]))
+        target_col = str(config.get("primary_target", "target"))
+        train_subsample = float(config.get("_train_subsample", 1.0))
+        metrics = _merge_validation_mmc_metrics(
+            metrics,
+            pipeline=pipeline,
+            data_dir=data_dir,
+            feature_cols=feature_cols,
+            target_col=target_col,
+            train_subsample=train_subsample,
+            seed=seed,
+        )
     if config and config.get("log_wandb_diagnostics"):
         from ..evaluation.wandb_diagnostics import log_experiment_diagnostics
 
@@ -158,6 +309,8 @@ def _evaluate_holdout(
             log_shap=bool(config.get("wandb_log_shap", True)),
             compute_fnc=False,
         )
+    del pipeline
+    gc.collect()
     return metrics
 
 
@@ -170,55 +323,53 @@ def run_trial(
     feature_cols: list[str],
     seed: int | None = None,
     fast_eval: bool | None = None,
+    targets_df: pd.DataFrame | None = None,
+    catalog: FeatureCatalog | None = None,
 ) -> dict[str, float]:
-    """Train a single HPO trial and return backtest metrics.
-
-    When ``fast_eval`` is True (default for ``hpo_fast`` configs), scores a
-    single holdout on the last ``HPO_FAST_HOLDOUT_ERAS`` eras instead of full
-    walk-forward CV. This keeps trials under the 30-minute budget on full data.
-
-    Args:
-        config: Flat parameter dictionary (as produced by
-            ``sample_random_config`` or Ray Tune).
-        X_train: Training feature DataFrame (may include an "era" column).
-        y_train: Training target Series.
-        era_train: Era labels aligned to X_train.
-        feature_cols: Feature column names (must not include "era").
-        seed: Optional integer seed for reproducibility.
-        fast_eval: Override fast holdout mode. When None, reads ``hpo_fast``
-            from *config* (defaults to False).
-
-    Returns:
-        Dictionary of backtest metrics (keys include ``corr_sharpe``,
-        ``mean_per_era_correlation``, ``max_drawdown``, ``pct_positive_eras``,
-        ``n_valid_eras``).
-    """
+    """Train a single HPO trial and return backtest metrics."""
     if seed is not None:
         rng = np.random.default_rng(seed)
         np.random.seed(rng.integers(0, 2**31))
 
     use_fast = fast_eval if fast_eval is not None else bool(config.get("hpo_fast"))
 
-    pipeline_cfg = resolve_flat_config(config)
+    pipeline_cfg, feature_groups, routed_columns = _resolve_pipeline_cfg(
+        config, catalog
+    )
+    if routed_columns:
+        feature_cols = [c for c in routed_columns if c in X_train.columns]
+
     if config.get("use_gpu"):
         from .search_space import apply_gpu_pipeline_config
 
         pipeline_cfg = apply_gpu_pipeline_config(pipeline_cfg)
     train_kwargs = get_train_kwargs_from_flat(config)
 
+    strategy = strategy_from_flat(config)
+    y_eval = (
+        targets_df[strategy.primary_target]
+        if targets_df is not None and strategy.primary_target in targets_df.columns
+        else y_train
+    )
+
     if use_fast:
         return _evaluate_holdout(
             X_train=X_train,
-            y_train=y_train,
+            y_train=y_eval,
             era_train=era_train,
             feature_cols=feature_cols,
             pipeline_cfg=pipeline_cfg,
             train_kwargs=train_kwargs,
             config=config,
             seed=seed,
+            feature_groups=feature_groups,
+            targets_df=targets_df,
         )
 
     def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:
+        local_targets = None
+        if targets_df is not None:
+            local_targets = targets_df.loc[X_tr.index]
         return _fit_pipeline(
             pipeline_cfg,
             feature_cols,
@@ -227,6 +378,8 @@ def run_trial(
             train_kwargs,
             flat_config=config,
             seed=seed,
+            feature_groups=feature_groups,
+            targets_df=local_targets,
         )
 
     diagnostics_state: dict[str, Any] = {}
@@ -246,7 +399,7 @@ def run_trial(
         min_train_eras=WF_MIN_TRAIN_ERAS,
     ).evaluate_walk_forward(
         X_train,
-        y_train,
+        y_eval,
         era_train,
         train_fn,
         last_fold_callback=last_fold_callback
@@ -266,6 +419,7 @@ def run_trial(
             log_shap=bool(config.get("wandb_log_shap", True)),
             compute_fnc=False,
         )
+    gc.collect()
     return metrics
 
 
@@ -277,20 +431,36 @@ def run_trial_fast_walk_forward(
     era_train: pd.Series,
     feature_cols: list[str],
     seed: int | None = None,
+    targets_df: pd.DataFrame | None = None,
+    catalog: FeatureCatalog | None = None,
 ) -> dict[str, float]:
     """Walk-forward with reduced folds and capped train window for HPO."""
     if seed is not None:
         rng = np.random.default_rng(seed)
         np.random.seed(rng.integers(0, 2**31))
 
-    pipeline_cfg = resolve_flat_config(config)
+    pipeline_cfg, feature_groups, routed_columns = _resolve_pipeline_cfg(
+        config, catalog
+    )
+    if routed_columns:
+        feature_cols = [c for c in routed_columns if c in X_train.columns]
     if config.get("use_gpu"):
         from .search_space import apply_gpu_pipeline_config
 
         pipeline_cfg = apply_gpu_pipeline_config(pipeline_cfg)
     train_kwargs = get_train_kwargs_from_flat(config)
 
+    strategy = strategy_from_flat(config)
+    y_eval = (
+        targets_df[strategy.primary_target]
+        if targets_df is not None and strategy.primary_target in targets_df.columns
+        else y_train
+    )
+
     def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:
+        local_targets = None
+        if targets_df is not None:
+            local_targets = targets_df.loc[X_tr.index]
         return _fit_pipeline(
             pipeline_cfg,
             feature_cols,
@@ -299,12 +469,16 @@ def run_trial_fast_walk_forward(
             train_kwargs,
             flat_config=config,
             seed=seed,
+            feature_groups=feature_groups,
+            targets_df=local_targets,
         )
 
-    return EraSplitEvaluator(
+    metrics = EraSplitEvaluator(
         feature_columns=feature_cols,
         n_splits=HPO_FAST_WF_N_SPLITS,
         n_purge=WF_N_PURGE,
         min_train_eras=WF_MIN_TRAIN_ERAS,
         max_train_eras=HPO_FAST_MAX_TRAIN_ERAS,
-    ).evaluate_walk_forward(X_train, y_train, era_train, train_fn)
+    ).evaluate_walk_forward(X_train, y_eval, era_train, train_fn)
+    gc.collect()
+    return metrics

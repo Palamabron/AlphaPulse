@@ -200,3 +200,19 @@ class TestLogUniversalFeatureImportance:
         pipe = _xgb_pipeline(X, y)
         result = log_universal_feature_importance(pipe, X, feature_cols=FEATURE_COLS)
         assert result == {}
+
+
+def test_log_wandb_figure_accepts_matplotlib_figure() -> None:
+    from unittest.mock import MagicMock
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from alphapulse.evaluation.wandb_diagnostics import _log_wandb_figure
+
+    fig, ax = plt.subplots()
+    ax.plot(np.linspace(0, 1, 10), np.linspace(0, 1, 10))
+    mock_wandb = MagicMock()
+    _log_wandb_figure(mock_wandb, "diagnostics/test", fig)
+    mock_wandb.log.assert_called_once()
+    mock_wandb.Image.assert_called_once()

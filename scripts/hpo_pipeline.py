@@ -12,20 +12,31 @@ Pass --wandb-project <name> to log every trial to Weights & Biases.
 Pass --resume to skip already-completed trials recorded in the trial database.
 """
 
+import gc
 import json
 import multiprocessing
+import random
 import time
 import uuid
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
+import pandas as pd
 import tyro
 from dotenv import load_dotenv
 from loguru import logger
 
-from alphapulse.experiments.data import load_train_only_frame
+from alphapulse.experiments.data import load_train_only_frame, load_train_targets_frame
+from alphapulse.features.catalog import load_feature_catalog, load_target_catalog
+from alphapulse.hpo.feature_routing import resolve_feature_routing
 from alphapulse.hpo.objective import TrialResult, run_trial
 from alphapulse.hpo.search_space import sample_random_config
+from alphapulse.hpo.target_strategy import (
+    apply_target_strategy_to_flat,
+    strategy_from_flat,
+    validate_target_strategy_early,
+)
 from alphapulse.hpo.trial_db import TrialDB
 from alphapulse.logging_.leaderboard import (
     entry_from_hpo_result,
@@ -55,6 +66,8 @@ def _trial_result_from_db_row(row: dict) -> TrialResult:
     metrics = row["metrics"] or {}
     corr_sharpe = float(metrics.get("corr_sharpe", float("-inf")))
     flat_config = row["flat_config"]
+    mmc_sharpe = metrics.get("mmc_sharpe")
+    payout_score = metrics.get("payout_score")
     return TrialResult(
         trial_number=int(row["trial_number"]),
         sharpe=corr_sharpe,
@@ -64,6 +77,12 @@ def _trial_result_from_db_row(row: dict) -> TrialResult:
         params=flat_config,
         error=row["error"],
         corr_sharpe=corr_sharpe,
+        mmc_sharpe=float(mmc_sharpe)
+        if mmc_sharpe is not None and np.isfinite(mmc_sharpe)
+        else None,
+        payout_score=float(payout_score)
+        if payout_score is not None and np.isfinite(payout_score)
+        else None,
     )
 
 
@@ -86,9 +105,65 @@ def _trial_worker(
 ) -> None:
     """Run a single trial inside a subprocess and push the result to the queue."""
     wandb_initialized = False
+    X_train = None
+    y_train = None
+    targets_df = None
+    era_train = None
+    metrics: dict = {}
     try:
         load_dotenv()
         worker_config = dict(flat_config)
+        worker_config["_data_dir"] = data_dir
+        worker_config["_train_subsample"] = train_subsample
+        worker_config.setdefault("primary_target", target_col)
+
+        feature_catalog = load_feature_catalog(data_dir)
+        target_catalog = load_target_catalog(data_dir)
+        strategy = strategy_from_flat(worker_config)
+        routing = resolve_feature_routing(worker_config, feature_catalog)
+        feature_columns = routing.feature_columns or None
+
+        if strategy.target_mode == "multi_blend" and strategy.auxiliary_targets:
+            X_train, y_train, targets_df, feature_cols = load_train_targets_frame(
+                Path(data_dir),
+                train_subsample=train_subsample,
+                primary_target=strategy.primary_target,
+                auxiliary_targets=strategy.auxiliary_targets,
+                seed=seed,
+                feature_columns=feature_columns,
+                need_era=True,
+            )
+        else:
+            X_train, y_train, feature_cols = load_train_only_frame(
+                Path(data_dir),
+                train_subsample=train_subsample,
+                target_col=strategy.primary_target,
+                seed=seed,
+                feature_columns=feature_columns,
+                need_era=True,
+            )
+            targets_df = None
+
+        era_train = X_train["era"]
+        targets_for_validation = (
+            targets_df
+            if targets_df is not None
+            else pd.DataFrame({strategy.primary_target: y_train})
+        )
+        validation = validate_target_strategy_early(
+            targets_for_validation,
+            strategy,
+            catalog=target_catalog,
+            rng=random.Random(seed),
+        )
+        if not validation.ok:
+            raise ValueError(validation.reason or "target strategy validation failed")
+        worker_config = apply_target_strategy_to_flat(
+            worker_config, validation.strategy
+        )
+        if validation.strategy.target_mode == "single":
+            targets_df = None
+
         wandb_active = (
             wandb_project is not None
             and wandb_group is not None
@@ -100,38 +175,33 @@ def _trial_worker(
             import wandb
 
             from alphapulse.hpo.objective import TrialResult
+            from alphapulse.logging_.wandb_logging import attach_wandb_loguru
             from alphapulse.logging_.wandb_utils import log_hpo_trial_metrics
 
-            num = flat_config.get("num_models", 1)
+            num = worker_config.get("num_models", 1)
             model_types = "+".join(
-                str(flat_config.get(f"model_{i}_type", "?")) for i in range(1, num + 1)
+                str(worker_config.get(f"model_{i}_type", "?"))
+                for i in range(1, num + 1)
             )
-            preprocessors = flat_config.get("scaler_type", "StandardScaler")
-            if flat_config.get("use_packboost"):
+            preprocessors = worker_config.get("scaler_type", "StandardScaler")
+            if worker_config.get("use_packboost"):
                 preprocessors += "+Packboost"
             wandb.init(
                 project=wandb_project,
                 group=wandb_group,
                 name=f"trial_{trial_number:03d}",
                 config={
-                    **flat_config,
+                    **worker_config,
                     "model_types": model_types,
                     "preprocessors": preprocessors,
                 },
                 reinit=True,
+                settings=wandb.Settings(console="wrap"),
             )
+            attach_wandb_loguru()
             wandb_initialized = True
 
         t0 = time.perf_counter()
-        X_train, y_train, feature_cols = load_train_only_frame(
-            Path(data_dir),
-            train_subsample=train_subsample,
-            target_col=target_col,
-            seed=seed,
-            feature_columns=None,
-            need_era=True,
-        )
-        era_train = X_train["era"]
         metrics = run_trial(
             worker_config,
             X_train=X_train,
@@ -139,19 +209,29 @@ def _trial_worker(
             era_train=era_train,
             feature_cols=feature_cols,
             seed=seed,
+            targets_df=targets_df,
+            catalog=feature_catalog,
         )
         elapsed = time.perf_counter() - t0
         if wandb_initialized:
             assert trial_number is not None
             corr_sharpe = float(metrics.get("corr_sharpe", float("-inf")))
+            mmc_sharpe = metrics.get("mmc_sharpe")
+            payout_score = metrics.get("payout_score")
             trial_result = TrialResult(
                 trial_number=trial_number,
                 sharpe=corr_sharpe,
                 metrics=metrics,
-                model_type=str(flat_config.get("model_1_type", "XGBoost")),
+                model_type=str(worker_config.get("model_1_type", "XGBoost")),
                 elapsed_seconds=elapsed,
-                params=flat_config,
+                params=worker_config,
                 corr_sharpe=corr_sharpe,
+                mmc_sharpe=float(mmc_sharpe)
+                if mmc_sharpe is not None and np.isfinite(mmc_sharpe)
+                else None,
+                payout_score=float(payout_score)
+                if payout_score is not None and np.isfinite(payout_score)
+                else None,
             )
             log_hpo_trial_metrics(
                 trial_result,
@@ -164,10 +244,25 @@ def _trial_worker(
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
     finally:
+        if X_train is not None:
+            del X_train
+        if y_train is not None:
+            del y_train
+        if targets_df is not None:
+            del targets_df
+        if era_train is not None:
+            del era_train
+        if metrics:
+            del metrics
+        gc.collect()
         if wandb_initialized:
             import wandb
 
-            wandb.finish(quiet=True)
+            from alphapulse.logging_.wandb_logging import detach_wandb_loguru
+
+            detach_wandb_loguru()
+            wandb.finish()
+            gc.collect()
 
 
 def _best_from_db(db: TrialDB, objective: str) -> tuple[float, dict]:
@@ -267,6 +362,17 @@ def _run_best_trial_diagnostics(
         metrics = Backtester(pipeline, feature_columns=feature_cols).evaluate(
             X_ho, y_ho, era_ho
         )
+        from alphapulse.hpo.objective import _merge_validation_mmc_metrics
+
+        metrics = _merge_validation_mmc_metrics(
+            metrics,
+            pipeline=pipeline,
+            data_dir=data_dir,
+            feature_cols=feature_cols,
+            target_col=target_col,
+            train_subsample=train_subsample,
+            seed=seed,
+        )
 
         wandb.init(
             project=wandb_project,
@@ -275,7 +381,11 @@ def _run_best_trial_diagnostics(
             job_type="diagnostics",
             config=best_config,
             reinit=True,
+            settings=wandb.Settings(console="wrap"),
         )
+        from alphapulse.logging_.wandb_logging import attach_wandb_loguru
+
+        attach_wandb_loguru()
 
         log_experiment_diagnostics(
             pipeline=pipeline,
@@ -295,11 +405,17 @@ def _run_best_trial_diagnostics(
         if importance:
             log_importance_artifact(importance, name="best-trial-feature-importance")
 
-        wandb.finish(quiet=True)
+        from alphapulse.logging_.wandb_logging import detach_wandb_loguru
+
+        detach_wandb_loguru()
+        wandb.finish()
     except Exception as exc:
         logger.warning("Best-trial diagnostics failed: {}", exc)
         try:
-            wandb.finish(quiet=True)
+            from alphapulse.logging_.wandb_logging import detach_wandb_loguru
+
+            detach_wandb_loguru()
+            wandb.finish()
         except Exception as finish_exc:
             logger.debug("wandb.finish cleanup error: {}", finish_exc)
 
@@ -319,6 +435,7 @@ def _run_local(
     gpu: bool = False,
     fast: bool = True,
     wandb_diagnostics: bool = True,
+    max_hours: float | None = None,
 ) -> None:
     """Local random-search HPO with subprocess isolation and SQLite trial DB."""
 
@@ -347,7 +464,7 @@ def _run_local(
             wandb_diagnostics,
         )
 
-    trial_kwargs = {
+    trial_kwargs: dict[str, str | float] = {
         "data_dir": str(data_dir),
         "train_subsample": train_subsample,
         "target_col": target_col,
@@ -356,6 +473,14 @@ def _run_local(
     results: list[TrialResult] = []
     best_score = float("-inf")
     best_config: dict = {}
+    sweep_t0 = time.perf_counter()
+    max_seconds = max_hours * 3600.0 if max_hours is not None else None
+    if max_seconds is not None:
+        logger.info(
+            "Time budget: {:.1f}h ({} trials max cap)",
+            max_hours,
+            num_trials,
+        )
 
     with TrialDB(db_path) as db:
         already_done = db.completed_trials() if resume else set()
@@ -374,25 +499,45 @@ def _run_local(
             )
 
         for i in range(num_trials):
+            if max_seconds is not None:
+                elapsed_sweep = time.perf_counter() - sweep_t0
+                if elapsed_sweep >= max_seconds:
+                    logger.info(
+                        "Time budget reached ({:.1f}h elapsed), stopping after {} "
+                        "trial(s)",
+                        elapsed_sweep / 3600.0,
+                        len(results),
+                    )
+                    break
             if i in already_done:
                 logger.info(
                     "Trial {}/{}: skipped (already completed)", i + 1, num_trials
                 )
                 continue
 
-            flat_config = sample_random_config(seed=seed + i, fast=fast)
+            flat_config = sample_random_config(
+                seed=seed + i, fast=fast, data_dir=data_dir
+            )
             if gpu:
                 flat_config["use_gpu"] = True
             if fast:
                 flat_config["hpo_fast"] = True
             db.insert_trial(i, flat_config)
 
+            time_left_suffix = ""
+            if max_seconds is not None:
+                remaining_min = (
+                    (max_seconds or 0) - (time.perf_counter() - sweep_t0)
+                ) / 60
+                time_left_suffix = f", {remaining_min:.0f}m left"
+
             logger.info(
-                "Trial {}/{} starting (fast={}, models={})",
+                "Trial {}/{} starting (fast={}, models={}{})",
                 i + 1,
                 num_trials,
                 fast,
                 flat_config.get("model_1_type", "?"),
+                time_left_suffix,
             )
 
             t0 = time.perf_counter()
@@ -705,17 +850,21 @@ def main(
     gpu: bool = False,
     fast: bool = True,
     wandb_diagnostics: bool = True,
+    max_hours: float | None = None,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
     Use --local for random search without Ray, or omit for Ray Tune.
     Use --objective to choose the optimization target (default: corr_sharpe).
     Pass --wandb-project <name> to log every trial to Weights & Biases.
+    The project name is suffixed with a launch timestamp
+    (e.g. alphapulse-hpo-20260614-232943) and saved in the output dir for --resume.
     With WandB enabled, diagnostics (per-era charts, feature exposure, SHAP
     for XGBoost) are logged under the ``diagnostics/`` prefix in each trial run.
     Pass --no-wandb-diagnostics to log metrics only.
     Pass --resume to continue an interrupted sweep (requires --local).
     Pass --trial-timeout N to cap each subprocess trial at N seconds (default: 1800).
+    Pass --max-hours N to stop after N wall-clock hours (local mode only).
     Pass --gpu to enable CUDA for XGBoost, LightGBM, and CatBoost.
     Fast mode (default) uses era holdout and a tighter search space so trials
     finish within ~30 minutes on full data.
@@ -723,6 +872,11 @@ def main(
     """
     load_dotenv()
     set_global_seed(seed)
+    if wandb_project:
+        from alphapulse.logging_.wandb_utils import resolve_wandb_project
+
+        wandb_project = resolve_wandb_project(wandb_project, output_dir=output_dir)
+        logger.info("WandB project: {}", wandb_project)
     if local:
         _run_local(
             data_dir=data_dir,
@@ -738,6 +892,7 @@ def main(
             gpu=gpu,
             fast=fast,
             wandb_diagnostics=wandb_diagnostics,
+            max_hours=max_hours,
         )
     else:
         _run_ray(

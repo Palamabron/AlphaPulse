@@ -1,5 +1,6 @@
 from collections.abc import Callable
-from typing import Any
+from pathlib import Path
+from typing import Any, Self
 
 import numpy as np
 import pandas as pd
@@ -214,7 +215,7 @@ class MultiTargetPipeline:
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
-            X = live_features[feature_columns]
+            X = live_features.reindex(columns=feature_columns, fill_value=0.0)
             raw_preds = pipeline.predict(X)
             ranked = rank_normalize(raw_preds)
 
@@ -229,3 +230,23 @@ class MultiTargetPipeline:
             return pd.DataFrame({"prediction": ranked}, index=live_features.index)
 
         return predict
+
+    def save_pipeline(self, path: Path) -> None:
+        import cloudpickle
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            cloudpickle.dump(self, f)
+
+    @classmethod
+    def load_pipeline(cls, path: Path) -> Self:
+        import cloudpickle
+
+        with open(path, "rb") as f:
+            loaded = cloudpickle.load(f)
+            if not isinstance(loaded, cls):
+                raise TypeError(
+                    f"Expected a {cls.__name__} object, got {type(loaded).__name__}"
+                )
+            return loaded

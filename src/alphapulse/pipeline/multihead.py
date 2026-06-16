@@ -27,10 +27,12 @@ class HeadSpec:
         input_group: str | None,
         local_preprocessors: list[BasePreprocessor],
         feature_groups: dict[str, list[str]],
+        input_groups: list[str] | None = None,
     ) -> None:
         self.model = model
         self.input_columns = input_columns
         self.input_group = input_group
+        self.input_groups = input_groups
         self.local_preprocessors = local_preprocessors
         self.feature_groups = feature_groups
 
@@ -44,6 +46,27 @@ class HeadSpec:
                     + (" (and more)" if len(missing) > 10 else "")
                 )
             return list(self.input_columns)
+        if self.input_groups:
+            seen: set[str] = set()
+            out: list[str] = []
+            for group in self.input_groups:
+                if group not in self.feature_groups:
+                    available = sorted(self.feature_groups.keys())
+                    raise ValueError(
+                        f"Model {self.model.name!r} references input_groups containing "
+                        f"{group!r}, which is not defined in feature_groups. "
+                        f"Available groups: {available}"
+                    )
+                for col in self.feature_groups[group]:
+                    if col in X.columns and col not in seen:
+                        seen.add(col)
+                        out.append(col)
+            if not out:
+                raise ValueError(
+                    f"Model {self.model.name!r} input_groups={self.input_groups!r} "
+                    "resolved to zero columns present in data"
+                )
+            return out
         if self.input_group is not None:
             if self.input_group not in self.feature_groups:
                 available = sorted(self.feature_groups.keys())
@@ -107,7 +130,7 @@ class MultiHeadPipeline:
                 f"Missing columns for head {head.model.name}: {missing[:10]}..."
             )
         X_h = X_global[cols].copy()
-        era_meta = protected_metadata_frame(X_h)
+        era_meta = protected_metadata_frame(X_global)
         for pp in head.local_preprocessors:
             if isinstance(pp, TrainEvalPreprocessor):
                 pp.train() if fit else pp.eval()
@@ -115,7 +138,7 @@ class MultiHeadPipeline:
                 pp.fit(X_h, y)
             X_h = pp.transform(X_h)
             X_h = reattach_protected_columns(X_h, era_meta)
-        return X_h
+        return reattach_protected_columns(X_h, era_meta)
 
     def fit(
         self,

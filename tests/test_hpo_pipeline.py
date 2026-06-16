@@ -1,5 +1,7 @@
 """Tests for HPO pipeline (run_trial with preloaded data)."""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -53,6 +55,20 @@ def minimal_flat_config() -> dict[str, Any]:
         "ensemble_method": "single",
         "stacking_meta_learner": "ridge",
     }
+
+
+def test_sample_random_config_includes_targets_when_data_dir(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    payload = {
+        "feature_sets": {"medium": ["f_a"], "strength": ["f_a"]},
+        "targets": ["target", "target_alpha_20"],
+    }
+    (data_dir / "features.json").write_text(json.dumps(payload), encoding="utf-8")
+    config = sample_random_config(seed=1, fast=True, data_dir=data_dir)
+    assert "target_mode" in config
+    assert "primary_target" in config
+    assert "use_feature_routing" in config
 
 
 def test_run_trial_returns_metrics(

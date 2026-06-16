@@ -1,3 +1,4 @@
+from .cli import configure_cli_logging
 from .leaderboard import (
     TrialLeaderboardEntry,
     entry_from_hpo_result,
@@ -15,9 +16,11 @@ from .wandb_utils import (
     log_hpo_trial,
     log_metrics,
     log_research_step,
+    resolve_wandb_project,
 )
 
 __all__ = [
+    "configure_cli_logging",
     "TrialLeaderboardEntry",
     "entry_from_hpo_result",
     "entry_from_trial_record",
@@ -30,6 +33,7 @@ __all__ = [
     "log_hpo_trial",
     "log_metrics",
     "log_research_step",
+    "resolve_wandb_project",
     "print_leaderboard",
     "save_leaderboard",
 ]

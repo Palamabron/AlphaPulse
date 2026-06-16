@@ -100,7 +100,7 @@ class Backtester:
             mmc_weight=mmc_weight,
         )
 
-        if meta_arr is not None:
+        if meta_arr is not None and np.isfinite(meta_arr).sum() >= 2:
             metrics["mmc"] = mmc_score(y, preds, meta_arr, era)
 
         if compute_fnc:
