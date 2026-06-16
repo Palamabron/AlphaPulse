@@ -4,8 +4,44 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from loguru import logger
 
 from .base import BaseModel, _numeric
+
+
+def _make_progress_callbacks(model_name: str, log_every: int = 10) -> list[Any]:
+    ray_callbacks = _make_ray_callbacks()
+    if ray_callbacks:
+        return ray_callbacks
+
+    from ..logging_.wandb_logging import (
+        log_boosting_round_metrics,
+        parse_xgb_evals_log,
+        wandb_run_active,
+    )
+
+    class _LogProgressCallback(xgb.callback.TrainingCallback):
+        def after_iteration(
+            self,
+            model: Any,
+            epoch: int,
+            evals_log: dict[str, dict[str, list[float] | list[tuple[float, float]]]],
+        ) -> bool:
+            if epoch != 0 and (epoch + 1) % log_every != 0:
+                return False
+            parsed = parse_xgb_evals_log(evals_log)
+            if parsed:
+                parts = [f"{k}={v:.6f}" for k, v in parsed.items()]
+                logger.info("{} round {}: {}", model_name, epoch + 1, " ".join(parts))
+                if wandb_run_active():
+                    log_boosting_round_metrics(
+                        model_name=model_name,
+                        round_num=epoch + 1,
+                        metrics=parsed,
+                    )
+            return False
+
+    return [_LogProgressCallback()]
 
 
 def _make_ray_callbacks() -> list[Any]:
@@ -87,7 +123,16 @@ class XGBoostModel(BaseModel):
             eval_set = [(dtrain, "train"), (dval, "eval")]
 
         evals_result: dict[str, Any] = {}
-        callbacks: list[Any] = _make_ray_callbacks()
+        callbacks: list[Any] = _make_progress_callbacks(self.name)
+
+        logger.info(
+            "{}: starting XGBoost train rows={} features={} rounds={} early_stop={}",
+            self.name,
+            len(feat_train),
+            feat_train.shape[1],
+            n_rounds,
+            early_stopping_rounds if eval_set else None,
+        )
 
         self.model = xgb.train(
             self.params,
@@ -100,6 +145,8 @@ class XGBoostModel(BaseModel):
             callbacks=callbacks,
         )
         self.is_trained = True
+        best_iter = getattr(self.model, "best_iteration", n_rounds - 1)
+        logger.info("{}: finished at iteration {}", self.name, best_iter + 1)
 
         metrics: dict[str, float] = {}
         for key, values in evals_result.items():

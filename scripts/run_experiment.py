@@ -99,14 +99,18 @@ def main(
     from alphapulse.experiments.schema import ExperimentV1
 
     if wandb_project:
-        from alphapulse.logging_.wandb_utils import init_wandb_run
+        from alphapulse.logging_.wandb_utils import (
+            init_wandb_run,
+            resolve_wandb_project,
+        )
 
         exp_dict = load_experiment_dict(config)
         exp_parsed = ExperimentV1.model_validate(exp_dict)
         wandb_cfg = _build_wandb_config(
             exp_parsed, config_path=str(config), seed=seed, gpu=gpu
         )
-        init_wandb_run(project=wandb_project, name=config.stem, config=wandb_cfg)
+        resolved_project = resolve_wandb_project(wandb_project, output_dir=artifact_dir)
+        init_wandb_run(project=resolved_project, name=config.stem, config=wandb_cfg)
 
     result = run_experiment_from_path(
         config,

@@ -6,15 +6,20 @@ import numpy as np
 import pandas as pd
 
 from ..evaluation.metrics import per_era_correlation, rank_normalize
-from ..pipeline.multihead import MultiHeadPipeline
+from ..pipeline.model_access import (
+    PipelineLike,
+    model_prediction_map,
+    multitarget_blend_weights,
+)
+from ..pipeline.multi_target import MultiTargetPipeline
 from ..pipeline.pipeline import Pipeline
-from ..pipeline.row_utils import protected_metadata_frame
 
-MAX_SCATTER_POINTS = 5000
 MAX_HEXBIN_POINTS = 10_000
 FEATURE_EXPOSURE_TOP_N = 15
 MAX_FNC_FEATURES = 200
 _ERA_IMPORTANCE_MIN_ROWS = 10
+_PRED_PLOT_BINS = 20
+_PRED_PLOT_DPI = 150
 
 
 def _wandb_active() -> bool:
@@ -26,23 +31,112 @@ def _wandb_active() -> bool:
         return False
 
 
+def _log_wandb_figure(wandb: Any, key: str, fig: Any) -> None:
+    import io
+
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=_PRED_PLOT_DPI, bbox_inches="tight")
+    buf.seek(0)
+    wandb.log({key: wandb.Image(Image.open(buf))})
+    plt.close(fig)
+
+
+def _log_horizontal_bar_chart(
+    wandb: Any,
+    *,
+    labels: list[str],
+    values: list[float],
+    key: str,
+    title: str,
+    xlabel: str,
+) -> None:
+    if not labels:
+        return
+
+    import matplotlib.pyplot as plt
+
+    n = len(labels)
+    fig_h = max(3.5, min(14.0, n * 0.32))
+    fig, ax = plt.subplots(figsize=(9, fig_h))
+    y = np.arange(n)
+    ax.barh(y, values, color="steelblue", edgecolor="white", height=0.75)
+    ax.set_yticks(y, labels=labels, fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlabel(xlabel)
+    ax.set_title(title)
+    fig.tight_layout()
+    _log_wandb_figure(wandb, key, fig)
+
+
+def _log_correlation_heatmap(
+    wandb: Any,
+    names: list[str],
+    corr: dict[str, dict[str, float]],
+    key: str,
+    *,
+    title: str,
+) -> None:
+    if len(names) < 2:
+        return
+
+    import matplotlib.pyplot as plt
+
+    mat = np.array([[float(corr[a][b]) for b in names] for a in names])
+    size = max(5.0, min(12.0, len(names) * 0.65))
+    fig, ax = plt.subplots(figsize=(size, size))
+    im = ax.imshow(mat, cmap="RdBu_r", vmin=-1.0, vmax=1.0, aspect="auto")
+    ax.set_xticks(range(len(names)))
+    ax.set_yticks(range(len(names)))
+    ax.set_xticklabels(names, rotation=45, ha="right", fontsize=8)
+    ax.set_yticklabels(names, fontsize=8)
+    for i in range(len(names)):
+        for j in range(len(names)):
+            ax.text(
+                j,
+                i,
+                f"{mat[i, j]:.2f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if abs(mat[i, j]) > 0.5 else "black",
+            )
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    ax.set_title(title)
+    fig.tight_layout()
+    _log_wandb_figure(wandb, key, fig)
+
+
+def _log_mmc_metrics_from_dict(wandb: Any, metrics: dict[str, float]) -> None:
+    logged: dict[str, float] = {}
+    for key in ("mmc", "mmc_sharpe", "payout_score"):
+        value = metrics.get(key)
+        if value is not None and np.isfinite(value):
+            logged[f"diagnostics/{key}"] = float(value)
+    if logged:
+        wandb.log(logged)
+
+
+def _subsample_finite_pairs(
+    y: np.ndarray, p: np.ndarray, *, max_points: int, seed: int = 0
+) -> tuple[np.ndarray, np.ndarray]:
+    mask = np.isfinite(y) & np.isfinite(p)
+    y = y[mask]
+    p = p[mask]
+    if len(y) <= max_points:
+        return y, p
+    idx = np.random.default_rng(seed).choice(len(y), size=max_points, replace=False)
+    return y[idx], p[idx]
+
+
 def _collect_model_predictions(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X_val: pd.DataFrame,
     feature_cols: list[str],
 ) -> dict[str, np.ndarray]:
-    if isinstance(pipeline, MultiHeadPipeline):
-        preds = pipeline.predict(X_val[feature_cols] if feature_cols else X_val)
-        return {"ensemble": preds}
-
-    X_feat = X_val[feature_cols] if feature_cols else X_val
-    era_meta = protected_metadata_frame(X_feat)
-    X_t = pipeline._preprocess(X_feat, era_meta)
-    X_numeric = X_t.select_dtypes(include=[np.number])
-
-    if len(pipeline.models) == 1:
-        return {pipeline.models[0].name: pipeline.models[0].predict(X_numeric)}
-    return {m.name: m.predict(X_numeric) for m in pipeline.models}
+    return model_prediction_map(pipeline, X_val, feature_cols)
 
 
 def _feature_exposure_summary(
@@ -89,7 +183,7 @@ def _feature_exposure_summary(
 
 def log_experiment_diagnostics(
     *,
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X_val: pd.DataFrame,
     y_val: pd.Series,
     era_val: pd.Series,
@@ -127,6 +221,8 @@ def log_experiment_diagnostics(
     eras_for_predict = era_val if neutralize > 0 else None
     if isinstance(pipeline, Pipeline):
         preds = pipeline.predict(X_use, eras=eras_for_predict)
+    elif isinstance(pipeline, MultiTargetPipeline):
+        preds = pipeline.predict(X_use)
     else:
         preds = pipeline.predict(X_val[feature_cols] if feature_cols else X_val)
 
@@ -136,14 +232,13 @@ def log_experiment_diagnostics(
 
     if isinstance(pipeline, Pipeline) and len(pipeline.models) > 1:
         _log_ensemble_diagnostics(pipeline, X_val, feature_cols, y_val, era_val)
+    elif isinstance(pipeline, MultiTargetPipeline) and len(pipeline._models) > 1:
+        _log_ensemble_diagnostics(pipeline, X_val, feature_cols, y_val, era_val)
 
     if meta_model_preds is not None:
-        wandb.log(
-            {
-                "diagnostics/mmc_sharpe": metrics.get("mmc_sharpe"),
-                "diagnostics/payout_score": metrics.get("payout_score"),
-            }
-        )
+        _log_mmc_metrics_from_dict(wandb, metrics)
+    elif any(k in metrics for k in ("mmc", "mmc_sharpe", "payout_score")):
+        _log_mmc_metrics_from_dict(wandb, metrics)
 
     use_fnc = compute_fnc
     if use_fnc is None:
@@ -199,7 +294,6 @@ def _log_per_era_correlation(
 
     wandb.log(
         {
-            "diagnostics/per_era_correlation_table": table,
             "diagnostics/per_era_correlation": wandb.plot.line(
                 table, "era_index", "correlation", title="Per-era Spearman correlation"
             ),
@@ -239,51 +333,83 @@ def _log_per_era_correlation(
 
 
 def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
+    import matplotlib.pyplot as plt
     import wandb
 
     ranked = rank_normalize(preds)
     finite_ranked = ranked[np.isfinite(ranked)]
-    counts, edges = np.histogram(finite_ranked, bins=50)
-    midpoints = 0.5 * (edges[:-1] + edges[1:])
-    hist_table = wandb.Table(columns=["bin_center", "count"])
-    for mid, cnt in zip(midpoints, counts, strict=False):
-        hist_table.add_data(float(mid), int(cnt))
-    wandb.log(
-        {
-            "diagnostics/prediction_histogram": wandb.plot.bar(
-                hist_table,
-                "bin_center",
-                "count",
-                title="Rank-normalized prediction distribution (50 bins)",
-            )
-        }
+    if len(finite_ranked):
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.hist(
+            finite_ranked,
+            bins=_PRED_PLOT_BINS,
+            range=(0.0, 1.0),
+            color="steelblue",
+            edgecolor="white",
+            alpha=0.9,
+        )
+        uniform_ref = len(finite_ranked) / _PRED_PLOT_BINS
+        ax.axhline(
+            uniform_ref,
+            color="tomato",
+            linestyle="--",
+            linewidth=1.2,
+            label="uniform reference",
+        )
+        ax.set_xlim(0.0, 1.0)
+        ax.set_xlabel("Rank-normalized prediction")
+        ax.set_ylabel("Count")
+        ax.set_title("Prediction distribution (Numerai expects ~uniform)")
+        ax.legend(loc="upper right", fontsize=9)
+        fig.tight_layout()
+        _log_wandb_figure(wandb, "diagnostics/prediction_histogram", fig)
+
+    y_arr = y_val.to_numpy(dtype=np.float64)
+    p_arr = np.asarray(preds, dtype=np.float64)
+    y_plot, p_plot = _subsample_finite_pairs(
+        y_arr, p_arr, max_points=MAX_HEXBIN_POINTS, seed=0
     )
+    if len(y_plot):
+        y_lo, y_hi = np.percentile(y_plot, [1, 99])
+        p_lo, p_hi = np.percentile(p_plot, [1, 99])
+        if y_lo == y_hi:
+            y_lo, y_hi = y_lo - 1e-6, y_hi + 1e-6
+        if p_lo == p_hi:
+            p_lo, p_hi = p_lo - 1e-6, p_hi + 1e-6
 
-    n = min(len(y_val), MAX_SCATTER_POINTS)
-    if n < len(y_val):
-        idx = np.random.default_rng(0).choice(len(y_val), size=n, replace=False)
-        y_sample = y_val.iloc[idx]
-        p_sample = preds[idx]
-    else:
-        y_sample = y_val
-        p_sample = preds
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        hb = axes[0].hexbin(
+            y_plot,
+            p_plot,
+            gridsize=35,
+            cmap="Blues",
+            mincnt=1,
+            extent=(y_lo, y_hi, p_lo, p_hi),
+        )
+        fig.colorbar(hb, ax=axes[0], label="count")
+        axes[0].set_xlabel("Target (1–99 pct)")
+        axes[0].set_ylabel("Raw prediction (1–99 pct)")
+        axes[0].set_title(f"Pred vs target — hexbin (n={len(y_plot):,})")
 
-    scatter = wandb.Table(columns=["target", "prediction"])
-    for yt, pp in zip(y_sample, p_sample, strict=False):
-        if np.isfinite(yt) and np.isfinite(pp):
-            scatter.add_data(float(yt), float(pp))
-    wandb.log(
-        {
-            "diagnostics/pred_vs_target_scatter": wandb.plot.scatter(
-                scatter,
-                "target",
-                "prediction",
-                title="Predictions vs target (sampled)",
-            )
-        }
-    )
+        step = max(1, len(y_plot) // 2500)
+        axes[1].scatter(
+            y_plot[::step],
+            p_plot[::step],
+            alpha=0.2,
+            s=6,
+            c="steelblue",
+            edgecolors="none",
+            rasterized=True,
+        )
+        axes[1].set_xlim(y_lo, y_hi)
+        axes[1].set_ylim(p_lo, p_hi)
+        axes[1].set_xlabel("Target (1–99 pct)")
+        axes[1].set_ylabel("Raw prediction (1–99 pct)")
+        axes[1].set_title("Pred vs target — subsampled scatter")
+        fig.tight_layout()
+        _log_wandb_figure(wandb, "diagnostics/pred_vs_target_scatter", fig)
 
-    residuals = y_val.to_numpy(dtype=np.float64) - preds
+    residuals = y_arr - p_arr
     finite = residuals[np.isfinite(residuals)]
     if len(finite):
         wandb.log(
@@ -308,24 +434,18 @@ def _log_feature_exposure(
         }
     )
     if summary["top"]:
-        table = wandb.Table(columns=["feature", "mean_abs_corr"])
-        for row in summary["top"]:
-            table.add_data(row["feature"], row["mean_abs_corr"])
-        wandb.log(
-            {
-                "diagnostics/feature_exposure_top": table,
-                "diagnostics/feature_exposure_bar": wandb.plot.bar(
-                    table,
-                    "feature",
-                    "mean_abs_corr",
-                    title="Feature exposure (top 15 by mean |corr| with predictions)",
-                ),
-            }
+        _log_horizontal_bar_chart(
+            wandb,
+            labels=[row["feature"] for row in summary["top"]],
+            values=[row["mean_abs_corr"] for row in summary["top"]],
+            key="diagnostics/feature_exposure_bar",
+            title="Feature exposure (top 15 by mean |corr| with predictions)",
+            xlabel="Mean |corr| with predictions",
         )
 
 
 def _log_ensemble_diagnostics(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X_val: pd.DataFrame,
     feature_cols: list[str],
     y_val: pd.Series,
@@ -341,6 +461,8 @@ def _log_ensemble_diagnostics(
         w = pipeline._ensemble.params.get("weights")
         if w is not None:
             weights = np.asarray(w, dtype=np.float64)
+    elif isinstance(pipeline, MultiTargetPipeline):
+        weights = multitarget_blend_weights(pipeline)
 
     diag = compute_ensemble_diagnostics(
         oof,
@@ -356,27 +478,29 @@ def _log_ensemble_diagnostics(
     )
     names = diag["model_names"]
     corr = diag["correlation_matrix"]
-    table = wandb.Table(columns=["model_a", "model_b", "correlation"])
-    for i, a in enumerate(names):
-        for j, b in enumerate(names):
-            if j >= i:
-                table.add_data(a, b, corr[a][b])
-
-    pair_table = wandb.Table(columns=["pair", "correlation"])
-    for i, a in enumerate(names):
-        for j, b in enumerate(names):
-            if j > i:
-                pair_table.add_data(f"{a}→{b}", corr[a][b])
-
-    logged: dict[str, Any] = {"diagnostics/ensemble_correlation_matrix": table}
+    _log_correlation_heatmap(
+        wandb,
+        names,
+        corr,
+        "diagnostics/ensemble_correlation_heatmap",
+        title="Model prediction correlations (lower off-diagonal = more diverse)",
+    )
     if len(names) > 1:
-        logged["diagnostics/ensemble_correlation_bar"] = wandb.plot.bar(
-            pair_table,
-            "pair",
-            "correlation",
+        pairs: list[str] = []
+        pair_corrs: list[float] = []
+        for i, a in enumerate(names):
+            for j, b in enumerate(names):
+                if j > i:
+                    pairs.append(f"{a} → {b}")
+                    pair_corrs.append(float(corr[a][b]))
+        _log_horizontal_bar_chart(
+            wandb,
+            labels=pairs,
+            values=pair_corrs,
+            key="diagnostics/ensemble_correlation_bar",
             title="Model pair correlations (lower = more diverse ensemble)",
+            xlabel="Spearman correlation",
         )
-    wandb.log(logged)
 
 
 def _log_feature_report(
@@ -389,8 +513,8 @@ def _log_feature_report(
 ) -> None:
     """Log per-era feature stability report (LightGBM proxy) to WandB.
 
-    Calls compute_feature_report and logs three tables: top features by mean
-    importance, top features by era stability, and worst features by stability.
+    Calls compute_feature_report and logs horizontal bar charts for mean
+    importance, most stable features, and least stable features.
     Silently skips if lightgbm is not installed.
     """
     if not _wandb_active():
@@ -412,60 +536,38 @@ def _log_feature_report(
     wandb.log({"diagnostics/feature_n_eras_used": report["n_eras_used"]})
 
     if report["top_by_mean"]:
-        table_mean = wandb.Table(columns=["feature", "mean_importance"])
-        for row in report["top_by_mean"]:
-            table_mean.add_data(row["feature"], row["mean_importance"])
-        wandb.log(
-            {
-                "diagnostics/feature_top_by_mean": table_mean,
-                "diagnostics/feature_importance_mean_bar": wandb.plot.bar(
-                    table_mean,
-                    "feature",
-                    "mean_importance",
-                    title="Top features by mean importance (LightGBM proxy, per era)",
-                ),
-            }
+        _log_horizontal_bar_chart(
+            wandb,
+            labels=[row["feature"] for row in report["top_by_mean"]],
+            values=[row["mean_importance"] for row in report["top_by_mean"]],
+            key="diagnostics/feature_importance_mean_bar",
+            title="Top features by mean importance (LightGBM proxy, per era)",
+            xlabel="Mean importance",
         )
 
     if report["top_by_stability"]:
-        table_stab = wandb.Table(columns=["feature", "stability", "mean_importance"])
-        for row in report["top_by_stability"]:
-            table_stab.add_data(
-                row["feature"], row["stability"], row["mean_importance"]
-            )
-        wandb.log(
-            {
-                "diagnostics/feature_top_by_stability": table_stab,
-                "diagnostics/feature_stability_bar": wandb.plot.bar(
-                    table_stab,
-                    "feature",
-                    "stability",
-                    title="Most stable features across eras (mean/std ratio)",
-                ),
-            }
+        _log_horizontal_bar_chart(
+            wandb,
+            labels=[row["feature"] for row in report["top_by_stability"]],
+            values=[row["stability"] for row in report["top_by_stability"]],
+            key="diagnostics/feature_stability_bar",
+            title="Most stable features across eras (mean/std ratio)",
+            xlabel="Stability",
         )
 
     if report["bottom_by_stability"]:
-        table_worst = wandb.Table(columns=["feature", "stability", "mean_importance"])
-        for row in report["bottom_by_stability"]:
-            table_worst.add_data(
-                row["feature"], row["stability"], row["mean_importance"]
-            )
-        wandb.log(
-            {
-                "diagnostics/feature_worst_stability": table_worst,
-                "diagnostics/feature_worst_stability_bar": wandb.plot.bar(
-                    table_worst,
-                    "feature",
-                    "stability",
-                    title="Least stable features across eras (worst to prune)",
-                ),
-            }
+        _log_horizontal_bar_chart(
+            wandb,
+            labels=[row["feature"] for row in report["bottom_by_stability"]],
+            values=[row["stability"] for row in report["bottom_by_stability"]],
+            key="diagnostics/feature_worst_stability_bar",
+            title="Least stable features across eras (worst to prune)",
+            xlabel="Stability",
         )
 
 
 def _log_era_stratified_importance(
-    pipeline: Pipeline | MultiHeadPipeline,
+    pipeline: PipelineLike,
     X_val: pd.DataFrame,
     feature_cols: list[str],
     era_val: pd.Series,
@@ -528,23 +630,13 @@ def _log_era_stratified_importance(
     std_imp = imp_matrix.std(axis=0, ddof=0)
     stability = mean_imp / (std_imp + 1e-10)
 
-    stab_table = wandb.Table(
-        columns=["feature", "mean_importance", "std_importance", "stability"]
-    )
-    for feat, mean_v, std_v, stab_v in zip(
-        all_features, mean_imp, std_imp, stability, strict=False
-    ):
-        stab_table.add_data(feat, float(mean_v), float(std_v), float(stab_v))
-    wandb.log(
-        {
-            "diagnostics/era_importance_stability": stab_table,
-            "diagnostics/era_importance_stability_bar": wandb.plot.bar(
-                stab_table,
-                "feature",
-                "stability",
-                title="Era-stratified importance stability (mean/std)",
-            ),
-        }
+    _log_horizontal_bar_chart(
+        wandb,
+        labels=all_features,
+        values=[float(v) for v in stability],
+        key="diagnostics/era_importance_stability_bar",
+        title="Era-stratified importance stability (mean/std)",
+        xlabel="Stability",
     )
 
     xs = list(range(len(era_labels)))

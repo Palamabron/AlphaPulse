@@ -435,15 +435,16 @@ def calculate_metrics(
     }
     if meta_model_preds is not None:
         meta_arr = np.asarray(meta_model_preds, dtype=np.float64)
-        ms = era_sharpe_of_mmc(y_true, y_pred, meta_arr, eras)
-        result["mmc_sharpe"] = ms
-        ps = payout_score(
-            y_true,
-            y_pred,
-            meta_arr,
-            eras,
-            corr_weight=corr_weight,
-            mmc_weight=mmc_weight,
-        )
-        result["payout_score"] = ps
+        if np.isfinite(meta_arr).sum() >= 2:
+            ms = era_sharpe_of_mmc(y_true, y_pred, meta_arr, eras)
+            result["mmc_sharpe"] = ms
+            ps = payout_score(
+                y_true,
+                y_pred,
+                meta_arr,
+                eras,
+                corr_weight=corr_weight,
+                mmc_weight=mmc_weight,
+            )
+            result["payout_score"] = ps
     return result

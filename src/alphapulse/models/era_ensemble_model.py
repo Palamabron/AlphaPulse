@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 from sklearn.linear_model import Ridge
 
 from .base import BaseModel
@@ -55,6 +56,10 @@ class EraEnsembleModel(BaseModel):
                 UserWarning,
                 stacklevel=2,
             )
+            logger.info(
+                "{}: no era column, training single base model",
+                self.name,
+            )
             model = self.base_model_factory()
             metrics = model.train(X_train, y_train, X_val=X_val, y_val=y_val, **kwargs)
             self._sub_models = [model]
@@ -69,6 +74,12 @@ class EraEnsembleModel(BaseModel):
         unique_eras = np.sort(era_train.unique())
         n_parts = min(self.n_subs, len(unique_eras))
         era_partitions = np.array_split(unique_eras, n_parts)
+        logger.info(
+            "{}: training {} era partitions ({} unique eras)",
+            self.name,
+            n_parts,
+            len(unique_eras),
+        )
 
         sub_preds: list[np.ndarray] = []
         self._sub_models = []
@@ -79,6 +90,14 @@ class EraEnsembleModel(BaseModel):
             mask = era_train.isin(era_group)
             X_sub = X_train[mask]
             y_sub = y_train[mask]
+            logger.info(
+                "{} sub {}/{}: rows={} eras={}",
+                self.name,
+                i + 1,
+                n_parts,
+                len(X_sub),
+                len(era_group),
+            )
 
             X_sub_val: pd.DataFrame | None = None
             y_sub_val: pd.Series | None = None
@@ -101,6 +120,11 @@ class EraEnsembleModel(BaseModel):
 
             sub_preds.append(model.predict(X_train))
 
+        logger.info(
+            "{}: fitting Ridge meta-learner on {} sub-models",
+            self.name,
+            len(self._sub_models),
+        )
         X_meta = np.column_stack(sub_preds)
         self._meta_model = Ridge(alpha=100.0).fit(X_meta, y_train)
         self.is_trained = True

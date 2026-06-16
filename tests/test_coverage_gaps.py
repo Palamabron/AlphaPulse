@@ -1,5 +1,6 @@
 """Tests covering previously uncovered code paths."""
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from alphapulse.experiments.schema import (
 from alphapulse.hpo.builder import build_pipeline_or_multi, build_preprocessors
 from alphapulse.hpo.search_space import resolve_flat_config
 from alphapulse.models import XGBoostModel
+from alphapulse.models.era_ensemble_model import EraEnsembleModel
 from alphapulse.pipeline.ensemble import EnsembleStrategy
 from alphapulse.pipeline.multihead import HeadSpec, MultiHeadPipeline
 from alphapulse.preprocessors import StandardScalerPreprocessor
@@ -180,6 +182,46 @@ class TestMultiHeadPipeline:
         preds_after = loaded.predict(X)
 
         np.testing.assert_array_almost_equal(preds_before, preds_after)
+
+    def test_head_matrix_preserves_era_for_era_ensemble(
+        self, toy_data: tuple[pd.DataFrame, pd.Series]
+    ) -> None:
+        X, y = toy_data
+        era = pd.Series(np.repeat([f"e{i:03d}" for i in range(20)], 10), index=X.index)
+        X = X.assign(era=era)
+        feature_groups = {"group_ab": ["a", "b"], "group_cd": ["c", "d"]}
+
+        def factory(name: str) -> EraEnsembleModel:
+            return EraEnsembleModel(
+                base_model_factory=lambda: _xgb(name),
+                n_subs=4,
+                name=name,
+            )
+
+        heads = [
+            HeadSpec(
+                model=factory("h1"),
+                input_columns=None,
+                input_group="group_ab",
+                local_preprocessors=[StandardScalerPreprocessor()],
+                feature_groups=feature_groups,
+            ),
+            HeadSpec(
+                model=factory("h2"),
+                input_columns=None,
+                input_group="group_cd",
+                local_preprocessors=[],
+                feature_groups=feature_groups,
+            ),
+        ]
+        pipe = MultiHeadPipeline(global_preprocessors=[], heads=heads)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            pipe.fit(X, y, n_rounds=5)
+        assert not [w for w in caught if "falling back" in str(w.message)]
+        for head in pipe.heads:
+            assert isinstance(head.model, EraEnsembleModel)
+            assert len(head.model._sub_models) > 1
 
 
 class TestGroupedPreprocessor:

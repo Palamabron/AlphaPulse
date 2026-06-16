@@ -1,8 +1,13 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
 
 from ..models.base import BaseModel
 from ..models.era_ensemble_model import EraEnsembleModel
+from ..pipeline.multi_target import MultiTargetPipeline
 from ..pipeline.multihead import HeadSpec, MultiHeadPipeline
 from ..pipeline.pipeline import Pipeline
 from ..preprocessors.base import BasePreprocessor
@@ -13,6 +18,35 @@ from .search_space import strip_catboost_gpu_incompatible_params
 TREE_MODEL_NAMES = frozenset(
     {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
 )
+
+
+class _PipelineModelAdapter(BaseModel):
+    def __init__(self, pipeline: Pipeline | MultiHeadPipeline) -> None:
+        super().__init__(name=f"Adapter_{type(pipeline).__name__}")
+        self._pipeline = pipeline
+
+    def train(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        **kwargs: Any,
+    ) -> dict[str, float]:
+        metrics = self._pipeline.fit(
+            X_train, y_train, X_val=X_val, y_val=y_val, **kwargs
+        )
+        self.is_trained = True
+        return metrics
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return self._pipeline.predict(X)
+
+    def save(self, path: Path) -> None:
+        self._pipeline.save_pipeline(path)
+
+    def load(self, path: Path) -> "_PipelineModelAdapter":
+        raise NotImplementedError("Adapter load is not supported")
 
 
 def _merge_params(
@@ -122,7 +156,7 @@ def build_models(config: list[dict[str, Any]]) -> list[BaseModel]:
 
 
 def model_spec_needs_head_split(item: dict[str, Any]) -> bool:
-    if item.get("input_columns") or item.get("input_group"):
+    if item.get("input_columns") or item.get("input_group") or item.get("input_groups"):
         return True
     return len(item.get("preprocessors") or []) > 0
 
@@ -153,6 +187,7 @@ def build_multi_head_pipeline(
                 model=models[i],
                 input_columns=m.get("input_columns"),
                 input_group=m.get("input_group"),
+                input_groups=m.get("input_groups"),
                 local_preprocessors=local_pres,
                 feature_groups=fg,
             )
@@ -212,7 +247,7 @@ def build_pipeline_or_multi(
     """Build either a ``Pipeline`` or ``MultiHeadPipeline`` from config.
 
     Automatically selects ``MultiHeadPipeline`` when any model specifies
-    ``input_columns``, ``input_group``, or local preprocessors.
+    ``input_columns``, ``input_group``, ``input_groups``, or local preprocessors.
 
     Args:
         config: Nested pipeline configuration dict.
@@ -228,3 +263,48 @@ def build_pipeline_or_multi(
             config, feature_columns=feature_columns, feature_groups=feature_groups
         )
     return build_pipeline(config, feature_columns=feature_columns)
+
+
+def build_multi_target_from_config(
+    config: dict[str, Any],
+    flat: dict[str, Any],
+    feature_columns: list[str] | None = None,
+    feature_groups: dict[str, list[str]] | None = None,
+) -> MultiTargetPipeline:
+    preprocessors = build_preprocessors(config.get("preprocessors", []))
+    strategy_targets = [str(flat.get("primary_target", "target"))]
+    aux = flat.get("auxiliary_targets") or []
+    if isinstance(aux, list):
+        strategy_targets.extend(str(a) for a in aux)
+    target_columns = list(dict.fromkeys(strategy_targets))
+    blend_method = str(flat.get("target_blend_method", "equal"))
+    if blend_method not in ("equal", "sharpe"):
+        blend_method = "equal"
+
+    def model_factory() -> BaseModel:
+        if needs_multi_head_pipeline(config) or len(config.get("models", [])) > 1:
+            pipeline = build_multi_head_pipeline(
+                config,
+                feature_columns=feature_columns,
+                feature_groups=feature_groups,
+            )
+            return _PipelineModelAdapter(pipeline)
+        models_cfg = config.get("models", [])
+        if not models_cfg:
+            raise ValueError("Config must have at least one model for multi-target HPO")
+        spec = models_cfg[0]
+        return instantiate_model(
+            str(spec.get("type", "XGBoost")),
+            spec.get("params"),
+            index=0,
+            n_subs=int(spec.get("n_subs", flat.get("n_subs", 10))),
+            use_era_ensemble=bool(spec.get("use_era_ensemble", True)),
+        )
+
+    return MultiTargetPipeline(
+        preprocessors=preprocessors,
+        model_factory=model_factory,
+        target_columns=target_columns,
+        primary_target=str(flat.get("primary_target", "target")),
+        blend_method=blend_method,
+    )

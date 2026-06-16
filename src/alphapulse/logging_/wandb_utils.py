@@ -1,7 +1,31 @@
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..hpo.objective import TrialResult
+
+
+def resolve_wandb_project(
+    base: str,
+    *,
+    output_dir: "Path | None" = None,
+    stamp_file: str = "wandb_project.txt",
+) -> str:
+    """Return a timestamped W&B project name, persisted for resume in *output_dir*."""
+    from datetime import datetime
+    from pathlib import Path
+
+    if output_dir is not None:
+        path = Path(output_dir) / stamp_file
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+
+    stamped = f"{base}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    if output_dir is not None:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        path.write_text(stamped, encoding="utf-8")
+    return stamped
 
 
 def init_wandb(
@@ -40,7 +64,10 @@ def init_wandb_run(
 def finish_wandb_run() -> None:
     import wandb
 
-    wandb.finish(quiet=True)
+    from .wandb_logging import detach_wandb_loguru
+
+    detach_wandb_loguru()
+    wandb.finish()
 
 
 def log_research_step(
@@ -172,8 +199,28 @@ def log_hpo_summary_table(
         job_type="summary",
         reinit=True,
     )
-    wandb.log({"trials_summary": table})
-    wandb.finish(quiet=True)
+    summary_charts: dict[str, Any] = {}
+    if any(r.error is None for r in results):
+        summary_charts["hpo/trial_corr_sharpe"] = wandb.plot.scatter(
+            table,
+            "trial",
+            "corr_sharpe",
+            title="Trial corr Sharpe",
+        )
+        summary_charts["hpo/trial_mmc_sharpe"] = wandb.plot.scatter(
+            table,
+            "trial",
+            "mmc_sharpe",
+            title="Trial MMC Sharpe",
+        )
+        summary_charts["hpo/trial_elapsed"] = wandb.plot.scatter(
+            table,
+            "trial",
+            "elapsed_seconds",
+            title="Trial runtime (seconds)",
+        )
+    wandb.log({"trials_summary": table, **summary_charts})
+    wandb.finish()
 
 
 def log_hpo_trial_metrics(
@@ -183,6 +230,7 @@ def log_hpo_trial_metrics(
     model_types: str | None = None,
     preprocessors: str | None = None,
 ) -> None:
+    import numpy as np
     import wandb
 
     logged: dict[str, Any] = {
@@ -196,13 +244,25 @@ def log_hpo_trial_metrics(
         logged["preprocessors"] = preprocessors
     if result.corr_sharpe not in (float("-inf"), float("inf")):
         logged["corr_sharpe"] = result.corr_sharpe
-    if result.mmc_sharpe is not None:
-        logged["mmc_sharpe"] = result.mmc_sharpe
-    if result.payout_score is not None:
-        logged["payout_score"] = result.payout_score
+    mmc_sharpe = result.mmc_sharpe
+    if mmc_sharpe is None and result.metrics:
+        raw_mmc = result.metrics.get("mmc_sharpe")
+        if raw_mmc is not None and np.isfinite(raw_mmc):
+            mmc_sharpe = float(raw_mmc)
+    payout_score = result.payout_score
+    if payout_score is None and result.metrics:
+        raw_payout = result.metrics.get("payout_score")
+        if raw_payout is not None and np.isfinite(raw_payout):
+            payout_score = float(raw_payout)
+    if mmc_sharpe is not None:
+        logged["mmc_sharpe"] = mmc_sharpe
+    if payout_score is not None:
+        logged["payout_score"] = payout_score
     top_level_keys = {"sharpe", "corr_sharpe", "mmc_sharpe", "payout_score"}
     for k, v in (result.metrics or {}).items():
-        if k not in top_level_keys:
+        if k not in top_level_keys and v is not None:
+            if isinstance(v, float) and not np.isfinite(v):
+                continue
             logged[f"metric/{k}"] = v
     wandb.log(logged)
 
@@ -277,7 +337,7 @@ def log_hpo_trial(
     log_hpo_trial_metrics(
         result, objective, model_types=model_types, preprocessors=preprocessors
     )
-    wandb.finish(quiet=True)
+    wandb.finish()
 
 
 def log_hpo_convergence(
@@ -323,4 +383,4 @@ def log_hpo_convergence(
             },
             step=r.trial_number,
         )
-    wandb.finish(quiet=True)
+    wandb.finish()

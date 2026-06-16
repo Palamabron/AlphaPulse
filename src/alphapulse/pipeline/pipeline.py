@@ -4,6 +4,7 @@ from typing import Any, Literal, Self
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from ..evaluation.metrics import rank_normalize
 from ..models.base import BaseModel
@@ -117,7 +118,11 @@ class Pipeline:
 
         era_meta = protected_metadata_frame(X)
         X_fit = X
-        for pp in self.preprocessors:
+        if self.preprocessors:
+            logger.info("Fitting {} preprocessor(s) ...", len(self.preprocessors))
+        for i, pp in enumerate(self.preprocessors, start=1):
+            pp_name = type(pp).__name__
+            logger.info("Preprocessor {}/{}: {}", i, len(self.preprocessors), pp_name)
             if isinstance(pp, TrainEvalPreprocessor):
                 pp.train()
             if isinstance(pp, EraStableFeatureSelector) and era_meta is not None:
@@ -152,15 +157,32 @@ class Pipeline:
                     y_val = None
 
         if len(self.models) == 1:
-            metrics = self.models[0].train(
+            model = self.models[0]
+            logger.info(
+                "Training model {}: rows={} features={}",
+                model.name,
+                len(X_fit),
+                X_fit.shape[1],
+            )
+            metrics = model.train(
                 X_fit, y, X_val=X_val_t, y_val=y_val, **model_train_kwargs
             )
+            logger.info("Model {} finished", model.name)
         else:
             metrics = {}
-            for m in self.models:
+            for idx, m in enumerate(self.models, start=1):
+                logger.info(
+                    "Training model {}/{} {}: rows={} features={}",
+                    idx,
+                    len(self.models),
+                    m.name,
+                    len(X_fit),
+                    X_fit.shape[1],
+                )
                 m_metrics = m.train(
                     X_fit, y, X_val=X_val_t, y_val=y_val, **model_train_kwargs
                 )
+                logger.info("Model {} finished", m.name)
                 for k, v in m_metrics.items():
                     metrics[f"{m.name}_{k}"] = v
 

@@ -62,6 +62,16 @@ def test_wandb_group_file_persists_across_resume(tmp_path: Path) -> None:
     assert (output_dir / "wandb_group.txt").read_text(encoding="utf-8") == first
 
 
+def test_resolve_wandb_project_persists_stamp(tmp_path: Path) -> None:
+    from alphapulse.logging_.wandb_utils import resolve_wandb_project
+
+    first = resolve_wandb_project("alphapulse-hpo", output_dir=tmp_path)
+    second = resolve_wandb_project("alphapulse-hpo", output_dir=tmp_path)
+    assert first == second
+    assert first.startswith("alphapulse-hpo-")
+    assert (tmp_path / "wandb_project.txt").read_text(encoding="utf-8") == first
+
+
 def test_all_results_from_db_includes_all_trials(tmp_path: Path) -> None:
     from scripts.hpo_pipeline import _all_results_from_db
 
