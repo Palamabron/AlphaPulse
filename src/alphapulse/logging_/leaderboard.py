@@ -20,6 +20,7 @@ class TrialLeaderboardEntry:
     model_types: str
     elapsed_seconds: float
     error: str | None = None
+    payout_score: float | None = None
 
 
 def _model_types_from_flat(flat: dict[str, Any]) -> str:
@@ -30,6 +31,29 @@ def _model_types_from_flat(flat: dict[str, Any]) -> str:
         flat.get("model_3_type", "?"),
     ][:num]
     return "+".join(str(t) for t in types)
+
+
+def _payout_from_result(
+    payout_score: float | None,
+    metrics: dict[str, Any],
+) -> float | None:
+    if payout_score is not None:
+        return payout_score
+    raw = metrics.get("payout_score")
+    if raw is None:
+        return None
+    value = float(raw)
+    return value if value == value else None
+
+
+def _rank_score(entry: TrialLeaderboardEntry) -> float:
+    if entry.payout_score is not None:
+        return entry.payout_score
+    return entry.sharpe
+
+
+def _uses_payout_score(entries: list[TrialLeaderboardEntry]) -> bool:
+    return any(e.payout_score is not None for e in entries)
 
 
 def entry_from_hpo_result(result: TrialResult) -> TrialLeaderboardEntry:
@@ -43,6 +67,7 @@ def entry_from_hpo_result(result: TrialResult) -> TrialLeaderboardEntry:
         model_types=_model_types_from_flat(result.params),
         elapsed_seconds=result.elapsed_seconds,
         error=result.error,
+        payout_score=_payout_from_result(result.payout_score, metrics),
     )
 
 
@@ -58,6 +83,7 @@ def entry_from_trial_record(record: TrialRecord) -> TrialLeaderboardEntry:
         model_types="+".join(record.model_types),
         elapsed_seconds=record.elapsed_seconds,
         error=record.error,
+        payout_score=_payout_from_result(record.payout_score, record.metrics),
     )
 
 
@@ -67,12 +93,21 @@ def format_leaderboard(
     top_n: int = 10,
     current_trial: int | None = None,
 ) -> str:
-    sorted_entries = sorted(entries, key=lambda e: e.sharpe, reverse=True)[:top_n]
-    lines = [
-        f"--- LEADERBOARD (top {top_n} by sharpe) ---",
-        " Rank | Trial |  Sharpe |    Corr |  StdCorr |  MaxDD | "
-        "Models              | Time",
-    ]
+    by_payout = _uses_payout_score(entries)
+    sorted_entries = sorted(entries, key=_rank_score, reverse=True)[:top_n]
+    if by_payout:
+        header = (
+            f"--- LEADERBOARD (top {top_n} by payout_score) ---\n"
+            " Rank | Trial |  Payout |  Sharpe |    Corr |  StdCorr |  MaxDD | "
+            "Models              | Time"
+        )
+    else:
+        header = (
+            f"--- LEADERBOARD (top {top_n} by sharpe) ---\n"
+            " Rank | Trial |  Sharpe |    Corr |  StdCorr |  MaxDD | "
+            "Models              | Time"
+        )
+    lines = [header]
     for rank, entry in enumerate(sorted_entries, start=1):
         std_corr = (
             f"{entry.std_per_era_correlation:8.4f}"
@@ -87,12 +122,26 @@ def format_leaderboard(
             if current_trial is not None and entry.trial_number == current_trial
             else ""
         )
-        lines.append(
-            f" {rank:4d} | {entry.trial_number:5d} | "
-            f"{entry.sharpe:7.4f} | {entry.mean_per_era_correlation:7.4f} | "
-            f"{std_corr} | {max_dd} | "
-            f"{entry.model_types[:19]:<19} | {entry.elapsed_seconds:4.0f}s{marker}"
-        )
+        if by_payout:
+            payout = (
+                f"{entry.payout_score:7.4f}"
+                if entry.payout_score is not None
+                else "    N/A"
+            )
+            lines.append(
+                f" {rank:4d} | {entry.trial_number:5d} | "
+                f"{payout} | {entry.sharpe:7.4f} | "
+                f"{entry.mean_per_era_correlation:7.4f} | "
+                f"{std_corr} | {max_dd} | "
+                f"{entry.model_types[:19]:<19} | {entry.elapsed_seconds:4.0f}s{marker}"
+            )
+        else:
+            lines.append(
+                f" {rank:4d} | {entry.trial_number:5d} | "
+                f"{entry.sharpe:7.4f} | {entry.mean_per_era_correlation:7.4f} | "
+                f"{std_corr} | {max_dd} | "
+                f"{entry.model_types[:19]:<19} | {entry.elapsed_seconds:4.0f}s{marker}"
+            )
     if current_trial is not None:
         lines.append("* = current trial")
     return "\n".join(lines)
@@ -111,6 +160,6 @@ def print_leaderboard(
 def save_leaderboard(path: Path, entries: list[TrialLeaderboardEntry]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    sorted_entries = sorted(entries, key=lambda e: e.sharpe, reverse=True)
+    sorted_entries = sorted(entries, key=_rank_score, reverse=True)
     payload = [asdict(e) for e in sorted_entries]
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
