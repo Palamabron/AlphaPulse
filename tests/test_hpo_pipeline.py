@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from scripts.hpo_pipeline import main as hpo_main
 
 from alphapulse.hpo import run_trial, sample_random_config
 
@@ -69,6 +70,14 @@ def test_sample_random_config_includes_targets_when_data_dir(tmp_path: Path) -> 
     assert "target_mode" in config
     assert "primary_target" in config
     assert "use_feature_routing" in config
+    assert config["use_feature_routing"] is True
+    assert "active_groups" in config
+    assert "routed_feature_count" in config
+
+
+def test_hpo_main_default_objective_is_payout_score() -> None:
+    assert hpo_main.__defaults__ is not None
+    assert "payout_score" in hpo_main.__defaults__
 
 
 def test_run_trial_returns_metrics(

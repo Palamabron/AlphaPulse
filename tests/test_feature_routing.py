@@ -7,6 +7,7 @@ import pytest
 from alphapulse.features.catalog import load_feature_catalog
 from alphapulse.hpo.builder import build_pipeline_or_multi
 from alphapulse.hpo.feature_routing import (
+    MAX_ROUTED_FEATURES,
     merge_routing_into_pipeline_config,
     resolve_feature_routing,
     sample_feature_routing,
@@ -94,4 +95,27 @@ def test_resolve_multihead_path(catalog_dir: Path) -> None:
 def test_sample_feature_routing_fragment(catalog_dir: Path) -> None:
     catalog = load_feature_catalog(catalog_dir)
     fragment = sample_feature_routing(random.Random(0), catalog, 2, fast=True)
-    assert "use_feature_routing" in fragment
+    assert fragment["use_feature_routing"] is True
+    assert fragment["active_groups"]
+    assert fragment["active_groups_count"] == len(fragment["active_groups"])
+    assert fragment["routed_feature_count"] <= MAX_ROUTED_FEATURES
+
+
+def test_sample_feature_routing_respects_feature_limit(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    payload = {
+        "feature_sets": {
+            "small": [f"f_{i}" for i in range(100)],
+            "medium": [f"f_{i}" for i in range(800)],
+            "all": [f"f_{i}" for i in range(1200)],
+            "strength": [f"f_{i}" for i in range(400, 900)],
+            "rain": [f"f_{i}" for i in range(850, 1150)],
+        },
+        "targets": ["target"],
+    }
+    (data_dir / "features.json").write_text(json.dumps(payload), encoding="utf-8")
+    catalog = load_feature_catalog(data_dir)
+    fragment = sample_feature_routing(random.Random(7), catalog, 2, fast=True)
+    routing = resolve_feature_routing({**_base_flat(2), **fragment}, catalog)
+    assert len(routing.feature_columns) <= MAX_ROUTED_FEATURES

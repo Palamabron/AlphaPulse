@@ -1,12 +1,15 @@
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pandas as pd
 
 from ..features.catalog import TargetCatalog, load_target_catalog
 from ..pipeline.multi_target import _MIN_TRAIN_ROWS
+
+if TYPE_CHECKING:
+    import optuna
 
 TargetMode = Literal["single", "multi_blend"]
 MAX_AUXILIARY_RESAMPLE_ATTEMPTS = 3
@@ -68,6 +71,43 @@ def sample_target_strategy(
         primary_target=primary,
         auxiliary_targets=[],
         target_blend_method="equal",
+    )
+
+
+def suggest_target_strategy(
+    trial: "optuna.Trial",
+    catalog: TargetCatalog,
+    *,
+    fast: bool = False,
+) -> TargetStrategy:
+    primary = PRIMARY_TARGET
+    if primary not in catalog.targets:
+        raise ValueError(f"Primary tournament target {primary!r} missing from catalog")
+    mode = trial.suggest_categorical("target_mode", ["single", "multi_blend"])
+    pool = [t for t in catalog.targets if t != primary]
+    max_slots = 1 if fast else 3
+    aux: list[str] = []
+    if pool:
+        for i in range(max_slots):
+            choice = trial.suggest_categorical(f"auxiliary_target_{i}", ["none", *pool])
+            if choice != "none" and choice not in aux:
+                aux.append(choice)
+    if mode == "single" or not aux:
+        return TargetStrategy(
+            target_mode="single",
+            primary_target=primary,
+            auxiliary_targets=[],
+            target_blend_method="equal",
+        )
+    blend_method = cast(
+        Literal["equal", "sharpe"],
+        trial.suggest_categorical("target_blend_method", ["equal", "sharpe"]),
+    )
+    return TargetStrategy(
+        target_mode="multi_blend",
+        primary_target=primary,
+        auxiliary_targets=aux,
+        target_blend_method=blend_method,
     )
 
 

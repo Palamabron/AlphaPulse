@@ -1,7 +1,7 @@
 """HPO pipeline: search over preprocessing, models, and ensembles.
 
 Supports two modes:
-  --local   Random search (no extra dependencies).
+  --local   Optuna TPE Bayesian search (default sampler) with subprocess isolation.
   (default) Ray Tune distributed search (requires ``pip install 'alphapulse[hpo]'``).
 
 Each trial is scored via era holdout (fast mode, default) or walk-forward backtesting
@@ -31,7 +31,12 @@ from alphapulse.experiments.data import load_train_only_frame, load_train_target
 from alphapulse.features.catalog import load_feature_catalog, load_target_catalog
 from alphapulse.hpo.feature_routing import resolve_feature_routing
 from alphapulse.hpo.objective import TrialResult, run_trial
-from alphapulse.hpo.search_space import sample_random_config
+from alphapulse.hpo.optuna_search import (
+    SamplerName,
+    create_hpo_study,
+    suggest_flat_config,
+    tell_trial_result,
+)
 from alphapulse.hpo.target_strategy import (
     apply_target_strategy_to_flat,
     strategy_from_flat,
@@ -122,6 +127,11 @@ def _trial_worker(
         strategy = strategy_from_flat(worker_config)
         routing = resolve_feature_routing(worker_config, feature_catalog)
         feature_columns = routing.feature_columns or None
+        active_groups = list(worker_config.get("active_groups") or [])
+        worker_config["active_groups"] = active_groups
+        worker_config["active_groups_str"] = "+".join(active_groups)
+        worker_config["active_groups_count"] = len(active_groups)
+        worker_config["routed_feature_count"] = len(feature_columns or [])
 
         if strategy.target_mode == "multi_blend" and strategy.auxiliary_targets:
             X_train, y_train, targets_df, feature_cols = load_train_targets_frame(
@@ -428,7 +438,7 @@ def _run_local(
     seed: int,
     num_trials: int,
     output_dir: Path,
-    objective: str = "corr_sharpe",
+    objective: str = "payout_score",
     wandb_project: str | None = None,
     resume: bool = False,
     trial_timeout: int = 1800,
@@ -436,8 +446,9 @@ def _run_local(
     fast: bool = True,
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
+    sampler: SamplerName = "tpe",
 ) -> None:
-    """Local random-search HPO with subprocess isolation and SQLite trial DB."""
+    """Local HPO with subprocess isolation, Optuna TPE, and SQLite trial DB."""
 
     X_train, y_train, feature_cols = load_train_only_frame(
         data_dir,
@@ -482,6 +493,13 @@ def _run_local(
             num_trials,
         )
 
+    study = create_hpo_study(output_dir, seed=seed, sampler=sampler, resume=resume)
+    logger.info(
+        "Optuna sampler: {} (storage={})",
+        sampler,
+        output_dir / "optuna.db",
+    )
+
     with TrialDB(db_path) as db:
         already_done = db.completed_trials() if resume else set()
         if resume:
@@ -515,8 +533,9 @@ def _run_local(
                 )
                 continue
 
-            flat_config = sample_random_config(
-                seed=seed + i, fast=fast, data_dir=data_dir
+            optuna_trial = study.ask()
+            flat_config = suggest_flat_config(
+                optuna_trial, fast=fast, data_dir=data_dir
             )
             if gpu:
                 flat_config["use_gpu"] = True
@@ -532,11 +551,13 @@ def _run_local(
                 time_left_suffix = f", {remaining_min:.0f}m left"
 
             logger.info(
-                "Trial {}/{} starting (fast={}, models={}{})",
+                "Trial {}/{} starting (fast={}, models={}, groups={}, features={}{})",
                 i + 1,
                 num_trials,
                 fast,
                 flat_config.get("model_1_type", "?"),
+                "+".join(flat_config.get("active_groups", [])) or "default",
+                flat_config.get("routed_feature_count", "n/a"),
                 time_left_suffix,
             )
 
@@ -642,10 +663,13 @@ def _run_local(
 
             results.append(result)
             logger.info(
-                "Trial {}/{}: corr_sharpe={:.4f} ({:.1f}s){}",
+                "Trial {}/{}: corr_sharpe={:.4f}, payout_score={:.4f} ({:.1f}s){}",
                 i + 1,
                 num_trials,
                 result.sharpe,
+                float(result.metrics.get("payout_score", float("nan")))
+                if result.metrics
+                else float("nan"),
                 result.elapsed_seconds,
                 f" [ERROR: {result.error}]" if result.error else "",
             )
@@ -674,6 +698,13 @@ def _run_local(
             if trial_score > best_score:
                 best_score = trial_score
                 best_config = flat_config
+
+            tell_trial_result(
+                study,
+                optuna_trial,
+                trial_score,
+                failed=bool(result.error),
+            )
 
         best_score, best_config = _best_from_db(db, objective)
         results = _all_results_from_db(db)
@@ -738,7 +769,7 @@ def _run_ray(
     seed: int,
     num_trials: int,
     output_dir: Path,
-    objective: str = "corr_sharpe",
+    objective: str = "payout_score",
     wandb_project: str | None = None,
 ) -> None:
     """Ray Tune distributed HPO."""
@@ -843,19 +874,21 @@ def main(
     local: bool = False,
     resume: bool = False,
     objective: Literal[
-        "corr_sharpe", "mean_per_era_correlation", "max_drawdown"
-    ] = "corr_sharpe",
+        "corr_sharpe", "mean_per_era_correlation", "max_drawdown", "payout_score"
+    ] = "payout_score",
     wandb_project: str | None = None,
     trial_timeout: int = 1800,
     gpu: bool = False,
     fast: bool = True,
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
+    sampler: SamplerName = "tpe",
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
-    Use --local for random search without Ray, or omit for Ray Tune.
-    Use --objective to choose the optimization target (default: corr_sharpe).
+    Use --local for Optuna-guided search without Ray, or omit for Ray Tune.
+    Use --objective to choose the optimization target (default: payout_score).
+    Use --sampler tpe for Bayesian optimization (default) or --sampler random.
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     The project name is suffixed with a launch timestamp
     (e.g. alphapulse-hpo-20260614-232943) and saved in the output dir for --resume.
@@ -893,6 +926,7 @@ def main(
             fast=fast,
             wandb_diagnostics=wandb_diagnostics,
             max_hours=max_hours,
+            sampler=sampler,
         )
     else:
         _run_ray(

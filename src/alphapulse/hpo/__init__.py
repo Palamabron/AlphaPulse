@@ -8,6 +8,12 @@ from .builder import (
     needs_multi_head_pipeline,
 )
 from .objective import TrialResult, ray_trainable, run_trial
+from .optuna_search import (
+    SamplerName,
+    create_hpo_study,
+    suggest_flat_config,
+    tell_trial_result,
+)
 from .registry import MODEL_REGISTRY, PREPROCESSOR_REGISTRY
 from .search_space import (
     get_full_param_space,
@@ -33,4 +39,8 @@ __all__ = [
     "resolve_flat_config",
     "run_trial",
     "sample_random_config",
+    "SamplerName",
+    "create_hpo_study",
+    "suggest_flat_config",
+    "tell_trial_result",
 ]
