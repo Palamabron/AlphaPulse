@@ -34,14 +34,23 @@ def _wandb_active() -> bool:
 def _log_wandb_figure(wandb: Any, key: str, fig: Any) -> None:
     import io
 
-    import matplotlib.pyplot as plt
     from PIL import Image
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=_PRED_PLOT_DPI, bbox_inches="tight")
     buf.seek(0)
     wandb.log({key: wandb.Image(Image.open(buf))})
-    plt.close(fig)
+
+
+def _new_figure(*, figsize: tuple[float, float]) -> Any:
+    import matplotlib as mpl
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    mpl.use("Agg", force=True)
+    fig = Figure(figsize=figsize, dpi=_PRED_PLOT_DPI)
+    FigureCanvasAgg(fig)
+    return fig
 
 
 def _log_horizontal_bar_chart(
@@ -56,11 +65,10 @@ def _log_horizontal_bar_chart(
     if not labels:
         return
 
-    import matplotlib.pyplot as plt
-
     n = len(labels)
     fig_h = max(3.5, min(14.0, n * 0.32))
-    fig, ax = plt.subplots(figsize=(9, fig_h))
+    fig = _new_figure(figsize=(9, fig_h))
+    ax = fig.add_subplot(111)
     y = np.arange(n)
     ax.barh(y, values, color="steelblue", edgecolor="white", height=0.75)
     ax.set_yticks(y, labels=labels, fontsize=8)
@@ -82,11 +90,10 @@ def _log_correlation_heatmap(
     if len(names) < 2:
         return
 
-    import matplotlib.pyplot as plt
-
     mat = np.array([[float(corr[a][b]) for b in names] for a in names])
     size = max(5.0, min(12.0, len(names) * 0.65))
-    fig, ax = plt.subplots(figsize=(size, size))
+    fig = _new_figure(figsize=(size, size))
+    ax = fig.add_subplot(111)
     im = ax.imshow(mat, cmap="RdBu_r", vmin=-1.0, vmax=1.0, aspect="auto")
     ax.set_xticks(range(len(names)))
     ax.set_yticks(range(len(names)))
@@ -333,13 +340,13 @@ def _log_per_era_correlation(
 
 
 def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
-    import matplotlib.pyplot as plt
     import wandb
 
     ranked = rank_normalize(preds)
     finite_ranked = ranked[np.isfinite(ranked)]
     if len(finite_ranked):
-        fig, ax = plt.subplots(figsize=(8, 4))
+        fig = _new_figure(figsize=(8, 4))
+        ax = fig.add_subplot(111)
         ax.hist(
             finite_ranked,
             bins=_PRED_PLOT_BINS,
@@ -377,7 +384,8 @@ def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
         if p_lo == p_hi:
             p_lo, p_hi = p_lo - 1e-6, p_hi + 1e-6
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        fig = _new_figure(figsize=(12, 4.5))
+        axes = [fig.add_subplot(1, 2, i + 1) for i in range(2)]
         hb = axes[0].hexbin(
             y_plot,
             p_plot,
