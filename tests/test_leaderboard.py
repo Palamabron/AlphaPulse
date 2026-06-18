@@ -18,6 +18,7 @@ def test_leaderboard_format_and_sort_by_sharpe(tmp_path: Path) -> None:
             max_drawdown=0.1,
             model_types="XGBoost",
             elapsed_seconds=10.0,
+            holdout_corr_sharpe=0.5,
         ),
         TrialLeaderboardEntry(
             trial_number=2,
@@ -27,11 +28,13 @@ def test_leaderboard_format_and_sort_by_sharpe(tmp_path: Path) -> None:
             max_drawdown=0.05,
             model_types="LightGBM+CatBoost",
             elapsed_seconds=25.0,
+            holdout_corr_sharpe=1.2,
         ),
     ]
     text = format_leaderboard(entries, current_trial=2)
     assert "LEADERBOARD" in text
-    assert "by sharpe" in text
+    assert "holdout corr_sharpe" in text
+    assert "HoldoutSharpe" in text
     assert "LightGBM+CatBoost" in text
     assert "*" in text
 
@@ -52,6 +55,10 @@ def test_leaderboard_format_and_sort_by_payout_score(tmp_path: Path) -> None:
             model_types="XGBoost",
             elapsed_seconds=10.0,
             payout_score=0.8,
+            mmc_sharpe=0.2,
+            val_corr_sharpe=0.1,
+            val_mean_per_era_correlation=0.01,
+            holdout_corr_sharpe=1.5,
         ),
         TrialLeaderboardEntry(
             trial_number=2,
@@ -62,11 +69,17 @@ def test_leaderboard_format_and_sort_by_payout_score(tmp_path: Path) -> None:
             model_types="LightGBM",
             elapsed_seconds=25.0,
             payout_score=1.1,
+            mmc_sharpe=0.4,
+            val_corr_sharpe=0.2,
+            val_mean_per_era_correlation=0.02,
+            holdout_corr_sharpe=0.9,
         ),
     ]
     text = format_leaderboard(entries)
-    assert "by payout_score" in text
-    assert "Payout" in text
+    assert "by payout on validation" in text
+    assert "ValidationMmcSharpe" in text
+    assert "ValidationSharpe" in text
+    assert "HoldoutSharpe" in text
     assert text.index("LightGBM") < text.index("XGBoost")
 
     path = tmp_path / "leaderboard.json"
@@ -74,3 +87,4 @@ def test_leaderboard_format_and_sort_by_payout_score(tmp_path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data[0]["trial_number"] == 2
     assert data[0]["payout_score"] == 1.1
+    assert data[0]["mmc_sharpe"] == 0.4

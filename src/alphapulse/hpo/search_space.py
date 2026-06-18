@@ -13,14 +13,18 @@ from .feature_routing import sample_feature_routing
 from .target_strategy import apply_target_strategy_to_flat, sample_target_strategy
 
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
-FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"]
+FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3"]
 FOUNDATION_SAMPLE_PROB = 0.05
 AUGMENTER_SAMPLE_PROB = 0.05
 HPO_FAST_FOUNDATION_SAMPLE_PROB = 0.03
-HPO_SLOW_FOUNDATION_TYPES = ("TabPFN3", "TabPFN3Reasoning")
+HPO_SLOW_FOUNDATION_TYPES = ("TabPFN3",)
 MIN_NEUTRALIZATION_PROPORTION = 0.15
 DEFAULT_NEUTRALIZATION_PROPORTION = 0.35
 NEUTRALIZATION_PROPORTION_RANGE = (MIN_NEUTRALIZATION_PROPORTION, 0.8)
+MIN_META_NEUTRALIZATION_PROPORTION = 0.5
+DEFAULT_META_NEUTRALIZATION_PROPORTION = 0.6
+META_NEUTRALIZATION_PROPORTION_RANGE = (MIN_META_NEUTRALIZATION_PROPORTION, 0.75)
+FOUNDATION_ENSEMBLE_MAX_WEIGHT = 0.35
 
 
 def uses_neutralization_for_models(model_types: list[str]) -> bool:
@@ -65,6 +69,34 @@ def resolve_neutralize_proportion(
     return max(MIN_NEUTRALIZATION_PROPORTION, min(1.0, proportion))
 
 
+def resolve_meta_neutralize_proportion(flat: dict[str, Any]) -> float:
+    if not flat.get("use_meta_neutralization", False):
+        return 0.0
+    proportion = float(
+        flat.get(
+            "meta_neutralization_proportion",
+            DEFAULT_META_NEUTRALIZATION_PROPORTION,
+        )
+    )
+    return max(
+        MIN_META_NEUTRALIZATION_PROPORTION,
+        min(1.0, proportion),
+    )
+
+
+def _ensemble_weight_bounds(
+    model_types: list[str], flat: dict[str, Any]
+) -> tuple[list[float], list[float]]:
+    default_min = float(flat.get("ensemble_min_weight", 0.05))
+    default_max = float(flat.get("ensemble_max_weight", 0.90))
+    min_weights = [default_min] * len(model_types)
+    max_weights = [
+        FOUNDATION_ENSEMBLE_MAX_WEIGHT if t in FOUNDATION_MODELS else default_max
+        for t in model_types
+    ]
+    return min_weights, max_weights
+
+
 def _torch_available() -> bool:
     try:
         import torch  # noqa: F401
@@ -78,7 +110,7 @@ def resolve_foundation_compression(
     compression: str | None, *, hpo_fast: bool = False
 ) -> str | None:
     if compression is None and hpo_fast:
-        compression = "autoencoder"
+        compression = "pca"
     if compression == "autoencoder" and not _torch_available():
         return "pca"
     return compression
@@ -98,15 +130,6 @@ def available_foundation_models(*, hpo_fast: bool = False) -> list[str]:
         available.append("TabICL")
     except ImportError:
         pass
-    import os
-
-    if os.environ.get("TABPFN_API_KEY"):
-        try:
-            import tabpfn_client  # noqa: F401
-
-            available.append("TabPFN3Reasoning")
-        except ImportError:
-            pass
     if hpo_fast:
         return [m for m in available if m not in HPO_SLOW_FOUNDATION_TYPES]
     return available
@@ -141,6 +164,8 @@ def apply_gpu_model_params(model_type: str, params: dict[str, Any]) -> dict[str,
         else:
             out["task_type"] = "GPU"
             out.pop("colsample_bylevel", None)
+    elif model_type == "Packboost":
+        out["device"] = "cuda"
     return out
 
 
@@ -167,6 +192,18 @@ def apply_gpu_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
             }
         )
     cfg["models"] = models
+
+    preprocessors = []
+    for item in cfg.get("preprocessors", []):
+        pp_type = item.get("type", "")
+        params = dict(item.get("params") or {})
+        preprocessors.append(
+            {
+                **item,
+                "params": apply_gpu_model_params(pp_type, params),
+            }
+        )
+    cfg["preprocessors"] = preprocessors
     return cfg
 
 
@@ -264,6 +301,15 @@ def sample_random_config(
             "lgbm_n_rounds": rng.choice([300, 500, 800]),
             "lgbm_min_child_samples": rng.choice([100, 200]),
             "lgbm_early_stopping": rng.choice([50, 100]),
+            "lgbm_reg_alpha": rng.uniform(0.1, 2.0),
+            "lgbm_reg_lambda": rng.uniform(1.0, 10.0),
+            "lgbm_colsample_bytree": rng.uniform(0.2, 0.5),
+            "lgbm_subsample": rng.uniform(0.5, 0.8),
+            "catboost_depth": rng.choice([4, 5, 6]),
+            "catboost_learning_rate": _loguniform(0.01, 0.05, rng),
+            "catboost_l2_leaf_reg": rng.uniform(3.0, 15.0),
+            "catboost_min_data_in_leaf": rng.choice([100, 200, 500]),
+            "catboost_colsample_bylevel": rng.uniform(0.2, 0.4),
             "packboost_model_n_worst_eras": 3,
             "packboost_model_boost_weight": rng.uniform(0.2, 0.3),
             "packboost_model_n_rounds_base": 300,
@@ -272,6 +318,10 @@ def sample_random_config(
             "stacking_meta_learner": "ridge",
             "use_neutralization": True,
             "neutralization_proportion": rng.uniform(*NEUTRALIZATION_PROPORTION_RANGE),
+            "use_meta_neutralization": rng.random() < 0.35,
+            "meta_neutralization_proportion": rng.uniform(
+                *META_NEUTRALIZATION_PROPORTION_RANGE
+            ),
         }
         if fast:
             cfg["hpo_fast"] = True
@@ -298,11 +348,20 @@ def sample_random_config(
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
         "xgb_n_rounds": rng.choice([300, 500, 800]),
         "xgb_early_stopping": rng.choice([30, 50, 100]),
-        "lgbm_num_leaves": rng.choice([16, 31, 63, 127]),
+        "lgbm_num_leaves": rng.choice([16, 31, 63]),
         "lgbm_learning_rate": _loguniform(5e-3, 0.05, rng),
         "lgbm_n_rounds": rng.choice([300, 500, 800, 1500]),
         "lgbm_min_child_samples": rng.choice([100, 200, 500]),
         "lgbm_early_stopping": rng.choice([50, 100]),
+        "lgbm_reg_alpha": rng.uniform(0.1, 2.0),
+        "lgbm_reg_lambda": rng.uniform(1.0, 10.0),
+        "lgbm_colsample_bytree": rng.uniform(0.2, 0.5),
+        "lgbm_subsample": rng.uniform(0.5, 0.8),
+        "catboost_depth": rng.choice([4, 5, 6, 7]),
+        "catboost_learning_rate": _loguniform(0.01, 0.05, rng),
+        "catboost_l2_leaf_reg": rng.uniform(3.0, 15.0),
+        "catboost_min_data_in_leaf": rng.choice([100, 200, 500]),
+        "catboost_colsample_bylevel": rng.uniform(0.2, 0.4),
         "packboost_model_n_worst_eras": rng.choice([3, 5, 7]),
         "packboost_model_boost_weight": rng.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": rng.choice([300, 500]),
@@ -327,8 +386,8 @@ def sample_random_config(
         cfg["lgbm_early_stopping"] = rng.choice([30, 50])
         cfg["packboost_n_rounds_base"] = rng.choice([150, 250, 350])
         cfg["packboost_model_n_rounds_base"] = rng.choice([200, 300])
-        cfg["foundation_max_train_rows"] = rng.choice([3_000, 5_000, 8_000])
-        cfg["foundation_compression"] = rng.choice(["autoencoder", "pca", "svd"])
+        cfg["foundation_max_train_rows"] = rng.choice([2_000, 3_000, 5_000])
+        cfg["foundation_compression"] = rng.choice(["pca", "svd"])
         cfg["foundation_n_components"] = rng.choice([64, 128, 256])
         cfg["foundation_n_estimators"] = rng.choice([2, 4])
         cfg["foundation_compression_epochs"] = rng.choice([5, 10])
@@ -406,17 +465,15 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         {"type": flat.get("scaler_type", "StandardScaler"), "params": {}}
     ]
     if flat.get("use_packboost"):
-        preprocessors.append(
-            {
-                "type": "Packboost",
-                "params": {
-                    "n_worst_eras": flat.get("packboost_n_worst_eras", 5),
-                    "boost_weight": flat.get("packboost_boost_weight", 0.3),
-                    "n_rounds_base": flat.get("packboost_n_rounds_base", 300),
-                    "n_rounds_boost": flat.get("packboost_n_rounds_boost", 100),
-                },
-            }
-        )
+        pb_params: dict[str, Any] = {
+            "n_worst_eras": flat.get("packboost_n_worst_eras", 5),
+            "boost_weight": flat.get("packboost_boost_weight", 0.3),
+            "n_rounds_base": flat.get("packboost_n_rounds_base", 300),
+            "n_rounds_boost": flat.get("packboost_n_rounds_boost", 100),
+        }
+        if flat.get("use_gpu"):
+            pb_params["device"] = "cuda"
+        preprocessors.append({"type": "Packboost", "params": pb_params})
 
     def model_params(t: str, index: int) -> dict[str, Any]:
         if t == "XGBoost":
@@ -435,6 +492,11 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
                 "num_leaves": flat.get("lgbm_num_leaves", 31),
                 "learning_rate": flat.get("lgbm_learning_rate", 0.01),
                 "min_child_samples": flat.get("lgbm_min_child_samples", 200),
+                "reg_alpha": flat.get("lgbm_reg_alpha", 0.1),
+                "reg_lambda": flat.get("lgbm_reg_lambda", 1.0),
+                "colsample_bytree": flat.get("lgbm_colsample_bytree", 0.3),
+                "subsample": flat.get("lgbm_subsample", 0.7),
+                "subsample_freq": 1,
                 "objective": "regression",
                 "metric": "rmse",
                 "verbosity": -1,
@@ -492,12 +554,17 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         if t == "Ridge":
             return {"alpha": flat.get("ridge_alpha", 100.0)}
         if t == "Packboost":
-            return {
+            params: dict[str, Any] = {
                 "n_worst_eras": flat.get("packboost_model_n_worst_eras", 5),
                 "boost_weight": flat.get("packboost_model_boost_weight", 0.3),
                 "n_rounds_base": flat.get("packboost_model_n_rounds_base", 500),
                 "n_rounds_boost": flat.get("packboost_model_n_rounds_boost", 200),
+                "max_depth": flat.get("packboost_max_depth", 7),
+                "nfolds": flat.get("packboost_nfolds", 8),
             }
+            if flat.get("use_gpu"):
+                params["device"] = "cuda"
+            return params
         if t in FOUNDATION_MODELS:
             key_map = {
                 "foundation_max_train_rows": "max_train_rows",
@@ -535,12 +602,31 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         ensemble_method = "single"
     ensemble_params: dict[str, Any] = {}
     if ensemble_method == "weighted" and num_models > 1:
-        ensemble_params["weights"] = [1.0 / num_models] * num_models
+        saved_weights = flat.get("ensemble_weights")
+        if saved_weights and len(saved_weights) == num_models:
+            ensemble_params["weights"] = list(saved_weights)
+        elif flat.get("ensemble_params", {}).get("weights") is not None:
+            ensemble_params["weights"] = flat["ensemble_params"]["weights"]
+        else:
+            ensemble_params["optimize_weights"] = True
+            ensemble_params["objective"] = flat.get(
+                "ensemble_objective",
+                flat.get("hpo_objective", "corr_sharpe"),
+            )
+            ensemble_params["min_weight"] = float(flat.get("ensemble_min_weight", 0.05))
+            ensemble_params["max_weight"] = float(flat.get("ensemble_max_weight", 0.90))
+            min_w, max_w = _ensemble_weight_bounds(types, flat)
+            if any(t in FOUNDATION_MODELS for t in types):
+                ensemble_params["min_weights"] = min_w
+                ensemble_params["max_weights"] = max_w
+            ensemble_params["corr_weight"] = float(flat.get("corr_weight", 0.75))
+            ensemble_params["mmc_weight"] = float(flat.get("mmc_weight", 2.25))
     if ensemble_method == "stacking" and num_models > 1:
         ensemble_params["meta_learner"] = flat.get("stacking_meta_learner", "ridge")
         ensemble_params["meta_params"] = {}
 
     neutralize_proportion = resolve_neutralize_proportion(flat, types)
+    meta_neutralize_proportion = resolve_meta_neutralize_proportion(flat)
 
     return {
         "preprocessors": preprocessors,
@@ -548,6 +634,7 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
         "ensemble_method": ensemble_method,
         "ensemble_params": ensemble_params,
         "neutralize_proportion": neutralize_proportion,
+        "meta_neutralize_proportion": meta_neutralize_proportion,
     }
 
 

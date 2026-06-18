@@ -58,7 +58,9 @@ def init_wandb_run(
     """Start a long-lived WandB run (e.g. for the full AutoResearch loop)."""
     import wandb
 
-    wandb.init(project=project, name=name, config=config or {}, reinit=True)
+    wandb.init(
+        project=project, name=name, config=config or {}, reinit="finish_previous"
+    )
 
 
 def finish_wandb_run() -> None:
@@ -117,14 +119,15 @@ def log_hpo_summary_table(
 
     columns = [
         "trial",
-        "sharpe",
-        "corr_sharpe",
-        "mmc_sharpe",
-        "payout_score",
-        "mean_era_corr",
-        "std_era_corr",
-        "max_drawdown",
-        "pct_positive_eras",
+        "HoldoutSharpe",
+        "ValidationSharpe",
+        "ValidationMmcSharpe",
+        "PayoutScore",
+        "HoldoutMeanCorr",
+        "ValidationMeanCorr",
+        "HoldoutStdCorr",
+        "HoldoutMaxDrawdown",
+        "HoldoutPctPositiveEras",
         "model_types",
         "model_1_type",
         "model_2_type",
@@ -160,16 +163,25 @@ def log_hpo_summary_table(
         )
         table.add_data(
             r.trial_number,
-            r.sharpe,
             r.corr_sharpe
             if r.corr_sharpe not in (float("-inf"), float("inf"))
             else None,
+            r.metrics.get("val_corr_sharpe"),
             r.mmc_sharpe,
             r.payout_score,
-            r.metrics.get("mean_per_era_correlation"),
-            r.metrics.get("std_per_era_correlation"),
-            r.metrics.get("max_drawdown"),
-            r.metrics.get("pct_positive_eras"),
+            r.metrics.get("holdout_mean_per_era_correlation")
+            if r.metrics.get("holdout_mean_per_era_correlation") is not None
+            else r.metrics.get("mean_per_era_correlation"),
+            r.metrics.get("val_mean_per_era_correlation"),
+            r.metrics.get("holdout_std_per_era_correlation")
+            if r.metrics.get("holdout_std_per_era_correlation") is not None
+            else r.metrics.get("std_per_era_correlation"),
+            r.metrics.get("holdout_max_drawdown")
+            if r.metrics.get("holdout_max_drawdown") is not None
+            else r.metrics.get("max_drawdown"),
+            r.metrics.get("holdout_pct_positive_eras")
+            if r.metrics.get("holdout_pct_positive_eras") is not None
+            else r.metrics.get("pct_positive_eras"),
             model_types,
             r.params.get("model_1_type"),
             r.params.get("model_2_type"),
@@ -201,21 +213,33 @@ def log_hpo_summary_table(
         group=group,
         name="hpo-summary",
         job_type="summary",
-        reinit=True,
+        reinit="finish_previous",
     )
     summary_charts: dict[str, Any] = {}
     if any(r.error is None for r in results):
-        summary_charts["hpo/trial_corr_sharpe"] = wandb.plot.scatter(
+        summary_charts["hpo/trial_PayoutScore"] = wandb.plot.scatter(
             table,
             "trial",
-            "corr_sharpe",
-            title="Trial corr Sharpe",
+            "PayoutScore",
+            title="Trial validation PayoutScore",
         )
-        summary_charts["hpo/trial_mmc_sharpe"] = wandb.plot.scatter(
+        summary_charts["hpo/trial_HoldoutSharpe"] = wandb.plot.scatter(
             table,
             "trial",
-            "mmc_sharpe",
-            title="Trial MMC Sharpe",
+            "HoldoutSharpe",
+            title="Trial holdout HoldoutSharpe",
+        )
+        summary_charts["hpo/trial_ValidationSharpe"] = wandb.plot.scatter(
+            table,
+            "trial",
+            "ValidationSharpe",
+            title="Trial validation ValidationSharpe",
+        )
+        summary_charts["hpo/trial_ValidationMmcSharpe"] = wandb.plot.scatter(
+            table,
+            "trial",
+            "ValidationMmcSharpe",
+            title="Trial validation ValidationMmcSharpe",
         )
         summary_charts["hpo/trial_elapsed"] = wandb.plot.scatter(
             table,
@@ -225,6 +249,60 @@ def log_hpo_summary_table(
         )
     wandb.log({"trials_summary": table, **summary_charts})
     wandb.finish()
+
+
+def _finite_metric(value: Any) -> float | None:
+    import numpy as np
+
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if np.isfinite(numeric) else None
+
+
+def _log_split_metrics(
+    logged: dict[str, Any],
+    metrics: dict[str, Any],
+    result: "TrialResult",
+) -> None:
+    holdout_corr = _finite_metric(metrics.get("holdout_corr_sharpe"))
+    if holdout_corr is None:
+        holdout_corr = _finite_metric(result.corr_sharpe)
+    if holdout_corr is not None:
+        logged["holdout/HoldoutSharpe"] = holdout_corr
+    holdout_mean = _finite_metric(metrics.get("holdout_mean_per_era_correlation"))
+    if holdout_mean is None:
+        holdout_mean = _finite_metric(metrics.get("mean_per_era_correlation"))
+    if holdout_mean is not None:
+        logged["holdout/HoldoutMeanCorr"] = holdout_mean
+    holdout_dd = _finite_metric(metrics.get("holdout_max_drawdown"))
+    if holdout_dd is None:
+        holdout_dd = _finite_metric(metrics.get("max_drawdown"))
+    if holdout_dd is not None:
+        logged["holdout/HoldoutMaxDrawdown"] = holdout_dd
+
+    val_corr = _finite_metric(metrics.get("val_corr_sharpe"))
+    if val_corr is not None:
+        logged["validation/ValidationSharpe"] = val_corr
+    val_mean = _finite_metric(metrics.get("val_mean_per_era_correlation"))
+    if val_mean is not None:
+        logged["validation/ValidationMeanCorr"] = val_mean
+    mmc = _finite_metric(result.mmc_sharpe)
+    if mmc is None:
+        mmc = _finite_metric(metrics.get("mmc_sharpe"))
+    if mmc is not None:
+        logged["validation/ValidationMmcSharpe"] = mmc
+    payout = _finite_metric(result.payout_score)
+    if payout is None:
+        payout = _finite_metric(metrics.get("payout_score"))
+    if payout is not None:
+        logged["validation/PayoutScore"] = payout
+    mmc_mean = _finite_metric(metrics.get("mmc"))
+    if mmc_mean is not None:
+        logged["validation/ValidationMmc"] = mmc_mean
 
 
 def log_hpo_trial_metrics(
@@ -238,7 +316,6 @@ def log_hpo_trial_metrics(
     import wandb
 
     logged: dict[str, Any] = {
-        "sharpe": result.sharpe,
         "objective": objective,
         "elapsed_seconds": result.elapsed_seconds,
     }
@@ -253,18 +330,27 @@ def log_hpo_trial_metrics(
     routed_feature_count = result.params.get("routed_feature_count")
     if routed_feature_count is not None:
         logged["routed_feature_count"] = routed_feature_count
-    if result.corr_sharpe not in (float("-inf"), float("inf")):
-        logged["corr_sharpe"] = result.corr_sharpe
-    if result.mmc_sharpe is not None:
-        logged["mmc_sharpe"] = result.mmc_sharpe
-    if result.payout_score is not None:
-        logged["payout_score"] = result.payout_score
-    top_level_keys = {"sharpe", "corr_sharpe", "mmc_sharpe", "payout_score"}
-    for k, v in (result.metrics or {}).items():
-        if k not in top_level_keys and v is not None:
-            if isinstance(v, float) and not np.isfinite(v):
-                continue
-            logged[f"metric/{k}"] = v
+    metrics = result.metrics or {}
+    _log_split_metrics(logged, metrics, result)
+    skip_metric_keys = {
+        "corr_sharpe",
+        "mean_per_era_correlation",
+        "std_per_era_correlation",
+        "max_drawdown",
+        "pct_positive_eras",
+        "n_valid_eras",
+        "mmc",
+        "mmc_sharpe",
+        "payout_score",
+    }
+    for key, value in metrics.items():
+        if key in skip_metric_keys or key.startswith(("holdout_", "val_")):
+            continue
+        if value is None:
+            continue
+        if isinstance(value, float) and not np.isfinite(value):
+            continue
+        logged[f"metric/{key}"] = value
     wandb.log(logged)
 
 
@@ -332,7 +418,7 @@ def log_hpo_trial(
         group=group,
         name=f"trial_{result.trial_number:03d}",
         config=config_for_wandb,
-        reinit=True,
+        reinit="finish_previous",
     )
 
     log_hpo_trial_metrics(
@@ -346,17 +432,10 @@ def log_hpo_convergence(
     *,
     project: str,
     group: str,
+    objective: str = "payout_score",
 ) -> None:
-    """Log per-trial corr_sharpe and running best in a single WandB convergence run.
-
-    All trials are logged as ordered steps within one run so that WandB renders
-    a proper convergence curve (trial scores + running maximum line).
-
-    Args:
-        results: All TrialResult objects from the HPO search, in trial order.
-        project: WandB project name.
-        group: WandB group name (same as HPO run group).
-    """
+    """Log per-trial holdout/validation metrics and running best in one WandB run."""
+    import numpy as np
     import wandb
 
     wandb.init(
@@ -364,22 +443,40 @@ def log_hpo_convergence(
         group=group,
         name="search-convergence",
         job_type="convergence",
-        reinit=True,
+        reinit="finish_previous",
     )
     best_so_far = float("-inf")
     for r in results:
         if r.error:
             continue
-        if r.corr_sharpe in (float("-inf"), float("inf")):
-            continue
-        trial_corr = r.corr_sharpe
-        if trial_corr > best_so_far:
-            best_so_far = trial_corr
-        wandb.log(
-            {
-                "trial_corr_sharpe": trial_corr,
-                "best_corr_sharpe_so_far": best_so_far,
-            },
-            step=r.trial_number,
-        )
+        holdout_corr = r.corr_sharpe
+        if holdout_corr in (float("-inf"), float("inf")):
+            holdout_corr = None
+        payout = r.payout_score
+        if payout is not None and not np.isfinite(payout):
+            payout = None
+        mmc = r.mmc_sharpe
+        if mmc is not None and not np.isfinite(mmc):
+            mmc = None
+        val_corr = r.metrics.get("val_corr_sharpe") if r.metrics else None
+        if val_corr is not None and not np.isfinite(float(val_corr)):
+            val_corr = None
+
+        trial_objective = payout if objective == "payout_score" else holdout_corr
+        if trial_objective is not None and trial_objective > best_so_far:
+            best_so_far = trial_objective
+
+        logged: dict[str, Any] = {}
+        if holdout_corr is not None:
+            logged["holdout/HoldoutSharpe"] = holdout_corr
+        if val_corr is not None:
+            logged["validation/ValidationSharpe"] = float(val_corr)
+        if mmc is not None:
+            logged["validation/ValidationMmcSharpe"] = mmc
+        if payout is not None:
+            logged["validation/PayoutScore"] = payout
+        if trial_objective is not None:
+            logged[f"best_{objective}_so_far"] = best_so_far
+        if logged:
+            wandb.log(logged, step=r.trial_number)
     wandb.finish()

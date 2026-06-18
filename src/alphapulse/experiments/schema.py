@@ -42,7 +42,18 @@ class DataConfig(BaseModel):
     target_col: str = "target"
     seed: int = 42
     auxiliary_targets: list[str] | None = None
+    target_blend_method: Literal["equal", "sharpe"] = "equal"
     benchmark_columns: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_auxiliary_targets(self) -> Self:
+        aux = self.auxiliary_targets or []
+        if self.target_col in aux:
+            raise ValueError(
+                f"auxiliary_targets must not include primary target_col "
+                f"{self.target_col!r}"
+            )
+        return self
 
 
 class FeatureConfig(BaseModel):
@@ -88,6 +99,16 @@ class NeutralizationConfig(BaseModel):
     features: list[str] | None = None
 
 
+class MetaNeutralizationConfig(BaseModel):
+    """Meta-model neutralization applied after feature neutralization.
+
+    Removes linear exposure of predictions to the Numerai meta model, improving
+    MMC by reducing overlap with the stake-weighted meta model.
+    """
+
+    proportion: float = Field(0.0, ge=0.0, le=1.0)
+
+
 class EvaluationConfig(BaseModel):
     primary_metric: Literal[
         "mean_per_era_correlation",
@@ -121,6 +142,9 @@ class ExperimentV1(BaseModel):
     ensemble_method: Literal["single", "weighted", "stacking"] = "single"
     ensemble_params: dict[str, Any] = Field(default_factory=dict)
     neutralization: NeutralizationConfig = Field(default_factory=NeutralizationConfig)
+    meta_neutralization: MetaNeutralizationConfig = Field(
+        default_factory=MetaNeutralizationConfig
+    )
     train: TrainConfig = Field(default_factory=TrainConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
@@ -159,4 +183,5 @@ class ExperimentV1(BaseModel):
             "feature_groups": dict(self.features.groups),
             "neutralize_proportion": self.neutralization.proportion,
             "neutralize_features": self.neutralization.features,
+            "meta_neutralize_proportion": self.meta_neutralization.proportion,
         }

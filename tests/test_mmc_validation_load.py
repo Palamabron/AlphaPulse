@@ -89,7 +89,9 @@ def test_merge_validation_mmc_metrics_populates_mmc(tmp_path: Path) -> None:
         target_col="target",
         train_subsample=1.0,
         seed=1,
-    )
+    )[0]
     assert np.isfinite(merged["mmc"])
     assert np.isfinite(merged["mmc_sharpe"])
     assert np.isfinite(merged["payout_score"])
+    assert merged["holdout_corr_sharpe"] == 1.0
+    assert np.isfinite(merged["val_corr_sharpe"])

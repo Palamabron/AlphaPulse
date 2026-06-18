@@ -217,6 +217,7 @@ def log_universal_feature_importance(
     *,
     feature_cols: list[str],
     top_n: int = 20,
+    diagnostics_prefix: str = "diagnostics/holdout",
 ) -> dict[str, float]:
     """Log universal feature importance for all supported model types to WandB.
 
@@ -248,10 +249,12 @@ def log_universal_feature_importance(
         wandb,
         labels=features,
         values=scores,
-        key="diagnostics/feature_importance_bar",
+        key=f"{diagnostics_prefix}/feature_importance_bar",
         title=f"Top feature importance ({model_type})",
         xlabel="Mean |contribution|",
     )
     if wandb.run is not None:
-        wandb.run.summary["diagnostics/feature_importance_model_type"] = model_type
+        wandb.run.summary[f"{diagnostics_prefix}/feature_importance_model_type"] = (
+            model_type
+        )
     return importance

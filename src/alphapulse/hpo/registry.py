@@ -5,7 +5,6 @@ from ..models.catboost_model import CatBoostModel
 from ..models.foundation_models import (
     TabICLModel,
     TabPFN3Model,
-    TabPFN3ReasoningModel,
     TabPFNModel,
 )
 from ..models.lightgbm_model import LightGBMModel
@@ -126,15 +125,6 @@ MODEL_REGISTRY: dict[str, tuple[type[BaseModel], dict[str, Any]]] = {
             "n_estimators": 8,
             "ignore_pretraining_limits": False,
             "random_state": 42,
-        },
-    ),
-    "TabPFN3Reasoning": (
-        TabPFN3ReasoningModel,
-        {
-            "thinking_mode": True,
-            "thinking_effort": "medium",
-            "thinking_timeout_s": 300,
-            "thinking_metric": "rmse",
         },
     ),
     "TabICL": (

@@ -15,7 +15,6 @@ VALID_MODELS = [
     "ExtraTrees",
     "TabPFN",
     "TabPFN3",
-    "TabPFN3Reasoning",
     "TabICL",
 ]
 VALID_PREPROCESSORS = [

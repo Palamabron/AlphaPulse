@@ -1,0 +1,36 @@
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.125
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: LightGBM
+    params:
+      params:
+        num_leaves: 31
+        learning_rate: 0.01
+        min_child_samples: 200
+        reg_alpha: 0.5
+        reg_lambda: 5.0
+        colsample_bytree: 0.3
+        subsample: 0.7
+        objective: regression
+        metric: rmse
+ensemble_method: single
+neutralization:
+  proportion: 0.5
+meta_neutralization:
+  proportion: 0.6
+train:
+  n_rounds: 400
+  early_stopping_rounds: 50
+evaluation:
+  primary_metric: payout_score
+  walk_forward: false

@@ -11,7 +11,7 @@ from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
 from ..preprocessors.era_stable import EraStableFeatureSelector
 from .ensemble import EnsembleStrategy
-from .neutralizer import FeatureNeutralizer
+from .neutralizer import FeatureNeutralizer, MetaModelNeutralizer
 from .row_utils import (
     filter_invalid_rows,
     filter_nan_rows,
@@ -56,6 +56,7 @@ class Pipeline:
         benchmark_blend_weight: float = 0.0,
         neutralize_proportion: float = 0.0,
         neutralize_features: list[str] | None = None,
+        meta_neutralize_proportion: float = 0.0,
     ) -> None:
         if model is not None and models is not None:
             raise ValueError("Provide either model or models, not both.")
@@ -83,10 +84,23 @@ class Pipeline:
             if self.neutralize_proportion > 0.0
             else None
         )
+        self.meta_neutralize_proportion = float(meta_neutralize_proportion)
+        self._meta_neutralizer: MetaModelNeutralizer | None = (
+            MetaModelNeutralizer(proportion=self.meta_neutralize_proportion)
+            if self.meta_neutralize_proportion > 0.0
+            else None
+        )
 
     @property
     def ensemble_method(self) -> str:
         return self._ensemble.method
+
+    @property
+    def ensemble_weights(self) -> list[float] | None:
+        weights = self._ensemble.weights
+        if weights is None:
+            return None
+        return [float(w) for w in weights]
 
     def fit(
         self,
@@ -94,6 +108,8 @@ class Pipeline:
         y: pd.Series,
         X_val: pd.DataFrame | None = None,
         y_val: pd.Series | None = None,
+        era_val: pd.Series | None = None,
+        ensemble_meta_preds: np.ndarray | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
         """Fit preprocessors and train all models.
@@ -137,7 +153,10 @@ class Pipeline:
             raise ValueError("No valid training rows after preprocessing")
 
         X_val_t: pd.DataFrame | None = None
+        era_val_t: pd.Series | None = None
         if X_val is not None:
+            if era_val is None and "era" in X_val.columns:
+                era_val = X_val["era"]
             X_val, y_val = filter_invalid_rows(X_val, y_val)
             if len(X_val) == 0:
                 X_val_t = None
@@ -155,6 +174,11 @@ class Pipeline:
                 if len(X_val_t) == 0:
                     X_val_t = None
                     y_val = None
+                    era_val_t = None
+                else:
+                    era_val_t = (
+                        era_val.loc[X_val_t.index] if era_val is not None else None
+                    )
 
         if len(self.models) == 1:
             model = self.models[0]
@@ -193,6 +217,8 @@ class Pipeline:
                 n_models=len(self.models),
                 get_val_predictions=get_val_preds if X_val_t is not None else None,
                 y_val=y_val,
+                eras_val=era_val_t,
+                meta_model_preds=ensemble_meta_preds,
             )
 
         return metrics
@@ -212,10 +238,65 @@ class Pipeline:
         preds = np.column_stack([m.predict(X_t) for m in self.models])
         return self._ensemble.combine(preds)
 
+    def set_ensemble_weights(self, weights: np.ndarray | list[float]) -> None:
+        self._ensemble.set_weights(weights)
+
+    def predict_model_matrix(self, X: pd.DataFrame) -> np.ndarray:
+        """Return per-model predictions after preprocessing (n_rows, n_models)."""
+        for pp in self.preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.eval()
+
+        input_invalid_mask = invalid_row_mask(X)
+        if input_invalid_mask.all():
+            return np.zeros((len(X), len(self.models)), dtype=np.float64)
+
+        if input_invalid_mask.any():
+            valid_mask = ~input_invalid_mask
+            X_valid = X[valid_mask]
+        else:
+            valid_mask = None
+            X_valid = X
+
+        era_meta = protected_metadata_frame(X_valid)
+        X_t = self._preprocess(X_valid, era_meta)
+
+        post_nan_mask = ~X_t.isna().any(axis=1) if X_t.isna().any().any() else None
+        if post_nan_mask is not None:
+            X_t = X_t[post_nan_mask]
+
+        if len(X_t) == 0:
+            return np.zeros((len(X), len(self.models)), dtype=np.float64)
+
+        valid_matrix = np.column_stack([m.predict(X_t) for m in self.models])
+
+        if valid_mask is None and post_nan_mask is None:
+            return valid_matrix
+
+        full = np.zeros((len(X), len(self.models)), dtype=np.float64)
+        if valid_mask is not None and post_nan_mask is not None:
+            combined = valid_mask.to_numpy(dtype=bool).copy()
+            valid_positions = np.flatnonzero(combined)
+            post_arr = np.asarray(post_nan_mask, dtype=bool)
+            combined[valid_positions[~post_arr]] = False
+            full[combined] = valid_matrix
+        elif valid_mask is not None:
+            full[valid_mask.to_numpy(dtype=bool)] = valid_matrix
+        else:
+            assert post_nan_mask is not None
+            post_arr = (
+                post_nan_mask.to_numpy(dtype=bool)
+                if hasattr(post_nan_mask, "to_numpy")
+                else np.asarray(post_nan_mask, dtype=bool)
+            )
+            full[post_arr] = valid_matrix
+        return full
+
     def predict(
         self,
         X: pd.DataFrame,
         eras: pd.Series | None = None,
+        meta_model: np.ndarray | pd.Series | None = None,
     ) -> np.ndarray:
         """Generate predictions for new data.
 
@@ -224,6 +305,8 @@ class Pipeline:
             eras: Optional era labels for per-era feature neutralization.
                 When *None* and neutralization is enabled, neutralization is
                 applied across the entire batch.
+            meta_model: Optional Numerai meta model predictions aligned with *X*
+                for meta-model neutralization when enabled.
 
         Returns:
             1-D array of predictions. Rank-normalized when neutralization
@@ -281,19 +364,44 @@ class Pipeline:
                 raw_preds[post_arr] = valid_preds
 
         if self._neutralizer is None:
-            return raw_preds
+            output = raw_preds
+        else:
+            neutral_cols = (
+                self.neutralize_features or self.feature_columns or list(X_orig.columns)
+            )
+            available_cols = [c for c in neutral_cols if c in X_orig.columns]
+            if not available_cols:
+                output = rank_normalize(raw_preds)
+                return self._apply_meta_neutralization(
+                    output, meta_model, eras, X_orig.index
+                )
 
-        neutral_cols = (
-            self.neutralize_features or self.feature_columns or list(X_orig.columns)
-        )
-        available_cols = [c for c in neutral_cols if c in X_orig.columns]
-        if not available_cols:
-            return rank_normalize(raw_preds)
+            neutralized = self._neutralizer.neutralize(
+                raw_preds,
+                X_orig[available_cols],
+                eras=eras,
+            )
+            output = rank_normalize(neutralized)
 
-        neutralized = self._neutralizer.neutralize(
-            raw_preds,
-            X_orig[available_cols],
-            eras=eras,
+        return self._apply_meta_neutralization(output, meta_model, eras, X_orig.index)
+
+    def _apply_meta_neutralization(
+        self,
+        preds: np.ndarray,
+        meta_model: np.ndarray | pd.Series | None,
+        eras: pd.Series | None,
+        index: pd.Index,
+    ) -> np.ndarray:
+        if self._meta_neutralizer is None or meta_model is None:
+            return preds
+        meta_arr = np.asarray(meta_model, dtype=np.float64).reshape(-1)
+        if len(meta_arr) != len(preds):
+            raise ValueError(
+                f"meta_model length {len(meta_arr)} != predictions length {len(preds)}"
+            )
+        era_series = eras if eras is not None else pd.Series(index=index)
+        neutralized = self._meta_neutralizer.neutralize(
+            preds, meta_arr, eras=era_series
         )
         return rank_normalize(neutralized)
 

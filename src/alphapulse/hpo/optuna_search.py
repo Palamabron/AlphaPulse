@@ -28,7 +28,9 @@ def create_hpo_study(
     storage_url = f"sqlite:///{(output_dir / 'optuna.db').resolve()}"
     optuna_sampler: TPESampler | RandomSampler
     if sampler == "tpe":
-        optuna_sampler = TPESampler(seed=seed, multivariate=True)
+        optuna_sampler = TPESampler(
+            seed=seed, multivariate=True, warn_independent_sampling=False
+        )
     else:
         optuna_sampler = RandomSampler(seed=seed)
     return optuna.create_study(
@@ -85,13 +87,28 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
             "xgb_learning_rate", 1e-3, 0.1, log=True
         ),
         "lgbm_num_leaves": trial.suggest_categorical(
-            "lgbm_num_leaves", [16, 31, 63, 127]
+            "lgbm_num_leaves", [16, 31, 63] if fast else [16, 31, 63, 127]
         ),
         "lgbm_learning_rate": trial.suggest_float(
             "lgbm_learning_rate", 5e-3, 0.05, log=True
         ),
         "lgbm_min_child_samples": trial.suggest_categorical(
             "lgbm_min_child_samples", [100, 200, 500]
+        ),
+        "lgbm_reg_alpha": trial.suggest_float("lgbm_reg_alpha", 0.1, 2.0),
+        "lgbm_reg_lambda": trial.suggest_float("lgbm_reg_lambda", 1.0, 10.0),
+        "lgbm_colsample_bytree": trial.suggest_float("lgbm_colsample_bytree", 0.2, 0.5),
+        "lgbm_subsample": trial.suggest_float("lgbm_subsample", 0.5, 0.8),
+        "catboost_depth": trial.suggest_categorical("catboost_depth", [4, 5, 6]),
+        "catboost_learning_rate": trial.suggest_float(
+            "catboost_learning_rate", 0.01, 0.05, log=True
+        ),
+        "catboost_l2_leaf_reg": trial.suggest_float("catboost_l2_leaf_reg", 3.0, 15.0),
+        "catboost_min_data_in_leaf": trial.suggest_categorical(
+            "catboost_min_data_in_leaf", [100, 200, 500]
+        ),
+        "catboost_colsample_bylevel": trial.suggest_float(
+            "catboost_colsample_bylevel", 0.2, 0.4
         ),
         "packboost_model_n_worst_eras": trial.suggest_categorical(
             "packboost_model_n_worst_eras", [3, 5, 7]
@@ -108,6 +125,12 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         "use_neutralization": True,
         "neutralization_proportion": trial.suggest_float(
             "neutralization_proportion", *NEUTRALIZATION_PROPORTION_RANGE
+        ),
+        "use_meta_neutralization": trial.suggest_categorical(
+            "use_meta_neutralization", [False, True]
+        ),
+        "meta_neutralization_proportion": trial.suggest_float(
+            "meta_neutralization_proportion", 0.5, 0.75
         ),
         "augmenter_top_fraction": trial.suggest_float(
             "augmenter_top_fraction", 0.05, 0.20
@@ -145,10 +168,10 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
                     "packboost_model_n_rounds_base", [200, 300]
                 ),
                 "foundation_max_train_rows": trial.suggest_categorical(
-                    "foundation_max_train_rows", [3_000, 5_000, 8_000]
+                    "foundation_max_train_rows", [2_000, 3_000, 5_000]
                 ),
                 "foundation_compression": trial.suggest_categorical(
-                    "foundation_compression", ["autoencoder", "pca", "svd"]
+                    "foundation_compression", ["pca", "svd"]
                 ),
                 "foundation_n_components": trial.suggest_categorical(
                     "foundation_n_components", [64, 128, 256]

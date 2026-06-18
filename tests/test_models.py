@@ -64,6 +64,13 @@ def test_instantiate_model_matches_model_factory() -> None:
     assert from_builder.n_subs == from_factory.n_subs == 3
 
 
+def test_apply_gpu_model_params_packboost_sets_cuda() -> None:
+    from alphapulse.hpo.search_space import apply_gpu_model_params
+
+    params = apply_gpu_model_params("Packboost", {"n_rounds_base": 100})
+    assert params["device"] == "cuda"
+
+
 def test_apply_gpu_model_params_lightgbm_sets_device() -> None:
     from alphapulse.hpo.search_space import apply_gpu_model_params
 
@@ -100,10 +107,11 @@ def test_ensemble_optimizer_fit_predict() -> None:
     y = rng.randn(n)
     oof = np.column_stack([y + rng.randn(n) * 0.5, y + rng.randn(n) * 0.8])
 
-    optimizer = EnsembleOptimizer(seed=0)
+    optimizer = EnsembleOptimizer(seed=0, min_weight=0.05, max_weight=0.90)
     optimizer.fit(oof, y, eras)
     assert optimizer.weights_ is not None
     assert optimizer.weights_.sum() == pytest.approx(1.0)
+    assert all(0.05 <= w <= 0.90 for w in optimizer.weights_)
     blend = optimizer.predict(oof[:10])
     assert blend.shape == (10,)
 

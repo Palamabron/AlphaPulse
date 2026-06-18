@@ -1,0 +1,53 @@
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.125
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: LightGBM
+    params:
+      params:
+        num_leaves: 31
+        learning_rate: 0.01
+        min_child_samples: 200
+        reg_alpha: 0.5
+        reg_lambda: 5.0
+        colsample_bytree: 0.3
+        subsample: 0.7
+        objective: regression
+        metric: rmse
+  - type: CatBoost
+    params:
+      params:
+        depth: 6
+        learning_rate: 0.03
+        l2_leaf_reg: 5.0
+        min_data_in_leaf: 200
+        colsample_bylevel: 0.3
+        loss_function: RMSE
+        verbose: 0
+      iterations: 400
+      early_stopping_rounds: 50
+ensemble_method: weighted
+ensemble_params:
+  optimize_weights: true
+  objective: payout_score
+  min_weight: 0.05
+  max_weight: 0.90
+neutralization:
+  proportion: 0.5
+meta_neutralization:
+  proportion: 0.55
+train:
+  n_rounds: 400
+  early_stopping_rounds: 50
+evaluation:
+  primary_metric: payout_score
+  walk_forward: false

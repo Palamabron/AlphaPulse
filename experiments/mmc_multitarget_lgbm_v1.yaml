@@ -1,0 +1,35 @@
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.125
+  target_col: target
+  auxiliary_targets:
+    - target_jerome_v4_20
+    - target_ralph_v4_20
+    - target_tyler_v4_20
+  target_blend_method: equal
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: LightGBM
+    params:
+      params:
+        num_leaves: 31
+        learning_rate: 0.01
+        objective: regression
+        metric: rmse
+ensemble_method: single
+ensemble_params: {}
+neutralization:
+  proportion: 0.5
+train:
+  n_rounds: 2000
+  early_stopping_rounds: 100
+evaluation:
+  primary_metric: corr_sharpe
+  walk_forward: false

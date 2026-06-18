@@ -1,0 +1,43 @@
+version: "1"
+data:
+  data_dir: data/v5.2
+  train_subsample: 0.125
+  target_col: target
+  seed: 42
+features:
+  columns: null
+  groups: {}
+preprocessing:
+  - type: StandardScaler
+    params: {}
+models:
+  - type: LightGBM
+    params:
+      params:
+        num_leaves: 31
+        learning_rate: 0.01
+        objective: regression
+        metric: rmse
+  - type: TabICL
+    params:
+      n_estimators: 4
+      max_train_rows: 8000
+      compression: autoencoder
+      compression_components: 128
+      compression_epochs: 10
+      kv_cache: false
+      batch_size: 8
+ensemble_method: weighted
+ensemble_params:
+  optimize_weights: true
+  objective: payout_score
+  min_weight: 0.05
+  max_weight: 0.90
+neutralization:
+  proportion: 0.5
+train:
+  n_rounds: 2000
+  early_stopping_rounds: 100
+evaluation:
+  primary_metric: payout_score
+  walk_forward: false
