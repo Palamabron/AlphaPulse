@@ -105,6 +105,7 @@ def test_sample_random_config_fast_tighter_bounds() -> None:
     assert config["n_subs"] <= 5
     assert config["xgb_n_rounds"] <= 400
     assert config["num_models"] <= 2
+    assert config.get("foundation_max_train_rows", 10_000) <= 5_000
     assert "SyntheticDataAugmenter" not in (
         config.get("model_1_type"),
         config.get("model_2_type"),
@@ -112,17 +113,14 @@ def test_sample_random_config_fast_tighter_bounds() -> None:
     )
 
 
-def test_resolve_flat_config_fast_foundation_uses_autoencoder() -> None:
+def test_resolve_flat_config_fast_foundation_defaults_to_pca() -> None:
     from alphapulse.hpo.search_space import (
         _torch_available,
         resolve_flat_config,
         resolve_foundation_compression,
     )
 
-    assert resolve_foundation_compression(None, hpo_fast=True) in {
-        "autoencoder",
-        "pca",
-    }
+    assert resolve_foundation_compression(None, hpo_fast=True) == "pca"
     if not _torch_available():
         assert resolve_foundation_compression("autoencoder") == "pca"
 
@@ -140,8 +138,7 @@ def test_resolve_flat_config_fast_foundation_uses_autoencoder() -> None:
     }
     cfg = resolve_flat_config(flat)
     params = cfg["models"][0]["params"]
-    expected = "autoencoder" if _torch_available() else "pca"
-    assert params["compression"] == expected
+    assert params["compression"] == "pca"
     assert params["n_estimators"] == 2
     assert params["compression_epochs"] == 5
     assert cfg["neutralize_proportion"] == 0.0
@@ -188,10 +185,30 @@ def test_resolve_flat_config_mixed_ensemble_uses_neutralization() -> None:
     }
     cfg = resolve_flat_config(flat)
     assert cfg["neutralize_proportion"] >= MIN_NEUTRALIZATION_PROPORTION
+    assert cfg["ensemble_params"].get("optimize_weights") is True
+    assert cfg["ensemble_params"].get("min_weight") == 0.05
+    assert cfg["ensemble_params"].get("max_weight") == 0.90
+
+
+def test_resolve_flat_config_weighted_uses_saved_ensemble_weights() -> None:
+    from alphapulse.hpo.search_space import resolve_flat_config
+
+    flat = {
+        "num_models": 2,
+        "model_1_type": "XGBoost",
+        "model_2_type": "LightGBM",
+        "scaler_type": "StandardScaler",
+        "use_packboost": False,
+        "ensemble_method": "weighted",
+        "ensemble_weights": [0.85, 0.15],
+    }
+    cfg = resolve_flat_config(flat)
+    assert cfg["ensemble_params"]["weights"] == [0.85, 0.15]
+    assert "optimize_weights" not in cfg["ensemble_params"]
 
 
 def test_sample_random_config_boosting_enables_neutralization() -> None:
-    foundation_types = {"TabPFN", "TabICL", "TabPFN3", "TabPFN3Reasoning"}
+    foundation_types = {"TabPFN", "TabICL", "TabPFN3"}
     for seed in range(20):
         config = sample_random_config(seed=seed, fast=True)
         types = [
@@ -395,4 +412,78 @@ def test_multi_blend_packboost_multihead_forwards_era(
     assert isinstance(pipeline, MultiTargetPipeline)
     preds = pipeline.predict(X.drop(columns=["era"]))
     assert preds.shape == (n,)
+    assert np.all(np.isfinite(preds))
+
+
+def test_load_diagnostics_train_data_multi_blend(tmp_path: Path) -> None:
+    from scripts.hpo_pipeline import _load_diagnostics_train_data
+
+    from alphapulse.hpo.objective import _fit_pipeline
+    from alphapulse.hpo.search_space import (
+        get_train_kwargs_from_flat,
+        resolve_flat_config,
+    )
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    feature_cols = [f"f_{i}" for i in range(6)]
+    payload = {
+        "feature_sets": {"medium": feature_cols},
+        "targets": ["target", "target_alpha_20"],
+    }
+    (data_dir / "features.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    rng = np.random.default_rng(0)
+    n = 80
+    df = pd.DataFrame(rng.standard_normal((n, len(feature_cols))), columns=feature_cols)
+    df["era"] = np.repeat([f"era_{i:04d}" for i in range(8)], 10)
+    df["target"] = rng.standard_normal(n)
+    df["target_alpha_20"] = rng.standard_normal(n)
+    df.to_parquet(data_dir / "train.parquet")
+
+    best_config = {
+        "num_models": 1,
+        "model_1_type": "XGBoost",
+        "target_mode": "multi_blend",
+        "primary_target": "target",
+        "auxiliary_targets": ["target_alpha_20"],
+        "target_blend_method": "equal",
+        "scaler_type": "StandardScaler",
+        "ensemble_method": "single",
+        "use_feature_routing": False,
+        "xgb_n_rounds": 5,
+        "xgb_early_stopping": 3,
+        "xgb_max_depth": 2,
+        "xgb_learning_rate": 0.1,
+    }
+    X_train, y_train, targets_df, feat_cols, feature_groups = (
+        _load_diagnostics_train_data(
+            best_config,
+            data_dir,
+            train_subsample=1.0,
+            target_col="target",
+            seed=42,
+        )
+    )
+    assert targets_df is not None
+    assert "target_alpha_20" in targets_df.columns
+
+    era_train = X_train["era"]
+    eras_sorted = sorted(era_train.unique(), key=str)
+    train_mask = ~era_train.isin(set(eras_sorted[-2:]))
+    targets_train = targets_df.loc[train_mask]
+
+    pipeline = _fit_pipeline(
+        resolve_flat_config(best_config),
+        feat_cols,
+        X_train.loc[train_mask],
+        y_train.loc[train_mask],
+        get_train_kwargs_from_flat(best_config),
+        flat_config=best_config,
+        seed=42,
+        feature_groups=feature_groups or None,
+        targets_df=targets_train,
+    )
+    preds = pipeline.predict(X_train.drop(columns=["era"]).iloc[:5])
+    assert len(preds) == 5
     assert np.all(np.isfinite(preds))

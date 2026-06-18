@@ -64,18 +64,33 @@ class TrialDB:
         metrics: dict[str, Any] | None = None,
         error: str | None = None,
         elapsed_seconds: float | None = None,
+        flat_config: dict[str, Any] | None = None,
     ) -> None:
-        self._conn.execute(
-            "UPDATE trials SET status=?, metrics=?, error=?, elapsed_seconds=? "
-            "WHERE trial_number=?",
-            (
-                status,
-                json.dumps(metrics) if metrics is not None else None,
-                error,
-                elapsed_seconds,
-                trial_number,
-            ),
-        )
+        if flat_config is not None:
+            self._conn.execute(
+                "UPDATE trials SET status=?, metrics=?, error=?, elapsed_seconds=?, "
+                "flat_config=? WHERE trial_number=?",
+                (
+                    status,
+                    json.dumps(metrics) if metrics is not None else None,
+                    error,
+                    elapsed_seconds,
+                    json.dumps(flat_config),
+                    trial_number,
+                ),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE trials SET status=?, metrics=?, error=?, elapsed_seconds=? "
+                "WHERE trial_number=?",
+                (
+                    status,
+                    json.dumps(metrics) if metrics is not None else None,
+                    error,
+                    elapsed_seconds,
+                    trial_number,
+                ),
+            )
         self._conn.commit()
 
     def completed_trials(self) -> set[int]:

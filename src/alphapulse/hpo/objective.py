@@ -1,7 +1,7 @@
 import gc
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -19,6 +19,13 @@ from ..evaluation.era_split import (
 from ..experiments.split import internal_val_split
 from ..features.catalog import FeatureCatalog, load_feature_catalog
 from ..models.diffusion_augmenter import SyntheticDataAugmenter
+from ..pipeline.ensemble import needs_internal_val_for_ensemble
+from ..pipeline.ensemble_optimizer import (
+    DEFAULT_MAX_WEIGHT,
+    DEFAULT_MIN_WEIGHT,
+    EnsembleOptimizer,
+)
+from ..pipeline.pipeline import Pipeline
 from .builder import (
     build_multi_target_from_config,
     build_pipeline_or_multi,
@@ -115,6 +122,82 @@ def _is_multi_target(flat_config: dict[str, Any] | None) -> bool:
     )
 
 
+def _needs_validation_ensemble_opt(pipeline_cfg: dict[str, Any]) -> bool:
+    if pipeline_cfg.get("ensemble_method") != "weighted":
+        return False
+    params = pipeline_cfg.get("ensemble_params") or {}
+    if not params.get("optimize_weights"):
+        return False
+    if params.get("weights") is not None:
+        return False
+    return len(pipeline_cfg.get("models") or []) > 1
+
+
+def _optimize_ensemble_on_validation(
+    pipeline: Pipeline,
+    *,
+    data_dir: Path,
+    feature_cols: list[str],
+    target_col: str,
+    train_subsample: float,
+    seed: int | None,
+    pipeline_cfg: dict[str, Any],
+    flat_config: dict[str, Any] | None = None,
+) -> np.ndarray | None:
+    from ..experiments.data import load_mmc_validation_frame
+
+    frame = load_mmc_validation_frame(
+        data_dir,
+        feature_cols=feature_cols,
+        target_col=target_col,
+        train_subsample=train_subsample,
+        seed=seed or 42,
+    )
+    if frame is None:
+        return None
+
+    X_val, y_val, era_val, meta_preds = frame
+    X_feat = X_val[feature_cols]
+    pred_matrix = pipeline.predict_model_matrix(X_feat)
+    ensemble_params = pipeline_cfg.get("ensemble_params") or {}
+    objective = str(
+        ensemble_params.get(
+            "objective",
+            flat_config.get("hpo_objective", "payout_score")
+            if flat_config
+            else "payout_score",
+        )
+    )
+    if objective not in ("corr_sharpe", "payout_score"):
+        objective = "payout_score"
+    objective_lit = cast(Literal["corr_sharpe", "payout_score"], objective)
+
+    optimizer = EnsembleOptimizer(
+        objective=objective_lit,
+        corr_weight=float(ensemble_params.get("corr_weight", 0.75)),
+        mmc_weight=float(ensemble_params.get("mmc_weight", 2.25)),
+        min_weight=float(ensemble_params.get("min_weight", DEFAULT_MIN_WEIGHT)),
+        max_weight=float(ensemble_params.get("max_weight", DEFAULT_MAX_WEIGHT)),
+        seed=int(ensemble_params.get("seed", seed or 42)),
+    )
+    min_w = ensemble_params.get("min_weights")
+    max_w = ensemble_params.get("max_weights")
+    optimizer.fit(
+        pred_matrix,
+        y_val.to_numpy(dtype=np.float64),
+        era_val,
+        meta_model_preds=meta_preds,
+        min_weights=list(min_w) if min_w is not None else None,
+        max_weights=list(max_w) if max_w is not None else None,
+    )
+    if optimizer.weights_ is None:
+        return None
+    pipeline.set_ensemble_weights(optimizer.weights_)
+    if flat_config is not None:
+        flat_config["ensemble_weights"] = [float(w) for w in optimizer.weights_]
+    return optimizer.weights_
+
+
 def _fit_pipeline(
     pipeline_cfg: dict[str, Any],
     feature_cols: list[str],
@@ -145,10 +228,7 @@ def _fit_pipeline(
             )
 
     era_col = X_fit_src["era"] if "era" in X_fit_src.columns else None
-    stacking_needs_val = (
-        pipeline_cfg.get("ensemble_method") == "stacking"
-        and len(pipeline_cfg.get("models", [])) > 1
-    )
+    force_internal = needs_internal_val_for_ensemble(pipeline_cfg)
 
     if _is_multi_target(flat_config):
         assert flat_config is not None
@@ -162,7 +242,7 @@ def _fit_pipeline(
             X_fit_src,
             y_fit_src,
             era_train=era_col,
-            force_internal=stacking_needs_val,
+            force_internal=force_internal,
         )
         targets_split = (
             targets_fit.loc[X_fit_src.index] if targets_fit is not None else None
@@ -200,10 +280,36 @@ def _fit_pipeline(
         feature_groups=feature_groups,
     )
     X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-        X_fit_src, y_fit_src, era_train=era_col, force_internal=stacking_needs_val
+        X_fit_src, y_fit_src, era_train=era_col, force_internal=force_internal
     )
-    pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner, **train_kwargs)
+    era_val_fit = (
+        era_col.loc[X_val_inner.index]
+        if era_col is not None and X_val_inner is not None
+        else None
+    )
+    pipeline.fit(
+        X_fit,
+        y_fit,
+        X_val=X_val_inner,
+        y_val=y_val_inner,
+        era_val=era_val_fit,
+        **train_kwargs,
+    )
+    if flat_config is not None and hasattr(pipeline, "ensemble_weights"):
+        weights = pipeline.ensemble_weights
+        if weights is not None:
+            flat_config["ensemble_weights"] = weights
     return pipeline
+
+
+_HOLDOUT_METRIC_KEYS = (
+    "corr_sharpe",
+    "mean_per_era_correlation",
+    "std_per_era_correlation",
+    "max_drawdown",
+    "pct_positive_eras",
+    "n_valid_eras",
+)
 
 
 def _merge_validation_mmc_metrics(
@@ -215,7 +321,10 @@ def _merge_validation_mmc_metrics(
     target_col: str,
     train_subsample: float,
     seed: int | None,
-) -> dict[str, float]:
+) -> tuple[
+    dict[str, float],
+    tuple[pd.DataFrame, pd.Series, pd.Series, np.ndarray] | None,
+]:
     from ..experiments.data import load_mmc_validation_frame
 
     frame = load_mmc_validation_frame(
@@ -226,7 +335,7 @@ def _merge_validation_mmc_metrics(
         seed=seed or 42,
     )
     if frame is None:
-        return metrics
+        return metrics, None
 
     X_val, y_val, era_val, meta_preds = frame
     mmc_metrics = Backtester(pipeline, feature_columns=feature_cols).evaluate(
@@ -236,11 +345,41 @@ def _merge_validation_mmc_metrics(
         meta_model_preds=meta_preds,
     )
     merged = dict(metrics)
+    for key in _HOLDOUT_METRIC_KEYS:
+        if key in merged:
+            merged[f"holdout_{key}"] = merged[key]
     for key in ("mmc", "mmc_sharpe", "payout_score"):
         value = mmc_metrics.get(key)
         if value is not None and np.isfinite(value):
             merged[key] = float(value)
-    return merged
+    for key in _HOLDOUT_METRIC_KEYS:
+        value = mmc_metrics.get(key)
+        if value is not None and np.isfinite(value):
+            merged[f"val_{key}"] = float(value)
+    return merged, frame
+
+
+def _holdout_metrics_for_diagnostics(metrics: dict[str, float]) -> dict[str, float]:
+    scoped: dict[str, float] = {}
+    for key in _HOLDOUT_METRIC_KEYS:
+        holdout_key = f"holdout_{key}"
+        if holdout_key in metrics:
+            scoped[key] = float(metrics[holdout_key])
+        elif key in metrics:
+            scoped[key] = float(metrics[key])
+    return scoped
+
+
+def _validation_metrics_for_diagnostics(metrics: dict[str, float]) -> dict[str, float]:
+    scoped: dict[str, float] = {}
+    for key in _HOLDOUT_METRIC_KEYS:
+        val_key = f"val_{key}"
+        if val_key in metrics:
+            scoped[key] = float(metrics[val_key])
+    for key in ("mmc", "mmc_sharpe", "payout_score"):
+        if key in metrics:
+            scoped[key] = float(metrics[key])
+    return scoped
 
 
 def _evaluate_holdout(
@@ -279,6 +418,25 @@ def _evaluate_holdout(
         feature_groups=feature_groups,
         targets_df=targets_df.loc[train_mask] if targets_df is not None else None,
     )
+    if (
+        config
+        and config.get("_data_dir")
+        and isinstance(pipeline, Pipeline)
+        and _needs_validation_ensemble_opt(pipeline_cfg)
+    ):
+        data_dir = Path(str(config["_data_dir"]))
+        target_col = str(config.get("primary_target", "target"))
+        train_subsample = float(config.get("_train_subsample", 1.0))
+        _optimize_ensemble_on_validation(
+            pipeline,
+            data_dir=data_dir,
+            feature_cols=feature_cols,
+            target_col=target_col,
+            train_subsample=train_subsample,
+            seed=seed,
+            pipeline_cfg=pipeline_cfg,
+            flat_config=config,
+        )
     ho_mask = era_train.isin(holdout_set)
     X_ho = X_train.loc[ho_mask]
     y_ho = y_train.loc[ho_mask]
@@ -289,11 +447,12 @@ def _evaluate_holdout(
         y_ho,
         era_ho,
     )
+    mmc_frame: tuple[pd.DataFrame, pd.Series, pd.Series, np.ndarray] | None = None
     if config and config.get("_data_dir"):
         data_dir = Path(str(config["_data_dir"]))
         target_col = str(config.get("primary_target", "target"))
         train_subsample = float(config.get("_train_subsample", 1.0))
-        metrics = _merge_validation_mmc_metrics(
+        metrics, mmc_frame = _merge_validation_mmc_metrics(
             metrics,
             pipeline=pipeline,
             data_dir=data_dir,
@@ -311,10 +470,27 @@ def _evaluate_holdout(
             y_val=y_ho,
             era_val=era_ho,
             feature_cols=feature_cols,
-            metrics=metrics,
+            metrics=_holdout_metrics_for_diagnostics(metrics),
             log_shap=bool(config.get("wandb_log_shap", True)),
             compute_fnc=False,
+            split="holdout",
         )
+        if mmc_frame is not None:
+            X_val, y_val, era_val, meta_preds = mmc_frame
+            log_experiment_diagnostics(
+                pipeline=pipeline,
+                X_val=X_val,
+                y_val=y_val,
+                era_val=era_val,
+                feature_cols=feature_cols,
+                metrics=_validation_metrics_for_diagnostics(metrics),
+                meta_model_preds=meta_preds,
+                log_shap=False,
+                log_feature_report=False,
+                log_era_importance=False,
+                compute_fnc=False,
+                split="validation",
+            )
     del pipeline
     gc.collect()
     return metrics

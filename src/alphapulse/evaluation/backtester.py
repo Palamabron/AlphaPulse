@@ -17,10 +17,22 @@ def predict_with_optional_eras(
     predictor: PredictorProtocol,
     X: pd.DataFrame,
     era: pd.Series,
+    meta_model_preds: np.ndarray | None = None,
 ) -> np.ndarray:
+    meta_kw = (
+        {"meta_model": meta_model_preds}
+        if meta_model_preds is not None
+        and float(getattr(predictor, "meta_neutralize_proportion", 0.0)) > 0.0
+        else {}
+    )
     if float(getattr(predictor, "neutralize_proportion", 0.0)) > 0.0:
         return np.asarray(
-            predictor.predict(X, eras=era),  # type: ignore[call-arg]
+            predictor.predict(X, eras=era, **meta_kw),  # type: ignore[call-arg]
+            dtype=np.float64,
+        )
+    if meta_kw:
+        return np.asarray(
+            predictor.predict(X, **meta_kw),
             dtype=np.float64,
         )
     return np.asarray(predictor.predict(X), dtype=np.float64)
@@ -81,7 +93,9 @@ class Backtester:
             ``mmc_sharpe``, ``payout_score``, ``fnc_sharpe``.
         """
         X_use = X[self.feature_columns] if self.feature_columns is not None else X
-        preds = predict_with_optional_eras(self.predictor, X_use, era)
+        preds = predict_with_optional_eras(
+            self.predictor, X_use, era, meta_model_preds=meta_model_preds
+        )
 
         if self.neutralizer is not None:
             preds = self.neutralizer.neutralize(preds, X_use, era)

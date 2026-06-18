@@ -6,7 +6,6 @@ from .factory import ModelFactory, suggest_augmentation
 from .foundation_models import (
     TabICLModel,
     TabPFN3Model,
-    TabPFN3ReasoningModel,
     TabPFNModel,
 )
 from .lightgbm_model import LightGBMModel
@@ -27,7 +26,6 @@ __all__ = [
     "SyntheticDataAugmenter",
     "TabICLModel",
     "TabPFN3Model",
-    "TabPFN3ReasoningModel",
     "TabPFNModel",
     "XGBoostModel",
     "suggest_augmentation",

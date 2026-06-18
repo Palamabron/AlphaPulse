@@ -120,11 +120,13 @@ def test_log_experiment_diagnostics_multitarget() -> None:
             log_shap=True,
             log_feature_report=False,
             log_era_importance=False,
+            split="validation",
         )
 
     keys: set[str] = set()
     for call in mock_wandb.log.call_args_list:
         keys.update(call.args[0].keys())
     assert mock_wandb.log.called
-    assert "diagnostics/mmc" in keys
+    assert "diagnostics/validation/ValidationMmcSharpe" in keys
+    assert "diagnostics/validation/ValidationSharpe" in keys
     assert not {k for k in keys if k.endswith(("_table", "_top"))}

@@ -62,8 +62,10 @@ foundation = [
   "tabpfn>=7.0",
   "tabicl>=2.0",
 ]
-foundation-api = [
-  "tabpfn-client>=0.3.0",
+packboost = [
+  "packboost @ git+https://github.com/Pranshu-Bahadur/PackBoost.git",
+  "torch",
+  "ninja",
 ]
 eda = [
   "streamlit>=1.30",
@@ -133,7 +135,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S108", "T20", "E501"]
-"scripts/**" = ["T20", "S607"]
+"scripts/**" = ["T20", "S607", "E501"]
 "src/alphapulse/logging_/cli.py" = ["PLW0603"]
 "src/alphapulse/logging_/wandb_logging.py" = ["PLW0603"]
 "src/alphapulse/autoresearch/agent.py" = ["E501", "S603", "S607"]
@@ -202,10 +204,10 @@ module = [
   "torch.*",
   "tabpfn",
   "tabpfn.*",
-  "tabpfn_client",
-  "tabpfn_client.*",
   "tabicl",
   "tabicl.*",
+  "packboost",
+  "packboost.*",
 ]
 ignore_missing_imports = true
 

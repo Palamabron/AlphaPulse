@@ -236,6 +236,7 @@ def build_pipeline(
         ensemble_params=ensemble_params,
         neutralize_proportion=config.get("neutralize_proportion", 0.0),
         neutralize_features=config.get("neutralize_features"),
+        meta_neutralize_proportion=config.get("meta_neutralize_proportion", 0.0),
     )
 
 

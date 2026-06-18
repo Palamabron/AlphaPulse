@@ -19,6 +19,13 @@ class PackboostPreprocessor(BasePreprocessor):
         early_stopping_rounds_base: int = 50,
         n_rounds_boost: int = 200,
         early_stopping_rounds_boost: int = 30,
+        device: str = "cuda",
+        max_depth: int = 7,
+        nfolds: int = 8,
+        lr: float = 0.07,
+        l2: float = 100_000.0,
+        nfeatsets: int = 32,
+        seed: int = 42,
         name: str = "PackboostPreprocessor",
     ) -> None:
         super().__init__(name)
@@ -34,6 +41,13 @@ class PackboostPreprocessor(BasePreprocessor):
             early_stopping_rounds_base=early_stopping_rounds_base,
             n_rounds_boost=n_rounds_boost,
             early_stopping_rounds_boost=early_stopping_rounds_boost,
+            device=device,
+            max_depth=max_depth,
+            nfolds=nfolds,
+            lr=lr,
+            l2=l2,
+            nfeatsets=nfeatsets,
+            seed=seed,
         )
 
     def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> Self:

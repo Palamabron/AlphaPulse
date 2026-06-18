@@ -22,6 +22,10 @@ _PRED_PLOT_BINS = 20
 _PRED_PLOT_DPI = 150
 
 
+def _diag_key(split: str, name: str) -> str:
+    return f"diagnostics/{split}/{name}"
+
+
 def _wandb_active() -> bool:
     try:
         import wandb
@@ -116,12 +120,28 @@ def _log_correlation_heatmap(
     _log_wandb_figure(wandb, key, fig)
 
 
-def _log_mmc_metrics_from_dict(wandb: Any, metrics: dict[str, float]) -> None:
+def _log_mmc_metrics_from_dict(
+    wandb: Any, metrics: dict[str, float], *, split: str = "validation"
+) -> None:
     logged: dict[str, float] = {}
-    for key in ("mmc", "mmc_sharpe", "payout_score"):
+    scalar_names = {
+        "mmc": "ValidationMmc",
+        "mmc_sharpe": "ValidationMmcSharpe",
+        "payout_score": "PayoutScore",
+        "corr_sharpe": "ValidationSharpe",
+        "mean_per_era_correlation": "ValidationMeanCorr",
+    }
+    for key, wandb_name in scalar_names.items():
         value = metrics.get(key)
+        if key == "corr_sharpe" and metrics.get("val_corr_sharpe") is not None:
+            value = metrics.get("val_corr_sharpe")
+        if (
+            key == "mean_per_era_correlation"
+            and metrics.get("val_mean_per_era_correlation") is not None
+        ):
+            value = metrics.get("val_mean_per_era_correlation")
         if value is not None and np.isfinite(value):
-            logged[f"diagnostics/{key}"] = float(value)
+            logged[_diag_key(split, wandb_name)] = float(value)
     if logged:
         wandb.log(logged)
 
@@ -201,22 +221,24 @@ def log_experiment_diagnostics(
     log_feature_report: bool = True,
     log_era_importance: bool = False,
     compute_fnc: bool | None = None,
+    split: str = "holdout",
 ) -> None:
     """Log comprehensive XAI and backtest diagnostics to the active WandB run.
 
     Args:
         pipeline: Trained pipeline.
-        X_val: Validation features (may include era column).
-        y_val: Validation targets.
+        X_val: Evaluation features (may include era column).
+        y_val: Evaluation targets.
         era_val: Era labels aligned with X_val.
         feature_cols: Feature column names (must not include "era").
-        metrics: Backtest metrics dict.
+        metrics: Backtest metrics dict for this *split* (holdout or validation).
         meta_model_preds: Optional meta-model predictions for MMC logging.
         log_shap: If True, log universal feature importance (all model types).
         log_feature_report: If True, log per-era stability report via LightGBM proxy.
         log_era_importance: If True, log era-stratified importance from pipeline models
             (expensive — recommended only for best-trial diagnostics).
         compute_fnc: Whether to log FNC. Auto-detected from feature count when None.
+        split: Data split label used in W&B keys (`holdout` or `validation`).
     """
     if not _wandb_active():
         return
@@ -233,42 +255,53 @@ def log_experiment_diagnostics(
     else:
         preds = pipeline.predict(X_val[feature_cols] if feature_cols else X_val)
 
-    _log_per_era_correlation(y_val, preds, era_val)
-    _log_prediction_diagnostics(y_val, preds)
-    _log_feature_exposure(preds, X_use, era_val)
+    _log_per_era_correlation(y_val, preds, era_val, split=split)
+    _log_prediction_diagnostics(y_val, preds, split=split)
+    _log_feature_exposure(preds, X_use, era_val, split=split)
 
     if isinstance(pipeline, Pipeline) and len(pipeline.models) > 1:
-        _log_ensemble_diagnostics(pipeline, X_val, feature_cols, y_val, era_val)
+        _log_ensemble_diagnostics(
+            pipeline, X_val, feature_cols, y_val, era_val, split=split
+        )
     elif isinstance(pipeline, MultiTargetPipeline) and len(pipeline._models) > 1:
-        _log_ensemble_diagnostics(pipeline, X_val, feature_cols, y_val, era_val)
+        _log_ensemble_diagnostics(
+            pipeline, X_val, feature_cols, y_val, era_val, split=split
+        )
 
-    if meta_model_preds is not None:
-        _log_mmc_metrics_from_dict(wandb, metrics)
-    elif any(k in metrics for k in ("mmc", "mmc_sharpe", "payout_score")):
-        _log_mmc_metrics_from_dict(wandb, metrics)
+    if split == "validation" and (
+        meta_model_preds is not None
+        or any(k in metrics for k in ("mmc", "mmc_sharpe", "payout_score"))
+    ):
+        _log_mmc_metrics_from_dict(wandb, metrics, split=split)
 
     use_fnc = compute_fnc
     if use_fnc is None:
         use_fnc = len(feature_cols) <= MAX_FNC_FEATURES
     if use_fnc and "fnc_sharpe" in metrics:
-        wandb.log({"diagnostics/fnc_sharpe": metrics["fnc_sharpe"]})
+        wandb.log({_diag_key(split, "fnc_sharpe"): metrics["fnc_sharpe"]})
 
     if log_shap:
         from ..evaluation.shap_report import log_universal_feature_importance
 
         log_universal_feature_importance(
-            pipeline, X_use, feature_cols=feature_cols, top_n=20
+            pipeline,
+            X_use,
+            feature_cols=feature_cols,
+            top_n=20,
+            diagnostics_prefix=f"diagnostics/{split}",
         )
 
     if log_feature_report:
-        _log_feature_report(X_use, y_val, era_val, feature_cols)
+        _log_feature_report(X_use, y_val, era_val, feature_cols, split=split)
 
     if log_era_importance:
-        _log_era_stratified_importance(pipeline, X_use, feature_cols, era_val)
+        _log_era_stratified_importance(
+            pipeline, X_use, feature_cols, era_val, split=split
+        )
 
 
 def _log_per_era_correlation(
-    y_val: pd.Series, preds: np.ndarray, era_val: pd.Series
+    y_val: pd.Series, preds: np.ndarray, era_val: pd.Series, *, split: str
 ) -> None:
     import wandb
 
@@ -299,22 +332,26 @@ def _log_per_era_correlation(
             float(drawdown.loc[era]),
         )
 
+    split_label = "train holdout" if split == "holdout" else "validation"
     wandb.log(
         {
-            "diagnostics/per_era_correlation": wandb.plot.line(
-                table, "era_index", "correlation", title="Per-era Spearman correlation"
+            _diag_key(split, "per_era_correlation"): wandb.plot.line(
+                table,
+                "era_index",
+                "correlation",
+                title=f"Per-era Spearman correlation ({split_label})",
             ),
-            "diagnostics/cumulative_correlation": wandb.plot.line(
+            _diag_key(split, "cumulative_correlation"): wandb.plot.line(
                 table,
                 "era_index",
                 "cumulative_correlation",
-                title="Cumulative per-era correlation",
+                title=f"Cumulative per-era correlation ({split_label})",
             ),
-            "diagnostics/drawdown_curve": wandb.plot.line(
+            _diag_key(split, "drawdown_curve"): wandb.plot.line(
                 table,
                 "era_index",
                 "drawdown",
-                title="Drawdown from peak cumulative correlation",
+                title=f"Drawdown from peak cumulative correlation ({split_label})",
             ),
         }
     )
@@ -329,19 +366,22 @@ def _log_per_era_correlation(
             dist_table.add_data(float(m), int(c))
         wandb.log(
             {
-                "diagnostics/corr_distribution": wandb.plot.bar(
+                _diag_key(split, "corr_distribution"): wandb.plot.bar(
                     dist_table,
                     "bin_center",
                     "count",
-                    title="Distribution of per-era correlations",
+                    title=f"Distribution of per-era correlations ({split_label})",
                 )
             }
         )
 
 
-def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
+def _log_prediction_diagnostics(
+    y_val: pd.Series, preds: np.ndarray, *, split: str
+) -> None:
     import wandb
 
+    split_label = "train holdout" if split == "holdout" else "validation"
     ranked = rank_normalize(preds)
     finite_ranked = ranked[np.isfinite(ranked)]
     if len(finite_ranked):
@@ -366,10 +406,10 @@ def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
         ax.set_xlim(0.0, 1.0)
         ax.set_xlabel("Rank-normalized prediction")
         ax.set_ylabel("Count")
-        ax.set_title("Prediction distribution (Numerai expects ~uniform)")
+        ax.set_title(f"Prediction distribution ({split_label})")
         ax.legend(loc="upper right", fontsize=9)
         fig.tight_layout()
-        _log_wandb_figure(wandb, "diagnostics/prediction_histogram", fig)
+        _log_wandb_figure(wandb, _diag_key(split, "prediction_histogram"), fig)
 
     y_arr = y_val.to_numpy(dtype=np.float64)
     p_arr = np.asarray(preds, dtype=np.float64)
@@ -415,30 +455,31 @@ def _log_prediction_diagnostics(y_val: pd.Series, preds: np.ndarray) -> None:
         axes[1].set_ylabel("Raw prediction (1–99 pct)")
         axes[1].set_title("Pred vs target — subsampled scatter")
         fig.tight_layout()
-        _log_wandb_figure(wandb, "diagnostics/pred_vs_target_scatter", fig)
+        _log_wandb_figure(wandb, _diag_key(split, "pred_vs_target_scatter"), fig)
 
     residuals = y_arr - p_arr
     finite = residuals[np.isfinite(residuals)]
     if len(finite):
         wandb.log(
             {
-                "diagnostics/residual_mean": float(np.mean(finite)),
-                "diagnostics/residual_std": float(np.std(finite, ddof=0)),
-                "diagnostics/residual_mae": float(np.mean(np.abs(finite))),
+                _diag_key(split, "residual_mean"): float(np.mean(finite)),
+                _diag_key(split, "residual_std"): float(np.std(finite, ddof=0)),
+                _diag_key(split, "residual_mae"): float(np.mean(np.abs(finite))),
             }
         )
 
 
 def _log_feature_exposure(
-    preds: np.ndarray, features: pd.DataFrame, eras: pd.Series
+    preds: np.ndarray, features: pd.DataFrame, eras: pd.Series, *, split: str
 ) -> None:
     import wandb
 
+    split_label = "train holdout" if split == "holdout" else "validation"
     summary = _feature_exposure_summary(preds, features, eras)
     wandb.log(
         {
-            "diagnostics/feature_exposure_max": summary["max_mean_abs_corr"],
-            "diagnostics/feature_exposure_mean": summary["mean_abs_corr"],
+            _diag_key(split, "feature_exposure_max"): summary["max_mean_abs_corr"],
+            _diag_key(split, "feature_exposure_mean"): summary["mean_abs_corr"],
         }
     )
     if summary["top"]:
@@ -446,8 +487,8 @@ def _log_feature_exposure(
             wandb,
             labels=[row["feature"] for row in summary["top"]],
             values=[row["mean_abs_corr"] for row in summary["top"]],
-            key="diagnostics/feature_exposure_bar",
-            title="Feature exposure (top 15 by mean |corr| with predictions)",
+            key=_diag_key(split, "feature_exposure_bar"),
+            title=f"Feature exposure ({split_label}, top 15)",
             xlabel="Mean |corr| with predictions",
         )
 
@@ -458,11 +499,14 @@ def _log_ensemble_diagnostics(
     feature_cols: list[str],
     y_val: pd.Series,
     era_val: pd.Series,
+    *,
+    split: str,
 ) -> None:
     import wandb
 
     from ..evaluation.ensemble_diagnostics import compute_ensemble_diagnostics
 
+    split_label = "train holdout" if split == "holdout" else "validation"
     oof = _collect_model_predictions(pipeline, X_val, feature_cols)
     weights = None
     if isinstance(pipeline, Pipeline) and pipeline.ensemble_method == "weighted":
@@ -480,8 +524,10 @@ def _log_ensemble_diagnostics(
     )
     wandb.log(
         {
-            "diagnostics/effective_model_count": diag["effective_model_count"],
-            "diagnostics/mean_pairwise_correlation": diag["mean_pairwise_correlation"],
+            _diag_key(split, "effective_model_count"): diag["effective_model_count"],
+            _diag_key(split, "mean_pairwise_correlation"): diag[
+                "mean_pairwise_correlation"
+            ],
         }
     )
     names = diag["model_names"]
@@ -490,8 +536,8 @@ def _log_ensemble_diagnostics(
         wandb,
         names,
         corr,
-        "diagnostics/ensemble_correlation_heatmap",
-        title="Model prediction correlations (lower off-diagonal = more diverse)",
+        _diag_key(split, "ensemble_correlation_heatmap"),
+        title=f"Model prediction correlations ({split_label})",
     )
     if len(names) > 1:
         pairs: list[str] = []
@@ -505,8 +551,8 @@ def _log_ensemble_diagnostics(
             wandb,
             labels=pairs,
             values=pair_corrs,
-            key="diagnostics/ensemble_correlation_bar",
-            title="Model pair correlations (lower = more diverse ensemble)",
+            key=_diag_key(split, "ensemble_correlation_bar"),
+            title=f"Model pair correlations ({split_label})",
             xlabel="Spearman correlation",
         )
 
@@ -517,6 +563,7 @@ def _log_feature_report(
     era_val: pd.Series,
     feature_cols: list[str],
     *,
+    split: str,
     top_n: int = 20,
 ) -> None:
     """Log per-era feature stability report (LightGBM proxy) to WandB.
@@ -541,15 +588,16 @@ def _log_feature_report(
     except Exception:
         return
 
-    wandb.log({"diagnostics/feature_n_eras_used": report["n_eras_used"]})
+    split_label = "train holdout" if split == "holdout" else "validation"
+    wandb.log({_diag_key(split, "feature_n_eras_used"): report["n_eras_used"]})
 
     if report["top_by_mean"]:
         _log_horizontal_bar_chart(
             wandb,
             labels=[row["feature"] for row in report["top_by_mean"]],
             values=[row["mean_importance"] for row in report["top_by_mean"]],
-            key="diagnostics/feature_importance_mean_bar",
-            title="Top features by mean importance (LightGBM proxy, per era)",
+            key=_diag_key(split, "feature_importance_mean_bar"),
+            title=f"Top features by mean importance ({split_label})",
             xlabel="Mean importance",
         )
 
@@ -558,8 +606,8 @@ def _log_feature_report(
             wandb,
             labels=[row["feature"] for row in report["top_by_stability"]],
             values=[row["stability"] for row in report["top_by_stability"]],
-            key="diagnostics/feature_stability_bar",
-            title="Most stable features across eras (mean/std ratio)",
+            key=_diag_key(split, "feature_stability_bar"),
+            title=f"Most stable features ({split_label})",
             xlabel="Stability",
         )
 
@@ -568,8 +616,8 @@ def _log_feature_report(
             wandb,
             labels=[row["feature"] for row in report["bottom_by_stability"]],
             values=[row["stability"] for row in report["bottom_by_stability"]],
-            key="diagnostics/feature_worst_stability_bar",
-            title="Least stable features across eras (worst to prune)",
+            key=_diag_key(split, "feature_worst_stability_bar"),
+            title=f"Least stable features ({split_label})",
             xlabel="Stability",
         )
 
@@ -580,6 +628,7 @@ def _log_era_stratified_importance(
     feature_cols: list[str],
     era_val: pd.Series,
     *,
+    split: str,
     top_n: int = 20,
     max_eras: int = 30,
 ) -> None:
@@ -638,12 +687,13 @@ def _log_era_stratified_importance(
     std_imp = imp_matrix.std(axis=0, ddof=0)
     stability = mean_imp / (std_imp + 1e-10)
 
+    split_label = "train holdout" if split == "holdout" else "validation"
     _log_horizontal_bar_chart(
         wandb,
         labels=all_features,
         values=[float(v) for v in stability],
-        key="diagnostics/era_importance_stability_bar",
-        title="Era-stratified importance stability (mean/std)",
+        key=_diag_key(split, "era_importance_stability_bar"),
+        title=f"Era-stratified importance stability ({split_label})",
         xlabel="Stability",
     )
 
@@ -651,11 +701,11 @@ def _log_era_stratified_importance(
     ys = [[float(imp.get(f, 0.0)) for imp in era_imps] for f in all_features]
     wandb.log(
         {
-            "diagnostics/era_importance_over_time": wandb.plot.line_series(
+            _diag_key(split, "era_importance_over_time"): wandb.plot.line_series(
                 xs=xs,
                 ys=ys,
                 keys=all_features,
-                title="Feature importance across eras (each line = one feature)",
+                title=f"Feature importance across eras ({split_label})",
                 xname="era_index",
             ),
         }

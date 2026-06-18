@@ -1,4 +1,3 @@
-import os
 from abc import abstractmethod
 from pathlib import Path
 from typing import Any
@@ -22,8 +21,6 @@ TABPFN_MAX_TRAIN_ROWS = 10_000
 TABPFN_MAX_FEATURES = 500
 TABPFN3_MAX_TRAIN_ROWS = 100_000
 TABPFN3_MAX_FEATURES = 2_000
-TABPFN3_REASONING_MAX_TRAIN_ROWS = 10_000
-TABPFN3_REASONING_MAX_FEATURES = 500
 TABICL_MAX_TRAIN_ROWS = 60_000
 TABICL_MAX_FEATURES = 500
 TABPFN_PREDICT_CHUNK_ROWS = 256
@@ -113,7 +110,8 @@ class FoundationModel(BaseModel):
         **kwargs: Any,
     ) -> dict[str, float]:
         regressor = self._make_regressor()
-        feat, y = self._prepare_train(X_train, y_train)
+        eras = X_train["era"] if "era" in X_train.columns else None
+        feat, y = self._prepare_train(X_train, y_train, eras=eras)
         regressor.fit(feat, y)
         self.model = regressor
         self.is_trained = True
@@ -150,26 +148,65 @@ class FoundationModel(BaseModel):
         return self
 
     def _prepare_train(
-        self, X_train: pd.DataFrame, y_train: pd.Series
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        eras: pd.Series | None = None,
     ) -> tuple[pd.DataFrame, pd.Series]:
         feat = _numeric(X_train)
         if feat.shape[1] == 0:
             raise ValueError(f"{self.name}: no numeric feature columns found.")
-        feat, y = self._subsample(feat, y_train)
+        feat, y = self._subsample(feat, y_train, eras=eras)
         self._medians = feat.median()
         feat = feat.fillna(self._medians)
         feat = self._fit_compressor(feat, y)
         return feat, y
 
-    def _subsample(
+    def _subsample_random(
         self, feat: pd.DataFrame, y: pd.Series
     ) -> tuple[pd.DataFrame, pd.Series]:
-        if len(feat) <= self.max_train_rows:
-            return feat, y
         rng = np.random.default_rng(self.seed)
         idx = rng.choice(len(feat), size=self.max_train_rows, replace=False)
         idx.sort()
         return feat.iloc[idx], y.iloc[idx]
+
+    def _subsample_era_stratified(
+        self, feat: pd.DataFrame, y: pd.Series, eras: pd.Series
+    ) -> tuple[pd.DataFrame, pd.Series]:
+        era_vals = np.asarray(eras)
+        unique_eras = np.unique(era_vals)
+        n_eras = len(unique_eras)
+        if n_eras == 0:
+            return self._subsample_random(feat, y)
+        per_era = max(1, self.max_train_rows // n_eras)
+        rng = np.random.default_rng(self.seed)
+        selected_idx: list[int] = []
+        for era in unique_eras:
+            era_idx = np.flatnonzero(era_vals == era)
+            if len(era_idx) <= per_era:
+                selected_idx.extend(era_idx.tolist())
+            else:
+                chosen = rng.choice(era_idx, size=per_era, replace=False)
+                selected_idx.extend(sorted(chosen.tolist()))
+        if len(selected_idx) > self.max_train_rows:
+            selected_idx = sorted(
+                rng.choice(
+                    selected_idx, size=self.max_train_rows, replace=False
+                ).tolist()
+            )
+        return feat.iloc[selected_idx], y.iloc[selected_idx]
+
+    def _subsample(
+        self,
+        feat: pd.DataFrame,
+        y: pd.Series,
+        eras: pd.Series | None = None,
+    ) -> tuple[pd.DataFrame, pd.Series]:
+        if len(feat) <= self.max_train_rows:
+            return feat, y
+        if eras is not None and len(eras) == len(feat):
+            return self._subsample_era_stratified(feat, y, eras)
+        return self._subsample_random(feat, y)
 
     def _fit_compressor(self, feat: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
         if self.compression is None or feat.shape[1] <= self.max_features:
@@ -295,64 +332,6 @@ class TabPFN3Model(FoundationModel):
         if self.device is not None:
             init_kwargs["device"] = self.device
         return TabPFNRegressor(**init_kwargs)
-
-
-class TabPFN3ReasoningModel(FoundationModel):
-    """TabPFN v3 regression via Prior Labs API with reasoning mode.
-
-    Requires: pip install 'alphapulse[foundation-api]' and TABPFN_API_KEY.
-    Note: fits are API-metered, so the default row budget is conservative.
-    """
-
-    def __init__(
-        self,
-        thinking_mode: bool = True,
-        thinking_effort: str = "medium",
-        thinking_timeout_s: int = 300,
-        thinking_metric: str = "rmse",
-        max_train_rows: int = TABPFN3_REASONING_MAX_TRAIN_ROWS,
-        max_features: int = TABPFN3_REASONING_MAX_FEATURES,
-        compression: str | None = DEFAULT_COMPRESSION,
-        compression_components: int | None = None,
-        compression_epochs: int = 20,
-        compression_device: str | None = None,
-        seed: int = DEFAULT_SEED,
-        name: str | None = "TabPFN3Reasoning",
-    ) -> None:
-        super().__init__(
-            max_train_rows=max_train_rows,
-            max_features=max_features,
-            compression=compression,
-            compression_components=compression_components,
-            compression_epochs=compression_epochs,
-            compression_device=compression_device,
-            seed=seed,
-            name=name,
-        )
-        self.thinking_mode = thinking_mode
-        self.thinking_effort = thinking_effort
-        self.thinking_timeout_s = thinking_timeout_s
-        self.thinking_metric = thinking_metric
-
-    def _make_regressor(self) -> Any:
-        try:
-            from tabpfn_client import TabPFNRegressor
-        except ImportError as exc:
-            raise ImportError(
-                "TabPFN3ReasoningModel requires tabpfn-client. "
-                "Install with: pip install 'alphapulse[foundation-api]'"
-            ) from exc
-
-        if not os.environ.get("TABPFN_API_KEY"):
-            raise ValueError(
-                "TabPFN3ReasoningModel requires TABPFN_API_KEY environment variable."
-            )
-        return TabPFNRegressor(
-            thinking_mode=self.thinking_mode,
-            thinking_effort=self.thinking_effort,
-            thinking_timeout_s=self.thinking_timeout_s,
-            thinking_metric=self.thinking_metric,
-        )
 
 
 class TabICLModel(FoundationModel):
