@@ -9,6 +9,7 @@ from .builder import (
 )
 from .objective import TrialResult, ray_trainable, run_trial
 from .optuna_search import (
+    DEFAULT_N_STARTUP_TRIALS,
     SamplerName,
     create_hpo_study,
     suggest_flat_config,
@@ -40,6 +41,7 @@ __all__ = [
     "run_trial",
     "sample_random_config",
     "SamplerName",
+    "DEFAULT_N_STARTUP_TRIALS",
     "create_hpo_study",
     "suggest_flat_config",
     "tell_trial_result",
