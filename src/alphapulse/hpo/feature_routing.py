@@ -166,26 +166,24 @@ def suggest_feature_routing(
     n_lanes = trial.suggest_int("routing_n_lanes", 1, min(2, num_models))
     max_groups = FAST_MAX_ACTIVE_GROUPS if fast else SLOW_MAX_ACTIVE_GROUPS
     lane_steps: dict[int, list[str]] = {}
-    for lane_id in range(2):
+    for lane_id in range(n_lanes):
         use_lane_pp = trial.suggest_categorical(
             f"routing_lane_{lane_id}_use_pp", [False, True]
         )
-        step = trial.suggest_categorical(
-            f"routing_lane_{lane_id}_step", list(lane_pool)
-        )
-        if lane_id < n_lanes:
-            if not use_lane_pp:
-                lane_steps[lane_id] = []
-            else:
-                lane_steps[lane_id] = (
-                    [step] if step not in ("StandardScaler", "RobustScaler") else []
-                )
+        if use_lane_pp:
+            step = trial.suggest_categorical(
+                f"routing_lane_{lane_id}_step", list(lane_pool)
+            )
+            lane_steps[lane_id] = (
+                [step] if step not in ("StandardScaler", "RobustScaler") else []
+            )
+        else:
+            lane_steps[lane_id] = []
 
     model_groups: dict[int, list[str]] = {i: [] for i in range(1, num_models + 1)}
-    for group in catalog.searchable_names:
-        model_idx = trial.suggest_int(f"routing_assign_{group}_model", 1, 3)
-        if group in active_groups and model_idx <= num_models:
-            model_groups[model_idx].append(group)
+    for group in active_groups:
+        model_idx = trial.suggest_int(f"routing_assign_{group}_model", 1, num_models)
+        model_groups[model_idx].append(group)
 
     flat: dict[str, Any] = {
         "use_feature_routing": True,
@@ -193,17 +191,15 @@ def suggest_feature_routing(
         "active_groups_count": len(active_groups),
         "routed_feature_count": len(routed_feature_columns),
     }
-    for model_idx in (1, 2, 3):
-        lane = trial.suggest_int(f"routing_model_{model_idx}_lane", 0, 1)
+    for model_idx in range(1, num_models + 1):
+        lane = trial.suggest_int(f"routing_model_{model_idx}_lane", 0, n_lanes - 1)
         fallback_idx = trial.suggest_int(
             f"routing_model_{model_idx}_fallback_idx", 0, max_groups - 1
         )
-        if model_idx > num_models:
-            continue
         if not model_groups[model_idx]:
             model_groups[model_idx] = [active_groups[fallback_idx % len(active_groups)]]
         flat[f"model_{model_idx}_groups"] = model_groups[model_idx]
-        flat[f"model_{model_idx}_lane"] = min(lane, n_lanes - 1)
+        flat[f"model_{model_idx}_lane"] = lane
     for lane_id, steps in lane_steps.items():
         flat[f"lane_{lane_id}_steps"] = steps
     return flat

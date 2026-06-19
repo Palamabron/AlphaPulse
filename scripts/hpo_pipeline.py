@@ -33,6 +33,7 @@ from alphapulse.features.catalog import load_feature_catalog, load_target_catalo
 from alphapulse.hpo.feature_routing import resolve_feature_routing
 from alphapulse.hpo.objective import TrialResult, run_trial
 from alphapulse.hpo.optuna_search import (
+    DEFAULT_N_STARTUP_TRIALS,
     SamplerName,
     create_hpo_study,
     suggest_flat_config,
@@ -506,6 +507,7 @@ def _run_local(
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
     sampler: SamplerName = "tpe",
+    n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
 ) -> None:
     """Local HPO with subprocess isolation, Optuna TPE, and SQLite trial DB."""
 
@@ -564,11 +566,18 @@ def _run_local(
             num_trials,
         )
 
-    study = create_hpo_study(output_dir, seed=seed, sampler=sampler, resume=resume)
+    study = create_hpo_study(
+        output_dir,
+        seed=seed,
+        sampler=sampler,
+        resume=resume,
+        n_startup_trials=n_startup_trials,
+    )
     logger.info(
-        "Optuna sampler: {} (storage={})",
+        "Optuna sampler: {} (storage={}, n_startup_trials={})",
         sampler,
         output_dir / "optuna.db",
+        n_startup_trials if sampler == "tpe" else "n/a",
     )
 
     with TrialDB(db_path) as db:
@@ -986,12 +995,15 @@ def main(
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
     sampler: SamplerName = "tpe",
+    n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
     Use --local for Optuna-guided search without Ray, or omit for Ray Tune.
     Use --objective to choose the optimization target (default: payout_score).
     Use --sampler tpe for Bayesian optimization (default) or --sampler random.
+    Use --n-startup-trials N to set TPE random exploration trials before
+    Bayesian optimization (default: 25).
     Pass --wandb-project <name> to log every trial to Weights & Biases.
     The project name is suffixed with a launch timestamp
     (e.g. alphapulse-hpo-20260614-232943) and saved in the output dir for --resume.
@@ -1030,6 +1042,7 @@ def main(
             wandb_diagnostics=wandb_diagnostics,
             max_hours=max_hours,
             sampler=sampler,
+            n_startup_trials=n_startup_trials,
         )
     else:
         _run_ray(

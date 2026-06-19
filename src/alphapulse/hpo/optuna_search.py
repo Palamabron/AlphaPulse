@@ -9,13 +9,17 @@ from ..features.catalog import load_feature_catalog, load_target_catalog
 from .feature_routing import suggest_feature_routing
 from .search_space import (
     BOOSTING_MODELS,
+    FOUNDATION_MODELS,
     NEUTRALIZATION_PROPORTION_RANGE,
     _finalize_neutralization_sampling,
+    _sampled_model_types,
     available_foundation_models,
+    uses_neutralization_for_models,
 )
 from .target_strategy import apply_target_strategy_to_flat, suggest_target_strategy
 
 SamplerName = Literal["tpe", "random"]
+DEFAULT_N_STARTUP_TRIALS = 25
 
 
 def create_hpo_study(
@@ -24,12 +28,16 @@ def create_hpo_study(
     seed: int,
     sampler: SamplerName = "tpe",
     resume: bool = False,
+    n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
 ) -> optuna.Study:
     storage_url = f"sqlite:///{(output_dir / 'optuna.db').resolve()}"
     optuna_sampler: TPESampler | RandomSampler
     if sampler == "tpe":
         optuna_sampler = TPESampler(
-            seed=seed, multivariate=True, warn_independent_sampling=False
+            seed=seed,
+            multivariate=True,
+            warn_independent_sampling=False,
+            n_startup_trials=n_startup_trials,
         )
     else:
         optuna_sampler = RandomSampler(seed=seed)
@@ -65,27 +73,36 @@ def _suggest_model_type(trial: optuna.Trial, param: str, *, fast: bool) -> str:
     return trial.suggest_categorical(param, _model_pool(fast=fast))
 
 
-def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
-    cfg: dict[str, Any] = {
-        "scaler_type": trial.suggest_categorical(
-            "scaler_type", ["StandardScaler", "RobustScaler"]
-        ),
-        "packboost_n_worst_eras": trial.suggest_categorical(
-            "packboost_n_worst_eras", [3, 5, 7]
-        ),
-        "packboost_boost_weight": trial.suggest_float(
-            "packboost_boost_weight", 0.1, 0.5
-        ),
-        "packboost_n_rounds_boost": trial.suggest_categorical(
-            "packboost_n_rounds_boost", [100, 150, 200]
-        ),
-        "model_1_type": _suggest_model_type(trial, "model_1_type", fast=fast),
-        "model_2_type": _suggest_model_type(trial, "model_2_type", fast=fast),
-        "model_3_type": _suggest_model_type(trial, "model_3_type", fast=fast),
+def _active_model_types(cfg: dict[str, Any]) -> set[str]:
+    return set(_sampled_model_types(cfg))
+
+
+def _suggest_xgb_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
+    params: dict[str, Any] = {
         "xgb_max_depth": trial.suggest_categorical("xgb_max_depth", [3, 5, 7]),
         "xgb_learning_rate": trial.suggest_float(
             "xgb_learning_rate", 1e-3, 0.1, log=True
         ),
+    }
+    if fast:
+        params["xgb_n_rounds"] = trial.suggest_categorical(
+            "xgb_n_rounds", [150, 250, 400]
+        )
+        params["xgb_early_stopping"] = trial.suggest_categorical(
+            "xgb_early_stopping", [20, 30, 50]
+        )
+    else:
+        params["xgb_n_rounds"] = trial.suggest_categorical(
+            "xgb_n_rounds", [300, 500, 800]
+        )
+        params["xgb_early_stopping"] = trial.suggest_categorical(
+            "xgb_early_stopping", [30, 50, 100]
+        )
+    return params
+
+
+def _suggest_lgbm_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
+    params: dict[str, Any] = {
         "lgbm_num_leaves": trial.suggest_categorical(
             "lgbm_num_leaves", [16, 31, 63] if fast else [16, 31, 63, 127]
         ),
@@ -99,6 +116,26 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         "lgbm_reg_lambda": trial.suggest_float("lgbm_reg_lambda", 1.0, 10.0),
         "lgbm_colsample_bytree": trial.suggest_float("lgbm_colsample_bytree", 0.2, 0.5),
         "lgbm_subsample": trial.suggest_float("lgbm_subsample", 0.5, 0.8),
+    }
+    if fast:
+        params["lgbm_n_rounds"] = trial.suggest_categorical(
+            "lgbm_n_rounds", [200, 400, 600]
+        )
+        params["lgbm_early_stopping"] = trial.suggest_categorical(
+            "lgbm_early_stopping", [30, 50]
+        )
+    else:
+        params["lgbm_n_rounds"] = trial.suggest_categorical(
+            "lgbm_n_rounds", [300, 500, 800, 1500]
+        )
+        params["lgbm_early_stopping"] = trial.suggest_categorical(
+            "lgbm_early_stopping", [50, 100]
+        )
+    return params
+
+
+def _suggest_catboost_params(trial: optuna.Trial) -> dict[str, Any]:
+    return {
         "catboost_depth": trial.suggest_categorical("catboost_depth", [4, 5, 6]),
         "catboost_learning_rate": trial.suggest_float(
             "catboost_learning_rate", 0.01, 0.05, log=True
@@ -110,6 +147,13 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         "catboost_colsample_bylevel": trial.suggest_float(
             "catboost_colsample_bylevel", 0.2, 0.4
         ),
+    }
+
+
+def _suggest_packboost_model_params(
+    trial: optuna.Trial, *, fast: bool
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
         "packboost_model_n_worst_eras": trial.suggest_categorical(
             "packboost_model_n_worst_eras", [3, 5, 7]
         ),
@@ -119,110 +163,175 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         "packboost_model_n_rounds_boost": trial.suggest_categorical(
             "packboost_model_n_rounds_boost", [100, 200]
         ),
-        "stacking_meta_learner": trial.suggest_categorical(
-            "stacking_meta_learner", ["ridge", "xgboost"]
+    }
+    if fast:
+        params["packboost_model_n_rounds_base"] = trial.suggest_categorical(
+            "packboost_model_n_rounds_base", [200, 300]
+        )
+    else:
+        params["packboost_model_n_rounds_base"] = trial.suggest_categorical(
+            "packboost_model_n_rounds_base", [300, 500]
+        )
+    return params
+
+
+def _suggest_packboost_preprocessor_params(
+    trial: optuna.Trial, *, fast: bool
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "packboost_n_worst_eras": trial.suggest_categorical(
+            "packboost_n_worst_eras", [3, 5, 7]
         ),
-        "use_neutralization": True,
-        "neutralization_proportion": trial.suggest_float(
-            "neutralization_proportion", *NEUTRALIZATION_PROPORTION_RANGE
+        "packboost_boost_weight": trial.suggest_float(
+            "packboost_boost_weight", 0.1, 0.5
         ),
-        "use_meta_neutralization": trial.suggest_categorical(
-            "use_meta_neutralization", [False, True]
+        "packboost_n_rounds_boost": trial.suggest_categorical(
+            "packboost_n_rounds_boost", [100, 150, 200]
         ),
-        "meta_neutralization_proportion": trial.suggest_float(
-            "meta_neutralization_proportion", 0.5, 0.75
+    }
+    if fast:
+        params["packboost_n_rounds_base"] = trial.suggest_categorical(
+            "packboost_n_rounds_base", [150, 250, 350]
+        )
+    else:
+        params["packboost_n_rounds_base"] = trial.suggest_categorical(
+            "packboost_n_rounds_base", [200, 300, 500]
+        )
+    return params
+
+
+def _suggest_foundation_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
+    if fast:
+        return {
+            "foundation_max_train_rows": trial.suggest_categorical(
+                "foundation_max_train_rows", [2_000, 3_000, 5_000]
+            ),
+            "foundation_compression": trial.suggest_categorical(
+                "foundation_compression", ["pca", "svd"]
+            ),
+            "foundation_n_components": trial.suggest_categorical(
+                "foundation_n_components", [64, 128, 256]
+            ),
+            "foundation_n_estimators": trial.suggest_categorical(
+                "foundation_n_estimators", [2, 4]
+            ),
+            "foundation_compression_epochs": trial.suggest_categorical(
+                "foundation_compression_epochs", [5, 10]
+            ),
+        }
+    return {
+        "foundation_max_train_rows": trial.suggest_categorical(
+            "foundation_max_train_rows", [5_000, 10_000, 20_000]
         ),
-        "augmenter_top_fraction": trial.suggest_float(
-            "augmenter_top_fraction", 0.05, 0.20
+        "foundation_compression": trial.suggest_categorical(
+            "foundation_compression", ["pca", "svd"]
         ),
-        "augmenter_n_synthetic": trial.suggest_categorical(
-            "augmenter_n_synthetic", [200, 500, 1000]
+        "foundation_n_components": trial.suggest_categorical(
+            "foundation_n_components", [128, 256, 512]
         ),
-        "augmenter_backend": "auto",
+        "foundation_n_estimators": trial.suggest_categorical(
+            "foundation_n_estimators", [2, 4, 8]
+        ),
+        "foundation_compression_epochs": trial.suggest_categorical(
+            "foundation_compression_epochs", [5, 10, 20]
+        ),
+    }
+
+
+def _suggest_model_hyperparams(
+    trial: optuna.Trial,
+    active_types: set[str],
+    *,
+    fast: bool,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if "XGBoost" in active_types:
+        params.update(_suggest_xgb_params(trial, fast=fast))
+    if "LightGBM" in active_types:
+        params.update(_suggest_lgbm_params(trial, fast=fast))
+    if "CatBoost" in active_types:
+        params.update(_suggest_catboost_params(trial))
+    if "Packboost" in active_types:
+        params.update(_suggest_packboost_model_params(trial, fast=fast))
+    if active_types.intersection(FOUNDATION_MODELS):
+        params.update(_suggest_foundation_params(trial, fast=fast))
+    return params
+
+
+def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
+    cfg: dict[str, Any] = {
+        "scaler_type": trial.suggest_categorical(
+            "scaler_type", ["StandardScaler", "RobustScaler"]
+        ),
         "use_gpu": False,
+        "augmenter_backend": "auto",
     }
 
     if fast:
-        cfg.update(
-            {
-                "hpo_fast": True,
-                "use_packboost": False,
-                "num_models": trial.suggest_int("num_models", 1, 2),
-                "n_subs": trial.suggest_categorical("n_subs", [3, 5]),
-                "xgb_n_rounds": trial.suggest_categorical(
-                    "xgb_n_rounds", [150, 250, 400]
-                ),
-                "xgb_early_stopping": trial.suggest_categorical(
-                    "xgb_early_stopping", [20, 30, 50]
-                ),
-                "lgbm_n_rounds": trial.suggest_categorical(
-                    "lgbm_n_rounds", [200, 400, 600]
-                ),
-                "lgbm_early_stopping": trial.suggest_categorical(
-                    "lgbm_early_stopping", [30, 50]
-                ),
-                "packboost_n_rounds_base": trial.suggest_categorical(
-                    "packboost_n_rounds_base", [150, 250, 350]
-                ),
-                "packboost_model_n_rounds_base": trial.suggest_categorical(
-                    "packboost_model_n_rounds_base", [200, 300]
-                ),
-                "foundation_max_train_rows": trial.suggest_categorical(
-                    "foundation_max_train_rows", [2_000, 3_000, 5_000]
-                ),
-                "foundation_compression": trial.suggest_categorical(
-                    "foundation_compression", ["pca", "svd"]
-                ),
-                "foundation_n_components": trial.suggest_categorical(
-                    "foundation_n_components", [64, 128, 256]
-                ),
-                "foundation_n_estimators": trial.suggest_categorical(
-                    "foundation_n_estimators", [2, 4]
-                ),
-                "foundation_compression_epochs": trial.suggest_categorical(
-                    "foundation_compression_epochs", [5, 10]
-                ),
-                "use_augmentation": trial.suggest_categorical(
-                    "use_augmentation", [False, True]
-                ),
-                "ensemble_method": trial.suggest_categorical(
-                    "ensemble_method", ["single", "weighted", "stacking"]
-                ),
-            }
+        cfg["hpo_fast"] = True
+        cfg["use_packboost"] = False
+        cfg["num_models"] = trial.suggest_int("num_models", 1, 2)
+    else:
+        cfg["use_packboost"] = trial.suggest_categorical("use_packboost", [False, True])
+        cfg["num_models"] = trial.suggest_int("num_models", 1, 3)
+
+    num_models = int(cfg["num_models"])
+    if num_models > 1:
+        cfg["ensemble_method"] = trial.suggest_categorical(
+            "ensemble_method", ["single", "weighted", "stacking"]
         )
     else:
-        cfg.update(
-            {
-                "use_packboost": trial.suggest_categorical(
-                    "use_packboost", [False, True]
-                ),
-                "num_models": trial.suggest_int("num_models", 1, 3),
-                "n_subs": trial.suggest_categorical("n_subs", [5, 8, 10, 15]),
-                "packboost_n_rounds_base": trial.suggest_categorical(
-                    "packboost_n_rounds_base", [200, 300, 500]
-                ),
-                "packboost_model_n_rounds_base": trial.suggest_categorical(
-                    "packboost_model_n_rounds_base", [300, 500]
-                ),
-                "xgb_n_rounds": trial.suggest_categorical(
-                    "xgb_n_rounds", [300, 500, 800]
-                ),
-                "xgb_early_stopping": trial.suggest_categorical(
-                    "xgb_early_stopping", [30, 50, 100]
-                ),
-                "lgbm_n_rounds": trial.suggest_categorical(
-                    "lgbm_n_rounds", [300, 500, 800, 1500]
-                ),
-                "lgbm_early_stopping": trial.suggest_categorical(
-                    "lgbm_early_stopping", [50, 100]
-                ),
-                "use_augmentation": trial.suggest_categorical(
-                    "use_augmentation", [False, True]
-                ),
-                "ensemble_method": trial.suggest_categorical(
-                    "ensemble_method", ["single", "weighted", "stacking"]
-                ),
-            }
+        cfg["ensemble_method"] = "single"
+
+    cfg["model_1_type"] = _suggest_model_type(trial, "model_1_type", fast=fast)
+    if num_models >= 2:
+        cfg["model_2_type"] = _suggest_model_type(trial, "model_2_type", fast=fast)
+    if num_models >= 3:
+        cfg["model_3_type"] = _suggest_model_type(trial, "model_3_type", fast=fast)
+
+    if cfg.get("use_packboost"):
+        cfg.update(_suggest_packboost_preprocessor_params(trial, fast=fast))
+
+    active_types = _active_model_types(cfg)
+    cfg.update(_suggest_model_hyperparams(trial, active_types, fast=fast))
+
+    tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
+    if active_types.intersection(tree_models):
+        if fast:
+            cfg["n_subs"] = trial.suggest_categorical("n_subs", [3, 5])
+        else:
+            cfg["n_subs"] = trial.suggest_categorical("n_subs", [5, 8, 10, 15])
+
+    if num_models > 1 and cfg.get("ensemble_method") == "stacking":
+        cfg["stacking_meta_learner"] = trial.suggest_categorical(
+            "stacking_meta_learner", ["ridge", "xgboost"]
+        )
+
+    cfg["use_augmentation"] = trial.suggest_categorical(
+        "use_augmentation", [False, True]
+    )
+    if cfg["use_augmentation"]:
+        cfg["augmenter_top_fraction"] = trial.suggest_float(
+            "augmenter_top_fraction", 0.05, 0.20
+        )
+        cfg["augmenter_n_synthetic"] = trial.suggest_categorical(
+            "augmenter_n_synthetic", [200, 500, 1000]
+        )
+
+    if uses_neutralization_for_models(list(active_types)):
+        cfg["use_neutralization"] = True
+        cfg["neutralization_proportion"] = trial.suggest_float(
+            "neutralization_proportion", *NEUTRALIZATION_PROPORTION_RANGE
+        )
+    else:
+        cfg["use_neutralization"] = False
+
+    cfg["use_meta_neutralization"] = trial.suggest_categorical(
+        "use_meta_neutralization", [False, True]
+    )
+    if cfg["use_meta_neutralization"]:
+        cfg["meta_neutralization_proportion"] = trial.suggest_float(
+            "meta_neutralization_proportion", 0.5, 0.75
         )
 
     return cfg
