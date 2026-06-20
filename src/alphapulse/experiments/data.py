@@ -7,6 +7,16 @@ import pandas as pd
 META_MODEL_COLUMN = "numerai_meta_model"
 
 
+def meta_model_from_benchmarks(
+    live_benchmark_models: pd.DataFrame,
+    index: pd.Index,
+) -> np.ndarray | None:
+    if META_MODEL_COLUMN not in live_benchmark_models.columns:
+        return None
+    aligned = live_benchmark_models[META_MODEL_COLUMN].reindex(index)
+    return np.asarray(aligned.to_numpy(dtype=np.float64), dtype=np.float64)
+
+
 def load_meta_model_series(
     data_dir: Path,
     index: pd.Index,

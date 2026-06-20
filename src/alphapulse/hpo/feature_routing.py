@@ -259,13 +259,17 @@ def resolve_feature_routing(
         model_lane_map[model_idx] = int(flat.get(f"model_{model_idx}_lane", 0))
 
     unique_lanes = {model_lane_map[i] for i in range(1, num_models + 1)}
-    single_model_lanes = (
-        len({model_lane_map[1] for g in model_group_map[1]}) if num_models == 1 else 0
+    single_lane_steps: list[str] = []
+    if num_models == 1:
+        lane_id = model_lane_map[1]
+        single_lane_steps = list(flat.get(f"lane_{lane_id}_steps") or [])
+    single_has_lane_preprocessors = bool(
+        _lane_steps_to_preprocessors(single_lane_steps)
     )
 
     if num_models > 1:
         build_path: BuildPath = "multihead"
-    elif len(unique_lanes) > 1 or single_model_lanes > 1:
+    elif len(unique_lanes) > 1 or single_has_lane_preprocessors:
         build_path = "grouped"
     else:
         build_path = "simple"

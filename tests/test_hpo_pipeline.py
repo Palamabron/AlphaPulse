@@ -487,3 +487,17 @@ def test_load_diagnostics_train_data_multi_blend(tmp_path: Path) -> None:
     preds = pipeline.predict(X_train.drop(columns=["era"]).iloc[:5])
     assert len(preds) == 5
     assert np.all(np.isfinite(preds))
+
+
+def test_persistable_flat_config_strips_runtime_keys() -> None:
+    from scripts.hpo_pipeline import _persistable_flat_config
+
+    flat = {
+        "model_1_type": "XGBoost",
+        "_data_dir": "/tmp/data",
+        "_train_subsample": 0.125,
+        "log_wandb_diagnostics": True,
+        "target_mode": "single",
+    }
+    persisted = _persistable_flat_config(flat)
+    assert persisted == {"model_1_type": "XGBoost", "target_mode": "single"}
