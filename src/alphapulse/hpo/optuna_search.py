@@ -258,7 +258,9 @@ def _suggest_model_hyperparams(
     return params
 
 
-def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
+def _suggest_core_params(
+    trial: optuna.Trial, *, fast: bool, max_models: int = 3
+) -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "scaler_type": trial.suggest_categorical(
             "scaler_type", ["StandardScaler", "RobustScaler"]
@@ -267,13 +269,14 @@ def _suggest_core_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         "augmenter_backend": "auto",
     }
 
+    model_cap = max(1, min(int(max_models), 3))
     if fast:
         cfg["hpo_fast"] = True
         cfg["use_packboost"] = False
-        cfg["num_models"] = trial.suggest_int("num_models", 1, 2)
+        cfg["num_models"] = trial.suggest_int("num_models", 1, model_cap)
     else:
         cfg["use_packboost"] = trial.suggest_categorical("use_packboost", [False, True])
-        cfg["num_models"] = trial.suggest_int("num_models", 1, 3)
+        cfg["num_models"] = trial.suggest_int("num_models", 1, model_cap)
 
     num_models = int(cfg["num_models"])
     if num_models > 1:
@@ -341,9 +344,15 @@ def suggest_flat_config(
     trial: optuna.Trial,
     *,
     fast: bool = False,
+    max_models: int | None = None,
     data_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    cfg = _finalize_neutralization_sampling(_suggest_core_params(trial, fast=fast))
+    model_cap = (
+        2 if max_models is None and fast else (3 if max_models is None else max_models)
+    )
+    cfg = _finalize_neutralization_sampling(
+        _suggest_core_params(trial, fast=fast, max_models=model_cap)
+    )
 
     if data_dir is not None:
         target_catalog = load_target_catalog(data_dir)

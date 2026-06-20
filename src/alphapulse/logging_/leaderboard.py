@@ -1,15 +1,43 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 if TYPE_CHECKING:
     from ..autoresearch.state import TrialRecord
     from ..hpo.objective import TrialResult
+
+BestCriteria = Literal["objective", "robust_payout"]
+NEGATIVE_HOLDOUT_PAYOUT_FACTOR = 0.25
+ROBUST_CONSISTENCY_FLOOR = 0.5
+
+
+def compute_robust_payout_score(
+    payout_score: float | None,
+    val_corr_sharpe: float | None,
+    holdout_corr_sharpe: float | None,
+) -> float | None:
+    """Down-rank high validation payout when holdout CORR does not confirm it."""
+    payout = _finite_optional(payout_score)
+    if payout is None:
+        return None
+    holdout = _finite_optional(holdout_corr_sharpe)
+    if holdout is None:
+        return payout
+    if holdout <= 0.0:
+        return payout * NEGATIVE_HOLDOUT_PAYOUT_FACTOR
+    val = _finite_optional(val_corr_sharpe)
+    if val is None or val <= 0.0:
+        return payout * min(1.0, holdout / 0.2)
+    consistency = min(1.0, holdout / val)
+    return payout * (
+        ROBUST_CONSISTENCY_FLOOR + (1.0 - ROBUST_CONSISTENCY_FLOOR) * consistency
+    )
 
 
 @dataclass
@@ -27,6 +55,7 @@ class TrialLeaderboardEntry:
     val_corr_sharpe: float | None = None
     val_mean_per_era_correlation: float | None = None
     holdout_corr_sharpe: float | None = None
+    robust_payout_score: float | None = None
 
 
 def _model_types_from_flat(flat: dict[str, Any]) -> str:
@@ -73,8 +102,42 @@ def _rank_score(entry: TrialLeaderboardEntry) -> float:
     return entry.sharpe
 
 
+def _robust_rank_score(entry: TrialLeaderboardEntry) -> float:
+    if entry.robust_payout_score is not None:
+        return entry.robust_payout_score
+    return _rank_score(entry)
+
+
 def _uses_payout_score(entries: list[TrialLeaderboardEntry]) -> bool:
     return any(e.payout_score is not None for e in entries)
+
+
+def _uses_robust_payout(entries: list[TrialLeaderboardEntry]) -> bool:
+    return any(
+        e.robust_payout_score is not None and e.holdout_corr_sharpe is not None
+        for e in entries
+    )
+
+
+def selection_score_from_metrics(
+    metrics: dict[str, Any],
+    *,
+    objective: str,
+    criteria: BestCriteria = "objective",
+) -> float:
+    objective_score = float(
+        metrics.get(objective, metrics.get("corr_sharpe", float("-inf")))
+    )
+    if criteria != "robust_payout" or objective != "payout_score":
+        return objective_score
+    robust = compute_robust_payout_score(
+        _finite_optional(metrics.get("payout_score")),
+        _finite_optional(metrics.get("val_corr_sharpe")),
+        _finite_optional(metrics.get("holdout_corr_sharpe")),
+    )
+    if robust is not None:
+        return robust
+    return objective_score
 
 
 def _fmt_metric(value: float | None, width: int = 7, precision: int = 4) -> str:
@@ -103,6 +166,8 @@ def entry_from_hpo_result(result: TrialResult) -> TrialLeaderboardEntry:
     holdout_dd = _finite_optional(metrics.get("holdout_max_drawdown"))
     if holdout_dd is None:
         holdout_dd = _finite_optional(metrics.get("max_drawdown"))
+    payout = _payout_from_result(result.payout_score, metrics)
+    val_corr_sharpe = _finite_optional(metrics.get("val_corr_sharpe"))
     return TrialLeaderboardEntry(
         trial_number=result.trial_number,
         sharpe=holdout_sharpe if holdout_sharpe is not None else result.sharpe,
@@ -112,13 +177,16 @@ def entry_from_hpo_result(result: TrialResult) -> TrialLeaderboardEntry:
         model_types=_model_types_from_flat(result.params),
         elapsed_seconds=result.elapsed_seconds,
         error=result.error,
-        payout_score=_payout_from_result(result.payout_score, metrics),
+        payout_score=payout,
         mmc_sharpe=_mmc_from_result(result.mmc_sharpe, metrics),
-        val_corr_sharpe=_finite_optional(metrics.get("val_corr_sharpe")),
+        val_corr_sharpe=val_corr_sharpe,
         val_mean_per_era_correlation=_finite_optional(
             metrics.get("val_mean_per_era_correlation")
         ),
         holdout_corr_sharpe=holdout_sharpe,
+        robust_payout_score=compute_robust_payout_score(
+            payout, val_corr_sharpe, holdout_sharpe
+        ),
     )
 
 
@@ -136,6 +204,8 @@ def entry_from_trial_record(record: TrialRecord) -> TrialLeaderboardEntry:
     holdout_dd = _finite_optional(metrics.get("holdout_max_drawdown"))
     if holdout_dd is None:
         holdout_dd = _finite_optional(metrics.get("max_drawdown"))
+    payout = _payout_from_result(record.payout_score, metrics)
+    val_corr_sharpe = _finite_optional(metrics.get("val_corr_sharpe"))
     return TrialLeaderboardEntry(
         trial_number=record.trial_number,
         sharpe=holdout_sharpe if holdout_sharpe is not None else record.sharpe,
@@ -145,14 +215,55 @@ def entry_from_trial_record(record: TrialRecord) -> TrialLeaderboardEntry:
         model_types="+".join(record.model_types),
         elapsed_seconds=record.elapsed_seconds,
         error=record.error,
-        payout_score=_payout_from_result(record.payout_score, metrics),
+        payout_score=payout,
         mmc_sharpe=_mmc_from_result(record.mmc_sharpe, metrics),
-        val_corr_sharpe=_finite_optional(metrics.get("val_corr_sharpe")),
+        val_corr_sharpe=val_corr_sharpe,
         val_mean_per_era_correlation=_finite_optional(
             metrics.get("val_mean_per_era_correlation")
         ),
         holdout_corr_sharpe=holdout_sharpe,
+        robust_payout_score=compute_robust_payout_score(
+            payout, val_corr_sharpe, holdout_sharpe
+        ),
     )
+
+
+def _format_payout_table(
+    entries: list[TrialLeaderboardEntry],
+    *,
+    top_n: int,
+    current_trial: int | None,
+    title: str,
+    sort_key: Callable[[TrialLeaderboardEntry], float],
+    score_label: str,
+    score_getter: Callable[[TrialLeaderboardEntry], float | None],
+) -> list[str]:
+    header = (
+        f"--- {title} ---\n"
+        " Payout = 0.75*ValidationSharpe + 2.25*ValidationMmcSharpe\n"
+        f" Rank | Trial | {score_label:>11} | ValidationSharpe | "
+        "ValidationMmcSharpe | ValidationMeanCorr | HoldoutSharpe | "
+        "HoldoutMeanCorr | Models              | Time"
+    )
+    lines = [header]
+    sorted_entries = sorted(entries, key=sort_key, reverse=True)[:top_n]
+    for rank, entry in enumerate(sorted_entries, start=1):
+        marker = (
+            " *"
+            if current_trial is not None and entry.trial_number == current_trial
+            else ""
+        )
+        lines.append(
+            f" {rank:4d} | {entry.trial_number:5d} | "
+            f"{_fmt_metric(score_getter(entry))} | "
+            f"{_fmt_metric(entry.val_corr_sharpe)} | "
+            f"{_fmt_metric(entry.mmc_sharpe)} | "
+            f"{_fmt_metric(entry.val_mean_per_era_correlation)} | "
+            f"{_fmt_metric(entry.holdout_corr_sharpe)} | "
+            f"{_fmt_metric(entry.mean_per_era_correlation)} | "
+            f"{entry.model_types[:19]:<19} | {entry.elapsed_seconds:4.0f}s{marker}"
+        )
+    return lines
 
 
 def format_leaderboard(
@@ -162,48 +273,59 @@ def format_leaderboard(
     current_trial: int | None = None,
 ) -> str:
     by_payout = _uses_payout_score(entries)
-    sorted_entries = sorted(entries, key=_rank_score, reverse=True)[:top_n]
+    lines: list[str] = []
     if by_payout:
-        header = (
-            f"--- LEADERBOARD (top {top_n} by payout on validation) ---\n"
-            " Payout = 0.75*ValidationSharpe + 2.25*ValidationMmcSharpe\n"
-            " Rank | Trial |   Payout | ValidationSharpe | ValidationMmcSharpe | "
-            "ValidationMeanCorr | HoldoutSharpe | HoldoutMeanCorr | "
-            "Models              | Time"
+        lines.extend(
+            _format_payout_table(
+                entries,
+                top_n=top_n,
+                current_trial=current_trial,
+                title=f"LEADERBOARD (top {top_n} by payout on validation)",
+                sort_key=_rank_score,
+                score_label="Payout",
+                score_getter=lambda entry: entry.payout_score,
+            )
         )
+        if _uses_robust_payout(entries):
+            lines.append("")
+            lines.extend(
+                _format_payout_table(
+                    entries,
+                    top_n=top_n,
+                    current_trial=current_trial,
+                    title=(
+                        f"LEADERBOARD (top {top_n} by robust payout: "
+                        "payout penalized when holdout CORR is weak vs validation)"
+                    ),
+                    sort_key=_robust_rank_score,
+                    score_label="RobustPayout",
+                    score_getter=lambda entry: entry.robust_payout_score,
+                )
+            )
     else:
         header = (
             f"--- LEADERBOARD (top {top_n} by holdout corr_sharpe) ---\n"
             " Rank | Trial | HoldoutSharpe | HoldoutMeanCorr | HoldoutStdCorr | "
             "HoldoutMaxDrawdown | Models              | Time"
         )
-    lines = [header]
-    for rank, entry in enumerate(sorted_entries, start=1):
-        std_corr = (
-            f"{entry.std_per_era_correlation:8.4f}"
-            if entry.std_per_era_correlation is not None
-            else "     N/A"
-        )
-        max_dd = (
-            f"{entry.max_drawdown:6.3f}" if entry.max_drawdown is not None else "   N/A"
-        )
-        marker = (
-            " *"
-            if current_trial is not None and entry.trial_number == current_trial
-            else ""
-        )
-        if by_payout:
-            lines.append(
-                f" {rank:4d} | {entry.trial_number:5d} | "
-                f"{_fmt_metric(entry.payout_score)} | "
-                f"{_fmt_metric(entry.val_corr_sharpe)} | "
-                f"{_fmt_metric(entry.mmc_sharpe)} | "
-                f"{_fmt_metric(entry.val_mean_per_era_correlation)} | "
-                f"{_fmt_metric(entry.holdout_corr_sharpe)} | "
-                f"{_fmt_metric(entry.mean_per_era_correlation)} | "
-                f"{entry.model_types[:19]:<19} | {entry.elapsed_seconds:4.0f}s{marker}"
+        lines = [header]
+        sorted_entries = sorted(entries, key=_rank_score, reverse=True)[:top_n]
+        for rank, entry in enumerate(sorted_entries, start=1):
+            std_corr = (
+                f"{entry.std_per_era_correlation:8.4f}"
+                if entry.std_per_era_correlation is not None
+                else "     N/A"
             )
-        else:
+            max_dd = (
+                f"{entry.max_drawdown:6.3f}"
+                if entry.max_drawdown is not None
+                else "   N/A"
+            )
+            marker = (
+                " *"
+                if current_trial is not None and entry.trial_number == current_trial
+                else ""
+            )
             lines.append(
                 f" {rank:4d} | {entry.trial_number:5d} | "
                 f"{_fmt_metric(entry.holdout_corr_sharpe)} | "

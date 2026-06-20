@@ -88,6 +88,7 @@ def test_suggest_flat_config_omits_lgbm_when_not_selected() -> None:
         types = [
             cfg.get("model_1_type"),
             cfg.get("model_2_type"),
+            cfg.get("model_3_type"),
         ][: int(cfg.get("num_models", 1))]
         if "LightGBM" not in types:
             assert not any(k.startswith("lgbm_") for k in cfg)
@@ -129,3 +130,20 @@ def test_suggest_flat_config_single_model_no_ensemble_method_suggest() -> None:
             saw_single = True
             assert cfg["ensemble_method"] == "single"
     assert saw_single
+
+
+def test_suggest_flat_config_fast_respects_max_models() -> None:
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.RandomSampler(seed=3),
+    )
+    saw_three = False
+    for _ in range(40):
+        trial = study.ask()
+        cfg = suggest_flat_config(trial, fast=True, max_models=3)
+        tell_trial_result(study, trial, 0.0)
+        assert int(cfg["num_models"]) <= 3
+        if int(cfg["num_models"]) == 3:
+            saw_three = True
+            assert cfg.get("model_3_type") is not None
+    assert saw_three
