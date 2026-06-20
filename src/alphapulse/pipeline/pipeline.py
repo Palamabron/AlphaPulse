@@ -7,6 +7,7 @@ import pandas as pd
 from loguru import logger
 
 from ..evaluation.metrics import rank_normalize
+from ..experiments.data import meta_model_from_benchmarks
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
 from ..preprocessors.era_stable import EraStableFeatureSelector
@@ -446,6 +447,7 @@ class Pipeline:
         blend_weight = self.benchmark_blend_weight
         bench_col = benchmark_col
         use_neutralization = pipeline._neutralizer is not None
+        use_meta_neutralization = pipeline._meta_neutralizer is not None
 
         def predict(
             live_features: pd.DataFrame,
@@ -457,7 +459,12 @@ class Pipeline:
                 if use_neutralization and "era" in live_features.columns
                 else None
             )
-            raw_preds = pipeline.predict(X, eras=eras)
+            meta_model = (
+                meta_model_from_benchmarks(live_benchmark_models, live_features.index)
+                if use_meta_neutralization
+                else None
+            )
+            raw_preds = pipeline.predict(X, eras=eras, meta_model=meta_model)
             ranked = rank_normalize(raw_preds)
 
             if (

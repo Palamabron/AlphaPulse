@@ -69,6 +69,21 @@ def test_resolve_simple_path(catalog_dir: Path) -> None:
     assert routing.feature_columns == ["f_a", "f_b", "f_c"]
 
 
+def test_resolve_grouped_path_single_model_with_lane_steps(catalog_dir: Path) -> None:
+    catalog = load_feature_catalog(catalog_dir)
+    flat = {
+        **_base_flat(1),
+        "use_feature_routing": True,
+        "active_groups": ["small"],
+        "model_1_groups": ["small"],
+        "model_1_lane": 0,
+        "lane_0_steps": ["VarianceFeatureSelector"],
+    }
+    routing = resolve_feature_routing(flat, catalog)
+    assert routing.build_path == "grouped"
+    assert routing.pipeline_config_patch["preprocessors"][0]["type"] == "Grouped"
+
+
 def test_resolve_multihead_path(catalog_dir: Path) -> None:
     catalog = load_feature_catalog(catalog_dir)
     flat = {

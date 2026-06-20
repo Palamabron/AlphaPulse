@@ -20,7 +20,7 @@ import random
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -312,6 +312,20 @@ def _best_from_db(
             best_score = score
             best_config = row["flat_config"]
     return best_score, best_config
+
+
+_WORKER_RUNTIME_KEYS = frozenset(
+    {
+        "_data_dir",
+        "_train_subsample",
+        "log_wandb_diagnostics",
+        "wandb_log_shap",
+    }
+)
+
+
+def _persistable_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in flat.items() if k not in _WORKER_RUNTIME_KEYS}
 
 
 def _resolve_best_criteria(objective: str, best_criteria: BestCriteria) -> BestCriteria:
@@ -766,23 +780,27 @@ def _run_local(
                 if payload.get("ok"):
                     metrics = payload["metrics"]
                     corr_sharpe = metrics.get("corr_sharpe", float("-inf"))
-                    trial_score = float(metrics.get(objective, corr_sharpe))
+                    trial_score = selection_score_from_metrics(
+                        metrics,
+                        objective=objective,
+                        criteria=resolved_best_criteria,
+                    )
                     worker_elapsed = payload.get("elapsed_seconds")
                     worker_flat = payload.get("flat_config")
-                    if isinstance(worker_flat, dict):
-                        if "ensemble_weights" in worker_flat:
-                            flat_config["ensemble_weights"] = worker_flat[
-                                "ensemble_weights"
-                            ]
+                    completed_flat = (
+                        _persistable_flat_config(worker_flat)
+                        if isinstance(worker_flat, dict)
+                        else flat_config
+                    )
                     result = TrialResult(
                         trial_number=i,
                         sharpe=corr_sharpe,
                         metrics=metrics,
-                        model_type=flat_config.get("model_1_type", "XGBoost"),
+                        model_type=completed_flat.get("model_1_type", "XGBoost"),
                         elapsed_seconds=float(worker_elapsed)
                         if worker_elapsed is not None
                         else elapsed,
-                        params=flat_config,
+                        params=completed_flat,
                         corr_sharpe=corr_sharpe,
                     )
                     db.update_trial(
@@ -790,8 +808,9 @@ def _run_local(
                         status="completed",
                         metrics=metrics,
                         elapsed_seconds=elapsed,
-                        flat_config=flat_config,
+                        flat_config=completed_flat,
                     )
+                    flat_config = completed_flat
                 else:
                     error_msg = payload.get("error", "unknown")
                     trial_score = float("-inf")
