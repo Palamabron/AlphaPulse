@@ -383,7 +383,7 @@ class TestBuilderAndSearchSpace:
         cfg = resolve_flat_config(flat)
         assert len(cfg["models"]) == 2
         assert cfg["ensemble_method"] == "weighted"
-        assert "weights" in cfg["ensemble_params"]
+        assert cfg["ensemble_params"]["optimize_weights"] is True
 
     def test_resolve_flat_one_model_forces_single_ensemble(self) -> None:
         flat = self._base_flat_config()

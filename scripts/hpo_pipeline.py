@@ -46,9 +46,11 @@ from alphapulse.hpo.target_strategy import (
 )
 from alphapulse.hpo.trial_db import TrialDB
 from alphapulse.logging_.leaderboard import (
+    BestCriteria,
     entry_from_hpo_result,
     print_leaderboard,
     save_leaderboard,
+    selection_score_from_metrics,
 )
 from alphapulse.utils import set_global_seed
 from alphapulse.utils.gpu_cleanup import (
@@ -291,18 +293,59 @@ def _trial_worker(
             gc.collect()
 
 
-def _best_from_db(db: TrialDB, objective: str) -> tuple[float, dict]:
+def _best_from_db(
+    db: TrialDB,
+    objective: str,
+    *,
+    criteria: BestCriteria = "objective",
+) -> tuple[float, dict]:
     best_score = float("-inf")
     best_config: dict = {}
     for row in db.load_all_trials():
         if row["status"] != "completed" or not row["metrics"]:
             continue
         metrics = row["metrics"]
-        score = float(metrics.get(objective, metrics.get("corr_sharpe", float("-inf"))))
+        score = selection_score_from_metrics(
+            metrics, objective=objective, criteria=criteria
+        )
         if score > best_score:
             best_score = score
             best_config = row["flat_config"]
     return best_score, best_config
+
+
+def _resolve_best_criteria(objective: str, best_criteria: BestCriteria) -> BestCriteria:
+    if best_criteria != "objective":
+        return best_criteria
+    if objective == "payout_score":
+        return "robust_payout"
+    return "objective"
+
+
+def _warn_resume_eval_mode_mismatch(
+    *,
+    resume: bool,
+    fast: bool,
+    completed_rows: list[dict],
+) -> None:
+    if not resume or not completed_rows:
+        return
+    prior_fast_flags = {
+        bool(row["flat_config"].get("hpo_fast"))
+        for row in completed_rows
+        if row["status"] == "completed" and row.get("flat_config")
+    }
+    if len(prior_fast_flags) != 1:
+        return
+    prior_fast = prior_fast_flags.pop()
+    if prior_fast == fast:
+        return
+    logger.warning(
+        "Resume eval-mode mismatch: completed trials used fast={} but this run uses "
+        "fast={}. New trials will not be comparable with earlier leaderboard scores.",
+        prior_fast,
+        fast,
+    )
 
 
 def _load_diagnostics_train_data(
@@ -504,10 +547,12 @@ def _run_local(
     trial_timeout: int = 3600,
     gpu: bool = False,
     fast: bool = True,
+    max_models: int = 2,
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
     sampler: SamplerName = "tpe",
     n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
+    best_criteria: BestCriteria = "objective",
 ) -> None:
     """Local HPO with subprocess isolation, Optuna TPE, and SQLite trial DB."""
 
@@ -582,12 +627,26 @@ def _run_local(
 
     with TrialDB(db_path) as db:
         already_done = db.completed_trials() if resume else set()
+        resolved_best_criteria = _resolve_best_criteria(objective, best_criteria)
+        if resolved_best_criteria == "robust_payout":
+            logger.info(
+                "Best config selection uses robust payout "
+                "(validation payout penalized by weak holdout CORR)"
+            )
+        _warn_resume_eval_mode_mismatch(
+            resume=resume,
+            fast=fast,
+            completed_rows=db.load_all_trials() if resume else [],
+        )
         if resume:
-            best_score, best_config = _best_from_db(db, objective)
+            best_score, best_config = _best_from_db(
+                db, objective, criteria=resolved_best_criteria
+            )
             if best_config:
                 logger.info(
-                    "Resuming: global best {}={:.4f} from {} completed trial(s)",
+                    "Resuming: global best {} ({})={:.4f} from {} completed trial(s)",
                     objective,
+                    resolved_best_criteria,
                     best_score,
                     len(already_done),
                 )
@@ -615,7 +674,7 @@ def _run_local(
 
             optuna_trial = study.ask()
             flat_config = suggest_flat_config(
-                optuna_trial, fast=fast, data_dir=data_dir
+                optuna_trial, fast=fast, max_models=max_models, data_dir=data_dir
             )
             if gpu:
                 flat_config["use_gpu"] = True
@@ -769,14 +828,20 @@ def _run_local(
                     )
 
             results.append(result)
+            metrics = result.metrics or {}
             logger.info(
-                "Trial {}/{}: corr_sharpe={:.4f}, payout_score={:.4f} ({:.1f}s){}",
+                "Trial {}/{}: val_sharpe={:.4f}, holdout_sharpe={:.4f}, "
+                "payout={:.4f} ({:.1f}s){}",
                 i + 1,
                 num_trials,
-                result.sharpe,
-                float(result.metrics.get("payout_score", float("nan")))
-                if result.metrics
-                else float("nan"),
+                float(metrics.get("val_corr_sharpe", float("nan"))),
+                float(
+                    metrics.get(
+                        "holdout_corr_sharpe",
+                        metrics.get("corr_sharpe", float("nan")),
+                    )
+                ),
+                float(metrics.get("payout_score", float("nan"))),
                 result.elapsed_seconds,
                 f" [ERROR: {result.error}]" if result.error else "",
             )
@@ -813,13 +878,20 @@ def _run_local(
                 failed=bool(result.error),
             )
 
-        best_score, best_config = _best_from_db(db, objective)
+        best_score, best_config = _best_from_db(
+            db, objective, criteria=resolved_best_criteria
+        )
         results = _all_results_from_db(db)
 
     best_path = output_dir / "best_config.json"
     with open(best_path, "w", encoding="utf-8") as f:
         json.dump(best_config, f, indent=2)
-    logger.info("Best {} score: {:.4f}", objective, best_score)
+    logger.info(
+        "Best {} score ({}) : {:.4f}",
+        objective,
+        resolved_best_criteria,
+        best_score,
+    )
     logger.info("Best config saved to: {}", best_path)
 
     all_results_path = output_dir / "all_trials.json"
@@ -992,10 +1064,12 @@ def main(
     trial_timeout: int = 3600,
     gpu: bool = False,
     fast: bool = True,
+    max_models: int = 2,
     wandb_diagnostics: bool = True,
     max_hours: float | None = None,
     sampler: SamplerName = "tpe",
     n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
+    best_criteria: BestCriteria = "objective",
 ) -> None:
     """Run HPO search over preprocessing, models, and ensemble strategies.
 
@@ -1017,6 +1091,11 @@ def main(
     Fast mode (default) uses era holdout and a tighter search space so trials
     finish within ~30 minutes on full data.
     Pass --no-fast for full walk-forward evaluation (slower).
+    Pass --max-models N to cap ensemble size per trial (default: 2 in fast mode, 3
+    in walk-forward mode). Use --max-models 3 in fast mode for 3-model ensembles.
+    When --objective payout_score, best_config.json defaults to robust payout
+    selection (validation payout penalized by weak holdout CORR). Override with
+    --best-criteria objective to keep raw validation payout.
     """
     load_dotenv()
     set_global_seed(seed)
@@ -1039,10 +1118,12 @@ def main(
             trial_timeout=trial_timeout,
             gpu=gpu,
             fast=fast,
+            max_models=max_models if fast else max(max_models, 3),
             wandb_diagnostics=wandb_diagnostics,
             max_hours=max_hours,
             sampler=sampler,
             n_startup_trials=n_startup_trials,
+            best_criteria=best_criteria,
         )
     else:
         _run_ray(
