@@ -212,4 +212,6 @@ __marimo__/
 artifacts/
 data/
 wandb/
+!master_thesis/wandb/charts/
+!master_thesis/wandb/charts/**
 catboost_info/
