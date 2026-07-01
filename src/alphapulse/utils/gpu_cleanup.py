@@ -15,6 +15,7 @@ _TRIAL_WORKER_MARKERS = (
     "multiprocessing.spawn",
     "alphapulse",
 )
+_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 
 def release_cuda_memory() -> None:
@@ -73,7 +74,7 @@ def _signal_kill(pid: int) -> bool:
     if pid <= 1:
         return False
     try:
-        os.kill(pid, signal.SIGKILL)
+        os.kill(pid, _KILL_SIGNAL)
         return True
     except ProcessLookupError:
         return False
