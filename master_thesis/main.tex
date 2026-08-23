@@ -30,7 +30,7 @@
 \newcommand{\code}[1]{\texttt{\detokenize{#1}}}
 
 % Listings: mniejsza czcionka, żeby długie komendy nie wychodziły poza margines
-\lstset{basicstyle=\footnotesize\ttfamily,breaklines=true,breakatwhitespace=true,columns=fullflexible}
+\lstset{basicstyle=\footnotesize\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible}
 
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
 \newcommand{\repo}{\texttt{AlphaPulse}}
@@ -87,29 +87,29 @@
 
 \selectlanguage{polish}
 \chapter*{Abstrakt}
-Ta praca magisterska skupia się na projekcie i wdrożeniu AlphaPulse --- konfigurowalnego 
-systemu do budowania, trenowania i uruchamiania potoków uczenia maszynowego 
-zaprojektowanych z myślą o turnieju Numerai. Numerai to globalny konkurs data 
-science, w którym uczestnicy przygotowują prognozy sygnałów rynkowych dla akcji, a 
-zebrane wyniki są używane przez fundusz hedgingowy do realnych decyzji 
+Ta praca magisterska skupia się na projekcie i wdrożeniu AlphaPulse --- konfigurowalnego
+systemu do budowania, trenowania i uruchamiania potoków uczenia maszynowego
+zaprojektowanych z myślą o turnieju Numerai. Numerai to globalny konkurs data
+science, w którym uczestnicy przygotowują prognozy sygnałów rynkowych dla akcji, a
+zebrane wyniki są używane przez fundusz hedgingowy do realnych decyzji
 inwestycyjnych.
 
-Najważniejszym wyzwaniem było stworzenie abstrakcji i narzędzi pozwalających na 
-regularne eksperymentowanie z różnymi ustawieniami modeli predykcyjnych dla danych 
-finansowych typu szereg czasowy, przy jednoczesnym pilnowaniu, by nie pojawił się 
-look-ahead bias (czyli wyciek informacji z przyszłości). W odpowiedzi na te potrzeby 
-powstał framework korzystający z deklaratywnej konfiguracji YAML, 
-oddzielnych abstrakcji dla komponentów (preprocessory, modele, strategie ensemble) oraz walidacji 
+Najważniejszym wyzwaniem było stworzenie abstrakcji i narzędzi pozwalających na
+regularne eksperymentowanie z różnymi ustawieniami modeli predykcyjnych dla danych
+finansowych typu szereg czasowy, przy jednoczesnym pilnowaniu, by nie pojawił się
+look-ahead bias (czyli wyciek informacji z przyszłości). W odpowiedzi na te potrzeby
+powstał framework korzystający z deklaratywnej konfiguracji YAML,
+oddzielnych abstrakcji dla komponentów (preprocessory, modele, strategie ensemble) oraz walidacji
 krzyżowej, która uwzględnia struktury er (purged era cross-validation).
 
-Najważniejsze elementy projektu to: modułowa architektura potoku pozwalająca łatwo 
-łączyć różne etapy przetwarzania i modelowania, w pełni zautomatyzowany system optymalizacji 
-hiperparametrów z wykorzystaniem Optuna (praca lokalna) lub Ray Tune (praca rozproszona) i 
-bazą TrialDB do zapisu wyników, a także AutoResearch --- autonomiczna pętla badawcza wspierana agentowym modelem językowym. 
-Poza tym jest integracja metryk MMC i \textit{payout score} na zbiorze walidacyjnym, rozbudowana 
-diagnostyka w Weights \& Biases (w tym wykresy SHAP i ekspozycji cech), 
-panel eksploracyjny EDA w Streamlit oraz kompletny workflow produkcyjny: eksport \texttt{predict.pkl}, wnioskowanie na danych \textit{live} i 
-automatyczna wysyłka prognoz do API Numerai. Testy pokazały, że system umożliwia wygodne i powtarzalne badania nad różnymi konfiguracjami, 
+Najważniejsze elementy projektu to: modułowa architektura potoku pozwalająca łatwo
+łączyć różne etapy przetwarzania i modelowania, w pełni zautomatyzowany system optymalizacji
+hiperparametrów z wykorzystaniem Optuna (praca lokalna) lub Ray Tune (praca rozproszona) i
+bazą TrialDB do zapisu wyników, a także AutoResearch --- autonomiczna pętla badawcza wspierana agentowym modelem językowym.
+Poza tym jest integracja metryk MMC i \textit{payout score} na zbiorze walidacyjnym, rozbudowana
+diagnostyka w Weights \& Biases (w tym wykresy SHAP i ekspozycji cech),
+panel eksploracyjny EDA w Streamlit oraz kompletny workflow produkcyjny: eksport \texttt{predict.pkl}, wnioskowanie na danych \textit{live} i
+automatyczna wysyłka prognoz do API Numerai. Testy pokazały, że system umożliwia wygodne i powtarzalne badania nad różnymi konfiguracjami,
 a podejście oparte na agentach znacząco ogranicza ilość ręcznej pracy, pozwalając jednocześnie uzyskać konkurencyjne wyniki mierzone Sharpe'em,
  MMC oraz średnią korelacją per era.
 
@@ -154,26 +154,26 @@ optimization, ensemble models, meta model contribution, AI agents, AutoML
 \chapter*{Wstęp}
 
 \section{Kontekst i motywacja}
-Prognozowanie rynku finansowego to jedno z najbardziej wymagających zagadnień w uczeniu maszynowym. Dane z tej branży mają kiepski 
-stosunek sygnału do szumu, są niestabilne i zależne od historii --- każda obserwacja mocno łączy się z poprzednimi. Dodatkowo, 
-dane dzielą się na ery (czyli tygodniowe przekroje), przez co standardowe techniki podziału na zbiory treningowe i testowe przestają się sprawdzać. 
+Prognozowanie rynku finansowego to jedno z najbardziej wymagających zagadnień w uczeniu maszynowym. Dane z tej branży mają kiepski
+stosunek sygnału do szumu, są niestabilne i zależne od historii --- każda obserwacja mocno łączy się z poprzednimi. Dodatkowo,
+dane dzielą się na ery (czyli tygodniowe przekroje), przez co standardowe techniki podziału na zbiory treningowe i testowe przestają się sprawdzać.
 Cała trudność polega na tym, że błędów modelu nie da się tutaj „przykryć”
 statystyką na jednym teście: skuteczność ostatecznie weryfikuje rynek, więc
 łatwiej o przeoptymalizowanie pod konkretny zbiór niż w klasycznych konkursach ML.
 
-Turniej Numerai, który ruszył w 2015 roku z inicjatywy firmy Numerai Inc., to nietypowa platforma do badań nad uczeniem maszynowym w finansach. 
-Uczestnicy otrzymują zaszyfrowane i zanonimizowane tabelaryczne dane o spółkach giełdowych --- zebrane są tu zarówno atrybuty fundamentalne, 
-techniczne, jak i rynkowe. Głównym zadaniem jest zbudowanie modeli, które przewidzą przyszłe, neutralne względem rynku stopy zwrotu (tzw. alpha) 
-na 20-dniowym horyzoncie. Wszystkie prognozy są potem łączone przez fundusz hedgingowy Numerai w jeden Meta Model, który faktycznie steruje realnymi 
-transakcjami. Sami uczestnicy mogą stawiać własne tokeny NMR (waluta Numerai) na swoje przewidywania i zyskują lub tracą środki zależnie od ich 
+Turniej Numerai, który ruszył w 2015 roku z inicjatywy firmy Numerai Inc., to nietypowa platforma do badań nad uczeniem maszynowym w finansach.
+Uczestnicy otrzymują zaszyfrowane i zanonimizowane tabelaryczne dane o spółkach giełdowych --- zebrane są tu zarówno atrybuty fundamentalne,
+techniczne, jak i rynkowe. Głównym zadaniem jest zbudowanie modeli, które przewidzą przyszłe, neutralne względem rynku stopy zwrotu (tzw. alpha)
+na 20-dniowym horyzoncie. Wszystkie prognozy są potem łączone przez fundusz hedgingowy Numerai w jeden Meta Model, który faktycznie steruje realnymi
+transakcjami. Sami uczestnicy mogą stawiać własne tokeny NMR (waluta Numerai) na swoje przewidywania i zyskują lub tracą środki zależnie od ich
 skuteczności.
 
-Z takiego połączenia wychodzi naturalne pytanie badawcze: jak systematycznie testować różne układy modeli ML, by maksymalnie podnieść jakość 
-przewidywań (mierzoną współczynnikiem korelacji dla każdej ery i współczynnikiem Sharpe'a), a przy tym spełniać wszystkie wymagania związane 
+Z takiego połączenia wychodzi naturalne pytanie badawcze: jak systematycznie testować różne układy modeli ML, by maksymalnie podnieść jakość
+przewidywań (mierzoną współczynnikiem korelacji dla każdej ery i współczynnikiem Sharpe'a), a przy tym spełniać wszystkie wymagania związane
 z formatem wysyłki i unikaniem wycieku czasowego?
 
-Dziś podejścia do Numerai są głównie doraźne --- uczestnicy piszą własne skrypty, testują wszystko ręcznie i nie korzystają z jednej, 
-ustandaryzowanej infrastruktury. Brakuje gotowego narzędzia, które pozwalałoby wygodnie budować cały proces: od pobierania danych, 
+Dziś podejścia do Numerai są głównie doraźne --- uczestnicy piszą własne skrypty, testują wszystko ręcznie i nie korzystają z jednej,
+ustandaryzowanej infrastruktury. Brakuje gotowego narzędzia, które pozwalałoby wygodnie budować cały proces: od pobierania danych,
 przez definiowanie eksperymentów, optymalizację parametrów, walidację zgodną z erami, aż po eksportowanie predykcji w odpowiednim formacie.
 
 \section{Problem badawczy}
@@ -187,10 +187,10 @@ pracy inżynierskiej przy każdym kolejnym eksperymencie?
 
 Problem rozbijamy na pytania szczegółowe:
 \begin{enumerate}[label=\arabic*.]
-\item Jakie typy komponentów (preprocesory, modele, strategie ensemble) są potrzebne, by objąć pełen wachlarz konfiguracji wykorzystywanych na 
+\item Jakie typy komponentów (preprocesory, modele, strategie ensemble) są potrzebne, by objąć pełen wachlarz konfiguracji wykorzystywanych na
 danych szeregów czasowych?
 \item Jak przeprowadzić właściwą walidację uwzględniającą zależności czasowe i korelacje w ramach jednej ery, żeby uniknąć wycieku informacji?
-\item Czy automatyzacja doboru hiperparametrów i konfiguracji modeli --- także z użyciem dużych modeli językowych --- może całkowicie 
+\item Czy automatyzacja doboru hiperparametrów i konfiguracji modeli --- także z użyciem dużych modeli językowych --- może całkowicie
 zastąpić lub chociaż odciążyć człowieka w eksperymentach?
 \item W jaki sposób połączyć wszystkie etapy pracy w jeden spójny, łatwo konfigurowalny system zgodny z tym, czego wymaga Numerai?
 \end{enumerate}
@@ -202,9 +202,9 @@ który:
 \item Ujednolica cały workflow Numerai: od pobrania danych, po wysyłkę predykcji.
 \item Pozwala definiować eksperymenty w YAML-u --- bez ręcznej edycji kodu źródłowego.
 \item Dba o poprawną walidację z podziałem na ery, mechanizmem purging i embargo.
-\item Zarządza poszukiwaniem najlepszych hiperparametrów i konfiguracji pipeline'u - 
+\item Zarządza poszukiwaniem najlepszych hiperparametrów i konfiguracji pipeline'u -
 przy użyciu Optuna (tryb \texttt{--local}) albo Ray Tune (wersja rozproszona), wsparcie dla \texttt{--resume} i TrialDB.
-\item Wprowadza automatyczną pętlę badawczą (AutoResearch), sterowaną dużym modelem językowym, który sam proponuje kolejne modyfikacje i 
+\item Wprowadza automatyczną pętlę badawczą (AutoResearch), sterowaną dużym modelem językowym, który sam proponuje kolejne modyfikacje i
 sprawdza ich skuteczność.
 \item Ocenia modele metrykami CORR, Sharpe, MMC i \textit{payout score},
 z walidacją na zbiorze \texttt{meta\_model.parquet}.
@@ -212,19 +212,19 @@ z walidacją na zbiorze \texttt{meta\_model.parquet}.
 tygodniowy cykl produkcyjny: predykcję z \texttt{live.parquet} oraz automatyczną wysyłkę.
 \end{itemize}
 
-Do celów pomocniczych należą też: sprawdzenie, jak skuteczne jest podejście agentowe w AutoML, zbadanie, jak wybór modeli i typów ensemble wpływa 
+Do celów pomocniczych należą też: sprawdzenie, jak skuteczne jest podejście agentowe w AutoML, zbadanie, jak wybór modeli i typów ensemble wpływa
 na jakość prognoz, a także porównanie różnych metod walidacji krzyżowej dla finansowych danych z podziałem na ery.
 
 \section{Zakres i ograniczenia}
 Framework AlphaPulse powstał specjalnie na turniej Numerai Classic i opiera się na danych z wersji 5.2. W ramach pracy uwzględniamy:
 \begin{itemize}
-\item Modele tabelaryczne: gradient boosting, drzewa decyzyjne, modele liniowe, wybrane fundamentalne modele tabelaryczne 
+\item Modele tabelaryczne: gradient boosting, drzewa decyzyjne, modele liniowe, wybrane fundamentalne modele tabelaryczne
 (TabPFN, TabPFN3, TabICL) oraz głębokie sieci (\texttt{TabularDL} z architekturami FT-Transformer i MLP).
-\item Narzędzia do przetwarzania danych: skalowanie, redukcję wymiarów, wybór cech, autoenkodery, kompresję cech, 
+\item Narzędzia do przetwarzania danych: skalowanie, redukcję wymiarów, wybór cech, autoenkodery, kompresję cech,
 selekcję stabilnych cech w podziale na ery (\texttt{EraStableFeatureSelector}), a także regularyzację przez dodawanie szumu gaussowskiego.
-\item Strategie ensemble: \texttt{single}, \texttt{weighted}, \texttt{stacking}; potoki wielogłowicowe (\texttt{MultiHeadPipeline}) i 
-wielocelowe (\texttt{MultiTargetPipeline}). 
-\item Optymalizację hiperparametrów (Optuna TPE lokalnie, Ray Tune w środowisku rozproszonym) 
+\item Strategie ensemble: \texttt{single}, \texttt{weighted}, \texttt{stacking}; potoki wielogłowicowe (\texttt{MultiHeadPipeline}) i
+wielocelowe (\texttt{MultiTargetPipeline}).
+\item Optymalizację hiperparametrów (Optuna TPE lokalnie, Ray Tune w środowisku rozproszonym)
 oraz system AutoResearch z integracją agenta Claude.
 \item Panel EDA (Streamlit) do analizy danych i prezentacji wyników HPO.
 \end{itemize}
@@ -1776,10 +1776,10 @@ oraz praktycznego AutoML przy zadaniach o wysokiej złożoności.
 \item Ke, Guolin, et al. LightGBM: A Highly Efficient Gradient Boosting Decision Tree. NeurIPS, 2017.
 \item Prokhorenkova, Liudmila, et al. CatBoost: Unbiased Boosting with Categorical Features. NeurIPS, 2018.
 \item Wolpert, David H. Stacked Generalization. Neural Networks, 1992.
-\item Hollmann, Nathan, et al. TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second. 
+\item Hollmann, Nathan, et al. TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second.
 \url{https://arxiv.org/pdf/2207.01848}
 \item Hollmann, Nathan, et al. Accurate predictions on small data with a tabular foundation model. Nature, 2024.
-\item Szulc, K. AlphaPulse HPO --- Robustness, recipes, and search progression (W\&B Report, 2026). 
+\item Szulc, K. AlphaPulse HPO --- Robustness, recipes, and search progression (W\&B Report, 2026).
 \url{https://wandb.ai/dsc-pjatk-warsaw/alphapulse-hpo-20260619-112936-20260619-112939/reports/AlphaPulse-HPO-Robustness-recipes-and-search-progression--VmlldzoxNzM5NDI1MA}
 \end{enumerate}
 \end{document}
