@@ -45,6 +45,18 @@ def test_ensemble_optimizer_bounded_weights_stay_in_box() -> None:
     assert all(0.05 <= float(w) <= 0.90 for w in bounded.weights_)
 
 
+def test_payout_weight_optimization_requires_meta_model() -> None:
+    optimizer = EnsembleOptimizer(objective="payout_score")
+    matrix = np.ones((20, 2))
+
+    with pytest.raises(ValueError, match="requires aligned meta-model"):
+        optimizer.fit(
+            matrix,
+            np.ones(20),
+            pd.Series(["era"] * 20),
+        )
+
+
 def test_pipeline_optimize_weights_post_fit() -> None:
     rng = np.random.RandomState(1)
     n = 160

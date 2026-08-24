@@ -26,13 +26,13 @@ AlphaPulse HPO logs **two evaluation splits**. Do not compare columns across spl
 | `validation/ValidationSharpe` | validation | corr_sharpe on `validation.parquet` |
 | `validation/ValidationMmcSharpe` | validation | MMC Sharpe with `meta_model.parquet` |
 | `validation/ValidationMeanCorr` | validation | mean per-era Spearman on validation |
-| `validation/PayoutScore` | validation | **HPO objective** |
+| `validation/PayoutScore` | validation | **legacy AlphaPulse HPO proxy** (historical field name) |
 
-**Payout formula (Numerai-style):**
+**Historical proxy formula (not official Numerai payout):**
 
-`PayoutScore = 0.75 * ValidationSharpe + 2.25 * ValidationMmcSharpe`
+`LegacyPayoutProxy = 0.75 * ValidationSharpe + 2.25 * ValidationMmcSharpe`
 
-Leaderboard ranks by `PayoutScore` (validation). `HoldoutSharpe` is a separate generalization check on train.
+The historical leaderboard ranks by this validation proxy. `HoldoutSharpe` is a separate train-era diagnostic.
 
 **Diagnostics charts** are prefixed by split: `diagnostics/holdout/...` vs `diagnostics/validation/...`.
 """
@@ -103,7 +103,7 @@ def _executive_summary_fixed(stats: dict[str, float | int | str], failed: int) -
         f"(`{stats['best_holdout_models']}`) has the strongest holdout signal: "
         f"`holdout/HoldoutSharpe = {float(stats['best_holdout_sh']):.3f}` and "
         f"`validation/ValidationSharpe = {float(stats['best_holdout_val_sh']):.3f}`.\n\n"
-        f"**Payout leader:** `trial_{int(stats['best_payout_trial']):03d}` "
+        f"**Legacy-proxy leader:** `trial_{int(stats['best_payout_trial']):03d}` "
         f"(`{stats['best_payout_models']}`) reaches "
         f"`validation/PayoutScore = {float(stats['best_payout']):.3f}` "
         f"with `validation/ValidationMmcSharpe = {float(stats['best_payout_mmc']):.3f}`, "
@@ -121,7 +121,7 @@ def _top_runs_table(stats: dict[str, float | int | str]) -> str:
 |---|---:|---|---|---|
 | ValidationSharpe | `trial_{hp_t:03d}` | `{stats["best_holdout_models"]}` | ValidationSharpe `{float(stats["best_holdout_val_sh"]):.3f}`; HoldoutSharpe `{float(stats["best_holdout_sh"]):.3f}` | Best holdout generalization among completed runs. |
 | HoldoutSharpe | `trial_{hp_t:03d}` | `{stats["best_holdout_models"]}` | HoldoutSharpe `{float(stats["best_holdout_sh"]):.3f}` | Same run — strongest train-era holdout Sharpe. |
-| PayoutScore | `trial_{pp_t:03d}` | `{stats["best_payout_models"]}` | PayoutScore `{float(stats["best_payout"]):.3f}`; ValidationSharpe `{float(stats["best_payout_val_sh"]):.3f}`; HoldoutSharpe `{float(stats["best_payout_holdout_sh"]):.3f}` | Best validation payout objective; weak holdout Sharpe — tradeoff, not a single clear winner. |
+| LegacyPayoutProxy | `trial_{pp_t:03d}` | `{stats["best_payout_models"]}` | Legacy proxy `{float(stats["best_payout"]):.3f}`; ValidationSharpe `{float(stats["best_payout_val_sh"]):.3f}`; HoldoutSharpe `{float(stats["best_payout_holdout_sh"]):.3f}` | Best historical validation proxy; weak holdout Sharpe — exploratory tradeoff, not an official payout result. |
 """
 
 
@@ -144,7 +144,8 @@ def main() -> None:
         "Families include `TabPFN`, `TabICL`, `LightGBM`, `XGBoost`, `CatBoost`, and "
         "`Packboost`, with ensemble modes `single`, `weighted`, and `stacking`.\n\n"
         "Logged metrics use explicit holdout vs validation names (see next section). "
-        "The HPO objective is `validation/PayoutScore`."
+        "The historical HPO objective is the legacy field `validation/PayoutScore`; "
+        "it is not official Numerai payout."
     )
     report.blocks[9].text = _top_runs_table(stats)
     report.blocks[12].text = (
@@ -169,7 +170,7 @@ def main() -> None:
     joined = "\n".join(texts)
     for needle in (
         METRICS_SECTION_TITLE,
-        "PayoutScore = 0.75 * ValidationSharpe + 2.25 * ValidationMmcSharpe",
+        "LegacyPayoutProxy = 0.75 * ValidationSharpe + 2.25 * ValidationMmcSharpe",
         "holdout/HoldoutSharpe",
         f"trial_{int(stats['best_payout_trial']):03d}",
     ):

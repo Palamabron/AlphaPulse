@@ -7,19 +7,25 @@ import pandas as pd
 from loguru import logger
 
 from ..evaluation.metrics import rank_normalize
-from ..experiments.data import meta_model_from_benchmarks
+from ..experiments.data import require_meta_model_from_benchmarks
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
 from ..preprocessors.era_stable import EraStableFeatureSelector
 from .ensemble import EnsembleStrategy
-from .neutralizer import FeatureNeutralizer, MetaModelNeutralizer
+from .neutralizer import (
+    FeatureNeutralizer,
+    MetaModelNeutralizer,
+    apply_prediction_neutralization,
+)
 from .row_utils import (
+    blend_with_benchmark,
     filter_invalid_rows,
     filter_nan_rows,
     invalid_row_mask,
     protected_metadata_frame,
     reattach_protected_columns,
     safe_median,
+    select_required_features,
 )
 
 
@@ -110,7 +116,7 @@ class Pipeline:
         X_val: pd.DataFrame | None = None,
         y_val: pd.Series | None = None,
         era_val: pd.Series | None = None,
-        ensemble_meta_preds: np.ndarray | None = None,
+        ensemble_meta_preds: pd.Series | np.ndarray | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
         """Fit preprocessors and train all models.
@@ -126,6 +132,7 @@ class Pipeline:
         Returns:
             Dictionary of training metrics reported by the model(s).
         """
+        per_model_kwargs = model_train_kwargs.pop("model_train_kwargs_by_index", None)
         if self.feature_columns is None:
             self.feature_columns = list(X.columns)
 
@@ -155,7 +162,28 @@ class Pipeline:
 
         X_val_t: pd.DataFrame | None = None
         era_val_t: pd.Series | None = None
+        ensemble_meta_series: pd.Series | None = None
         if X_val is not None:
+            if ensemble_meta_preds is not None:
+                if isinstance(ensemble_meta_preds, pd.Series):
+                    if ensemble_meta_preds.index.has_duplicates:
+                        raise ValueError(
+                            "ensemble_meta_preds index must not contain duplicates"
+                        )
+                    missing = X_val.index.difference(ensemble_meta_preds.index)
+                    extra = ensemble_meta_preds.index.difference(X_val.index)
+                    if len(missing) > 0 or len(extra) > 0:
+                        raise ValueError(
+                            "ensemble_meta_preds row IDs must exactly match X_val"
+                        )
+                    ensemble_meta_series = ensemble_meta_preds.reindex(X_val.index)
+                else:
+                    meta_array = np.asarray(ensemble_meta_preds, dtype=np.float64)
+                    if len(meta_array) != len(X_val):
+                        raise ValueError(
+                            "ensemble_meta_preds length must match X_val length"
+                        )
+                    ensemble_meta_series = pd.Series(meta_array, index=X_val.index)
             if era_val is None and "era" in X_val.columns:
                 era_val = X_val["era"]
             X_val, y_val = filter_invalid_rows(X_val, y_val)
@@ -180,32 +208,41 @@ class Pipeline:
                     era_val_t = (
                         era_val.loc[X_val_t.index] if era_val is not None else None
                     )
+                    if ensemble_meta_series is not None:
+                        ensemble_meta_preds = ensemble_meta_series.loc[
+                            X_val_t.index
+                        ].to_numpy(dtype=np.float64)
 
         if len(self.models) == 1:
             model = self.models[0]
+            train_kwargs = dict(model_train_kwargs)
+            if per_model_kwargs:
+                train_kwargs.update(per_model_kwargs[0])
             logger.info(
                 "Training model {}: rows={} features={}",
                 model.name,
                 len(X_fit),
                 X_fit.shape[1],
             )
-            metrics = model.train(
-                X_fit, y, X_val=X_val_t, y_val=y_val, **model_train_kwargs
-            )
+            metrics = model.train(X_fit, y, X_val=X_val_t, y_val=y_val, **train_kwargs)
             logger.info("Model {} finished", model.name)
         else:
             metrics = {}
-            for idx, m in enumerate(self.models, start=1):
+            for model_index, m in enumerate(self.models):
+                train_kwargs = dict(model_train_kwargs)
+                if per_model_kwargs and model_index < len(per_model_kwargs):
+                    train_kwargs.update(per_model_kwargs[model_index])
+                display_index = model_index + 1
                 logger.info(
                     "Training model {}/{} {}: rows={} features={}",
-                    idx,
+                    display_index,
                     len(self.models),
                     m.name,
                     len(X_fit),
                     X_fit.shape[1],
                 )
                 m_metrics = m.train(
-                    X_fit, y, X_val=X_val_t, y_val=y_val, **model_train_kwargs
+                    X_fit, y, X_val=X_val_t, y_val=y_val, **train_kwargs
                 )
                 logger.info("Model {} finished", m.name)
                 for k, v in m_metrics.items():
@@ -364,47 +401,16 @@ class Pipeline:
                 )
                 raw_preds[post_arr] = valid_preds
 
-        if self._neutralizer is None:
-            output = raw_preds
-        else:
-            neutral_cols = (
-                self.neutralize_features or self.feature_columns or list(X_orig.columns)
-            )
-            available_cols = [c for c in neutral_cols if c in X_orig.columns]
-            if not available_cols:
-                output = rank_normalize(raw_preds)
-                return self._apply_meta_neutralization(
-                    output, meta_model, eras, X_orig.index
-                )
-
-            neutralized = self._neutralizer.neutralize(
-                raw_preds,
-                X_orig[available_cols],
-                eras=eras,
-            )
-            output = rank_normalize(neutralized)
-
-        return self._apply_meta_neutralization(output, meta_model, eras, X_orig.index)
-
-    def _apply_meta_neutralization(
-        self,
-        preds: np.ndarray,
-        meta_model: np.ndarray | pd.Series | None,
-        eras: pd.Series | None,
-        index: pd.Index,
-    ) -> np.ndarray:
-        if self._meta_neutralizer is None or meta_model is None:
-            return preds
-        meta_arr = np.asarray(meta_model, dtype=np.float64).reshape(-1)
-        if len(meta_arr) != len(preds):
-            raise ValueError(
-                f"meta_model length {len(meta_arr)} != predictions length {len(preds)}"
-            )
-        era_series = eras if eras is not None else pd.Series(index=index)
-        neutralized = self._meta_neutralizer.neutralize(
-            preds, meta_arr, eras=era_series
+        return apply_prediction_neutralization(
+            raw_preds,
+            X_orig,
+            eras=eras,
+            feature_columns=self.feature_columns,
+            neutralize_features=self.neutralize_features,
+            feature_neutralizer=self._neutralizer,
+            meta_model=meta_model,
+            meta_neutralizer=self._meta_neutralizer,
         )
-        return rank_normalize(neutralized)
 
     def validate_feature_schema(self, X: pd.DataFrame) -> None:
         """Warn about columns present in training but missing from *X*.
@@ -453,27 +459,30 @@ class Pipeline:
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
-            X = live_features.reindex(columns=feature_columns, fill_value=0.0)
+            X = select_required_features(live_features, feature_columns)
             eras = (
                 live_features["era"]
-                if use_neutralization and "era" in live_features.columns
+                if (use_neutralization or use_meta_neutralization)
+                and "era" in live_features.columns
                 else None
             )
             meta_model = (
-                meta_model_from_benchmarks(live_benchmark_models, live_features.index)
+                require_meta_model_from_benchmarks(
+                    live_benchmark_models, live_features.index
+                )
                 if use_meta_neutralization
                 else None
             )
             raw_preds = pipeline.predict(X, eras=eras, meta_model=meta_model)
             ranked = rank_normalize(raw_preds)
 
-            if (
-                blend_weight > 0.0
-                and bench_col
-                and bench_col in live_benchmark_models.columns
-            ):
-                bench = live_benchmark_models[bench_col].values
-                ranked = (1.0 - blend_weight) * ranked + blend_weight * bench
+            ranked = blend_with_benchmark(
+                ranked,
+                live_benchmark_models,
+                live_features.index,
+                benchmark_column=bench_col,
+                weight=blend_weight,
+            )
 
             return pd.DataFrame({"prediction": ranked}, index=live_features.index)
 

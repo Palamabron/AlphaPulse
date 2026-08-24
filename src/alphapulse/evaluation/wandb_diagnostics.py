@@ -5,7 +5,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ..evaluation.metrics import per_era_correlation, rank_normalize
 from ..pipeline.model_access import (
     PipelineLike,
     model_prediction_map,
@@ -13,6 +12,9 @@ from ..pipeline.model_access import (
 )
 from ..pipeline.multi_target import MultiTargetPipeline
 from ..pipeline.pipeline import Pipeline
+from ..utils.alignment import align_series_to_frame
+from .backtester import predict_with_optional_eras
+from .metrics import per_era_correlation, rank_normalize
 
 MAX_HEXBIN_POINTS = 10_000
 FEATURE_EXPOSURE_TOP_N = 15
@@ -127,7 +129,7 @@ def _log_mmc_metrics_from_dict(
     scalar_names = {
         "mmc": "ValidationMmc",
         "mmc_sharpe": "ValidationMmcSharpe",
-        "payout_score": "PayoutScore",
+        "payout_score": "LegacyPayoutProxy",
         "corr_sharpe": "ValidationSharpe",
         "mean_per_era_correlation": "ValidationMeanCorr",
     }
@@ -208,6 +210,26 @@ def _feature_exposure_summary(
     }
 
 
+def _aligned_meta_model_predictions(
+    X: pd.DataFrame,
+    meta_model_preds: np.ndarray | pd.Series | None,
+) -> np.ndarray | None:
+    if isinstance(meta_model_preds, pd.Series):
+        meta_model_preds = align_series_to_frame(
+            X,
+            meta_model_preds,
+            name="meta_model_preds",
+        )
+    if meta_model_preds is None:
+        return None
+    meta_array = np.asarray(meta_model_preds, dtype=np.float64).reshape(-1)
+    if len(meta_array) != len(X):
+        raise ValueError("meta_model_preds length must match the validation frame")
+    if not np.isfinite(meta_array).all():
+        raise ValueError("meta_model_preds contains missing or non-finite predictions")
+    return meta_array
+
+
 def log_experiment_diagnostics(
     *,
     pipeline: PipelineLike,
@@ -216,7 +238,7 @@ def log_experiment_diagnostics(
     era_val: pd.Series,
     feature_cols: list[str],
     metrics: dict[str, float],
-    meta_model_preds: np.ndarray | None = None,
+    meta_model_preds: np.ndarray | pd.Series | None = None,
     log_shap: bool = True,
     log_feature_report: bool = True,
     log_era_importance: bool = False,
@@ -232,7 +254,8 @@ def log_experiment_diagnostics(
         era_val: Era labels aligned with X_val.
         feature_cols: Feature column names (must not include "era").
         metrics: Backtest metrics dict for this *split* (holdout or validation).
-        meta_model_preds: Optional meta-model predictions for MMC logging.
+        meta_model_preds: Optional meta-model predictions for MMC logging and
+            prediction neutralization. Series inputs are aligned to X_val by row ID.
         log_shap: If True, log universal feature importance (all model types).
         log_feature_report: If True, log per-era stability report via LightGBM proxy.
         log_era_importance: If True, log era-stratified importance from pipeline models
@@ -246,30 +269,31 @@ def log_experiment_diagnostics(
     import wandb
 
     X_use = X_val[feature_cols] if feature_cols else X_val
-    neutralize = getattr(pipeline, "neutralize_proportion", 0)
-    eras_for_predict = era_val if neutralize > 0 else None
-    if isinstance(pipeline, Pipeline):
-        preds = pipeline.predict(X_use, eras=eras_for_predict)
-    elif isinstance(pipeline, MultiTargetPipeline):
-        preds = pipeline.predict(X_use)
-    else:
-        preds = pipeline.predict(X_val[feature_cols] if feature_cols else X_val)
+    y_aligned = align_series_to_frame(X_use, y_val, name="target")
+    era_aligned = align_series_to_frame(X_use, era_val, name="era")
+    meta_array = _aligned_meta_model_predictions(X_use, meta_model_preds)
+    preds = predict_with_optional_eras(
+        pipeline,
+        X_use,
+        era_aligned,
+        meta_model_preds=meta_array,
+    )
 
-    _log_per_era_correlation(y_val, preds, era_val, split=split)
-    _log_prediction_diagnostics(y_val, preds, split=split)
-    _log_feature_exposure(preds, X_use, era_val, split=split)
+    _log_per_era_correlation(y_aligned, preds, era_aligned, split=split)
+    _log_prediction_diagnostics(y_aligned, preds, split=split)
+    _log_feature_exposure(preds, X_use, era_aligned, split=split)
 
     if isinstance(pipeline, Pipeline) and len(pipeline.models) > 1:
         _log_ensemble_diagnostics(
-            pipeline, X_val, feature_cols, y_val, era_val, split=split
+            pipeline, X_val, feature_cols, y_aligned, era_aligned, split=split
         )
     elif isinstance(pipeline, MultiTargetPipeline) and len(pipeline._models) > 1:
         _log_ensemble_diagnostics(
-            pipeline, X_val, feature_cols, y_val, era_val, split=split
+            pipeline, X_val, feature_cols, y_aligned, era_aligned, split=split
         )
 
     if split == "validation" and (
-        meta_model_preds is not None
+        meta_array is not None
         or any(k in metrics for k in ("mmc", "mmc_sharpe", "payout_score"))
     ):
         _log_mmc_metrics_from_dict(wandb, metrics, split=split)
@@ -292,11 +316,17 @@ def log_experiment_diagnostics(
         )
 
     if log_feature_report:
-        _log_feature_report(X_use, y_val, era_val, feature_cols, split=split)
+        _log_feature_report(
+            X_use,
+            y_aligned,
+            era_aligned,
+            feature_cols,
+            split=split,
+        )
 
     if log_era_importance:
         _log_era_stratified_importance(
-            pipeline, X_use, feature_cols, era_val, split=split
+            pipeline, X_use, feature_cols, era_aligned, split=split
         )
 
 

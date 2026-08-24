@@ -8,6 +8,7 @@ import pandas as pd
 from ..experiments.data import load_train_only_frame, load_train_targets_frame
 from ..features.catalog import FeatureCatalog, load_feature_catalog, load_target_catalog
 from ..pipeline.model_access import PipelineLike
+from ..utils import set_global_seed
 from .builder import TREE_MODEL_NAMES
 from .feature_routing import FeatureRoutingResult, resolve_feature_routing
 from .objective import _fit_pipeline, _resolve_pipeline_cfg
@@ -162,6 +163,8 @@ def fit_hpo_pipeline(
     targets_df: pd.DataFrame | None = None,
     seed: int | None = None,
 ) -> PipelineLike:
+    if seed is not None:
+        set_global_seed(seed)
     train_kwargs = get_train_kwargs_from_flat(context.flat)
     return cast(
         PipelineLike,
@@ -189,12 +192,14 @@ def build_hpo_pipeline_from_flat(
     allow_target_resample: bool = False,
 ) -> HpoFitResult:
     prepared = prepare_hpo_flat(flat, data_dir, target_col_fallback=target_col_fallback)
+    data_seed = int(prepared.get("data_seed", seed))
+    model_seed = int(prepared.get("model_seed", seed))
     context = resolve_hpo_build_context(prepared)
     X_train, y_train, targets_df, feature_cols = load_hpo_training_frames(
         context,
         data_dir,
         train_subsample=train_subsample,
-        seed=seed,
+        seed=data_seed,
     )
     context = HpoBuildContext(
         flat=prepared,
@@ -215,7 +220,7 @@ def build_hpo_pipeline_from_flat(
         targets_for_validation,
         data_dir,
         allow_resample=allow_target_resample,
-        seed=seed,
+        seed=data_seed,
     )
     context = resolve_hpo_build_context(validated_flat)
     context = HpoBuildContext(
@@ -234,7 +239,7 @@ def build_hpo_pipeline_from_flat(
         X_train,
         y_train,
         targets_df=targets_df,
-        seed=seed,
+        seed=model_seed,
     )
     primary = str(validated_flat.get("primary_target", target_col_fallback))
     return HpoFitResult(

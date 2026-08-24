@@ -6,12 +6,43 @@ import numpy as np
 import pandas as pd
 
 from ..evaluation.metrics import era_sharpe, rank_normalize
+from ..experiments.data import require_meta_model_from_benchmarks
 from ..models.base import BaseModel
-from ..preprocessors.base import BasePreprocessor
-from .row_utils import filter_invalid_rows, filter_nan_rows
+from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
+from ..preprocessors.era_stable import EraStableFeatureSelector
+from .neutralizer import (
+    FeatureNeutralizer,
+    MetaModelNeutralizer,
+    apply_prediction_neutralization,
+)
+from .row_utils import (
+    blend_with_benchmark,
+    filter_invalid_rows,
+    filter_nan_rows,
+    protected_metadata_frame,
+    reattach_protected_columns,
+    select_required_features,
+)
 
 _MIN_TRAIN_ROWS = 10
 _MIN_VAL_ROWS = 2
+
+
+def _align_targets(
+    frame: pd.DataFrame,
+    targets: pd.DataFrame,
+    *,
+    name: str,
+) -> pd.DataFrame:
+    if frame.index.has_duplicates:
+        raise ValueError(f"{name} feature index must not contain duplicates")
+    if targets.index.has_duplicates:
+        raise ValueError(f"{name} target index must not contain duplicates")
+    missing = frame.index.difference(targets.index)
+    extra = targets.index.difference(frame.index)
+    if len(missing) > 0 or len(extra) > 0:
+        raise ValueError(f"{name} feature and target row IDs must exactly match")
+    return targets.reindex(frame.index)
 
 
 class MultiTargetPipeline:
@@ -23,6 +54,9 @@ class MultiTargetPipeline:
         primary_target: str = "target",
         blend_method: str = "equal",
         benchmark_blend_weight: float = 0.0,
+        neutralize_proportion: float = 0.0,
+        neutralize_features: list[str] | None = None,
+        meta_neutralize_proportion: float = 0.0,
     ) -> None:
         if not target_columns:
             raise ValueError("target_columns must be non-empty")
@@ -34,6 +68,19 @@ class MultiTargetPipeline:
         self.primary_target = primary_target
         self.blend_method = blend_method
         self.benchmark_blend_weight = benchmark_blend_weight
+        self.neutralize_proportion = float(neutralize_proportion)
+        self.neutralize_features = neutralize_features
+        self._neutralizer = (
+            FeatureNeutralizer(proportion=self.neutralize_proportion)
+            if self.neutralize_proportion > 0.0
+            else None
+        )
+        self.meta_neutralize_proportion = float(meta_neutralize_proportion)
+        self._meta_neutralizer = (
+            MetaModelNeutralizer(proportion=self.meta_neutralize_proportion)
+            if self.meta_neutralize_proportion > 0.0
+            else None
+        )
 
         self._models: dict[str, BaseModel] = {}
         self._weights: np.ndarray | None = None
@@ -50,7 +97,20 @@ class MultiTargetPipeline:
         era_val: pd.Series | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
+        self._models = {}
+        self._weights = None
         self.feature_columns = list(X.columns)
+        targets = _align_targets(X, targets, name="training")
+        if X_val is None and targets_val is not None:
+            raise ValueError("targets_val requires X_val")
+        if X_val is not None and targets_val is not None:
+            targets_val = _align_targets(X_val, targets_val, name="validation")
+        if era_train is not None and "era" not in X.columns:
+            X = X.copy()
+            X["era"] = era_train.reindex(X.index)
+        if X_val is not None and era_val is not None and "era" not in X_val.columns:
+            X_val = X_val.copy()
+            X_val["era"] = era_val.reindex(X_val.index)
 
         X, _ = filter_invalid_rows(X)
         targets = targets.loc[X.index]
@@ -63,10 +123,17 @@ class MultiTargetPipeline:
             else None
         )
 
+        train_metadata = protected_metadata_frame(X)
         X_fit = X
         for pp in self.preprocessors:
-            pp.fit(X_fit, y_primary)
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.train()
+            if isinstance(pp, EraStableFeatureSelector) and era_train is not None:
+                pp.fit(X_fit, y_primary, eras=era_train)
+            else:
+                pp.fit(X_fit, y_primary)
             X_fit = pp.transform(X_fit)
+            X_fit = reattach_protected_columns(X_fit, train_metadata)
 
         X_fit, _ = filter_nan_rows(X_fit)
         targets = targets.loc[X_fit.index]
@@ -77,9 +144,23 @@ class MultiTargetPipeline:
         if X_val is not None:
             if era_val is None and "era" in X_val.columns:
                 era_val = X_val["era"]
+            X_val, _ = filter_invalid_rows(X_val)
+            if targets_val is not None:
+                targets_val = targets_val.loc[X_val.index]
+            if era_val is not None:
+                era_val = era_val.loc[X_val.index]
+            validation_metadata = protected_metadata_frame(X_val)
             X_val_t = X_val
             for pp in self.preprocessors:
+                if isinstance(pp, TrainEvalPreprocessor):
+                    pp.eval()
                 X_val_t = pp.transform(X_val_t)
+                X_val_t = reattach_protected_columns(X_val_t, validation_metadata)
+            X_val_t, _ = filter_nan_rows(X_val_t)
+            if targets_val is not None:
+                targets_val = targets_val.loc[X_val_t.index]
+            if era_val is not None:
+                era_val = era_val.loc[X_val_t.index]
 
         all_metrics: dict[str, float] = {}
         available_targets = [t for t in self.target_columns if t in targets.columns]
@@ -108,8 +189,11 @@ class MultiTargetPipeline:
             if y_val is not None:
                 val_valid = y_val.notna()
                 if val_valid.sum() >= _MIN_VAL_ROWS:
-                    X_val_masked = X_val_t[val_valid] if X_val_t is not None else None
-                    y_val_masked = y_val[val_valid]
+                    valid_index = y_val.index[val_valid]
+                    X_val_masked = (
+                        X_val_t.loc[valid_index] if X_val_t is not None else None
+                    )
+                    y_val_masked = y_val.loc[valid_index]
                 else:
                     X_val_masked = None
                     y_val_masked = None
@@ -132,6 +216,11 @@ class MultiTargetPipeline:
                 all_metrics[f"{target_col}_{k}"] = v
 
         fitted_targets = [t for t in available_targets if t in self._models]
+        if not fitted_targets:
+            raise ValueError(
+                "No target has enough valid training rows to fit a model; "
+                f"at least {_MIN_TRAIN_ROWS} rows are required"
+            )
         self._compute_weights(
             X_fit, targets, era_train, fitted_targets, X_val_t, targets_val, era_val
         )
@@ -188,9 +277,17 @@ class MultiTargetPipeline:
         else:
             self._weights = np.ones(n) / n
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    @property
+    def ensemble_weights(self) -> list[float] | None:
+        if self._weights is None:
+            return None
+        return [float(weight) for weight in self._weights]
+
+    def _predict_raw(self, X: pd.DataFrame) -> np.ndarray:
         X_t = X
         for pp in self.preprocessors:
+            if isinstance(pp, TrainEvalPreprocessor):
+                pp.eval()
             X_t = pp.transform(X_t)
 
         available = [t for t in self.target_columns if t in self._models]
@@ -208,6 +305,24 @@ class MultiTargetPipeline:
         )
         return np.asarray(preds @ w, dtype=np.float64)
 
+    def predict(
+        self,
+        X: pd.DataFrame,
+        eras: pd.Series | None = None,
+        meta_model: np.ndarray | pd.Series | None = None,
+    ) -> np.ndarray:
+        raw_preds = self._predict_raw(X)
+        return apply_prediction_neutralization(
+            raw_preds,
+            X,
+            eras=eras,
+            feature_columns=self.feature_columns,
+            neutralize_features=self.neutralize_features,
+            feature_neutralizer=self._neutralizer,
+            meta_model=meta_model,
+            meta_neutralizer=self._meta_neutralizer,
+        )
+
     def to_numerai_predict(
         self,
         benchmark_col: str | None = None,
@@ -216,22 +331,37 @@ class MultiTargetPipeline:
         feature_columns = self.feature_columns or []
         blend_weight = self.benchmark_blend_weight
         bench_col = benchmark_col
+        use_neutralization = pipeline._neutralizer is not None
+        use_meta_neutralization = pipeline._meta_neutralizer is not None
 
         def predict(
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
-            X = live_features.reindex(columns=feature_columns, fill_value=0.0)
-            raw_preds = pipeline.predict(X)
+            X = select_required_features(live_features, feature_columns)
+            eras = (
+                live_features["era"]
+                if (use_neutralization or use_meta_neutralization)
+                and "era" in live_features.columns
+                else None
+            )
+            meta_model = (
+                require_meta_model_from_benchmarks(
+                    live_benchmark_models, live_features.index
+                )
+                if use_meta_neutralization
+                else None
+            )
+            raw_preds = pipeline.predict(X, eras=eras, meta_model=meta_model)
             ranked = rank_normalize(raw_preds)
 
-            if (
-                blend_weight > 0.0
-                and bench_col
-                and bench_col in live_benchmark_models.columns
-            ):
-                bench = live_benchmark_models[bench_col].values
-                ranked = (1.0 - blend_weight) * ranked + blend_weight * bench
+            ranked = blend_with_benchmark(
+                ranked,
+                live_benchmark_models,
+                live_features.index,
+                benchmark_column=bench_col,
+                weight=blend_weight,
+            )
 
             return pd.DataFrame({"prediction": ranked}, index=live_features.index)
 

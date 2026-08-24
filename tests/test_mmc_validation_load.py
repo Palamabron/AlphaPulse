@@ -95,3 +95,16 @@ def test_merge_validation_mmc_metrics_populates_mmc(tmp_path: Path) -> None:
     assert np.isfinite(merged["payout_score"])
     assert merged["holdout_corr_sharpe"] == 1.0
     assert np.isfinite(merged["val_corr_sharpe"])
+
+    preloaded = _merge_validation_mmc_metrics(
+        {"corr_sharpe": 1.0},
+        pipeline=pipe,
+        data_dir=tmp_path / "missing",
+        feature_cols=feature_cols,
+        target_col="target",
+        train_subsample=1.0,
+        seed=1,
+        preloaded_frame=frame,
+        frame_preloaded=True,
+    )[0]
+    assert np.isfinite(preloaded["mmc"])

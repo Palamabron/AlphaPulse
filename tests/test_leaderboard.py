@@ -80,7 +80,7 @@ def test_leaderboard_format_and_sort_by_payout_score(tmp_path: Path) -> None:
         ),
     ]
     text = format_leaderboard(entries)
-    assert "by payout on validation" in text
+    assert "by legacy proxy on validation" in text
     assert "ValidationMmcSharpe" in text
     assert "ValidationSharpe" in text
     assert "HoldoutSharpe" in text
@@ -101,6 +101,14 @@ def test_robust_payout_penalizes_negative_holdout() -> None:
     )
     assert robust is not None
     assert robust == 0.25
+
+
+def test_robust_payout_does_not_improve_negative_payout() -> None:
+    robust = compute_robust_payout_score(
+        -0.4, val_corr_sharpe=0.3, holdout_corr_sharpe=-0.1
+    )
+    assert robust is not None
+    assert robust == -1.6
 
 
 def test_robust_leaderboard_prefers_consistent_trial() -> None:
@@ -137,8 +145,8 @@ def test_robust_leaderboard_prefers_consistent_trial() -> None:
         ),
     ]
     text = format_leaderboard(entries)
-    assert "robust payout" in text
-    assert text.index("104") < text.index("35", text.index("robust payout"))
+    assert "robust legacy proxy" in text
+    assert text.index("104") < text.index("35", text.index("robust legacy proxy"))
 
 
 def test_selection_score_from_metrics_uses_robust_payout() -> None:

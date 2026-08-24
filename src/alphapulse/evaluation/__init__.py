@@ -10,6 +10,10 @@ from .era_split import (
 from .export_validation import smoke_test_predict_fn
 from .feature_report import compute_feature_report
 from .metrics import (
+    NUMERAI_MAX_FILTERED_RATIO,
+    NUMERAI_SEASON_CORR_WEIGHT,
+    NUMERAI_SEASON_MMC_WEIGHT,
+    NUMERAI_TOOLS_REFERENCE_VERSION,
     calculate_metrics,
     era_correlation_metrics,
     era_sharpe,
@@ -17,17 +21,26 @@ from .metrics import (
     era_sharpe_of_mmc,
     fnc_score,
     mmc_score,
+    numerai_official_diagnostics,
     payout_score,
     per_era_correlation,
     per_era_fnc,
     per_era_mmc,
+    per_era_numerai_corr,
+    per_era_numerai_mmc,
     per_era_spearman,
+    per_era_weighted_corr_mmc,
     rank_normalize,
     rank_normalize_per_era,
+    weighted_corr_mmc_sharpe,
 )
 from .submission import prepare_submission, validate_submission
 
 __all__ = [
+    "NUMERAI_MAX_FILTERED_RATIO",
+    "NUMERAI_SEASON_CORR_WEIGHT",
+    "NUMERAI_SEASON_MMC_WEIGHT",
+    "NUMERAI_TOOLS_REFERENCE_VERSION",
     "WF_MIN_TRAIN_ERAS",
     "WF_N_PURGE",
     "WF_N_SPLITS",
@@ -45,12 +58,17 @@ __all__ = [
     "evaluate_holdout_last_n_eras",
     "fnc_score",
     "mmc_score",
+    "numerai_official_diagnostics",
     "per_era_correlation",
     "per_era_fnc",
     "per_era_mmc",
+    "per_era_numerai_corr",
+    "per_era_numerai_mmc",
     "per_era_spearman",
+    "per_era_weighted_corr_mmc",
     "payout_score",
     "rank_normalize",
     "rank_normalize_per_era",
     "smoke_test_predict_fn",
+    "weighted_corr_mmc_sharpe",
 ]

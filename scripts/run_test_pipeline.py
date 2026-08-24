@@ -6,6 +6,7 @@ import pandas as pd
 import tyro
 
 from alphapulse.evaluation import Backtester
+from alphapulse.evaluation.export_serialization import dump_predict_fn
 from alphapulse.experiments.data import load_feature_names
 from alphapulse.logging_ import init_wandb, log_backtest_results, log_metrics
 from alphapulse.models.xgboost_model import XGBoostModel
@@ -104,10 +105,7 @@ def main(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     predict_fn = pipeline.to_numerai_predict()
-    import cloudpickle
-
-    with open(output_dir / "predict.pkl", "wb") as f:
-        cloudpickle.dump(predict_fn, f)
+    dump_predict_fn(predict_fn, output_dir / "predict.pkl")
     pipeline.save_pipeline(output_dir / "pipeline.pkl")
     pkl = output_dir / "predict.pkl"
     pipe = output_dir / "pipeline.pkl"

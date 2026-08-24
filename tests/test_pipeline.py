@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from alphapulse.evaluation import Backtester
-from alphapulse.evaluation.metrics import rank_normalize
 from alphapulse.experiments.runner import run_experiment
 from alphapulse.experiments.schema import ExperimentV1
 from alphapulse.experiments.split import internal_val_split
@@ -203,7 +202,7 @@ def test_pipeline_single_model_normalizes_to_list(
     assert pipeline.predict(X).shape == (len(X),)
 
 
-def test_neutralization_fallback_rank_normalizes(
+def test_neutralization_rejects_missing_configured_features(
     toy_data: tuple[pd.DataFrame, pd.Series],
 ) -> None:
     X, y = toy_data
@@ -221,11 +220,8 @@ def test_neutralization_fallback_rank_normalizes(
         neutralize_features=["missing_col"],
     )
     pipeline.fit(X, y, n_rounds=5)
-    preds = pipeline.predict(X)
-    ranked = rank_normalize(preds)
-    np.testing.assert_allclose(preds, ranked, rtol=1e-5)
-    assert preds.min() >= 0.0
-    assert preds.max() <= 1.0
+    with pytest.raises(ValueError, match="missing_col"):
+        pipeline.predict(X)
 
 
 def test_unfitted_stacking_raises() -> None:

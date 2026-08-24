@@ -30,14 +30,22 @@ def compute_robust_payout_score(
     if holdout is None:
         return payout
     if holdout <= 0.0:
-        return payout * NEGATIVE_HOLDOUT_PAYOUT_FACTOR
+        return _apply_score_penalty(payout, NEGATIVE_HOLDOUT_PAYOUT_FACTOR)
     val = _finite_optional(val_corr_sharpe)
     if val is None or val <= 0.0:
-        return payout * min(1.0, holdout / 0.2)
+        return _apply_score_penalty(payout, min(1.0, holdout / 0.2))
     consistency = min(1.0, holdout / val)
-    return payout * (
-        ROBUST_CONSISTENCY_FLOOR + (1.0 - ROBUST_CONSISTENCY_FLOOR) * consistency
+    return _apply_score_penalty(
+        payout,
+        ROBUST_CONSISTENCY_FLOOR + (1.0 - ROBUST_CONSISTENCY_FLOOR) * consistency,
     )
+
+
+def _apply_score_penalty(score: float, factor: float) -> float:
+    bounded_factor = max(np.finfo(float).eps, min(1.0, factor))
+    if score >= 0.0:
+        return score * bounded_factor
+    return score / bounded_factor
 
 
 @dataclass
@@ -125,9 +133,10 @@ def selection_score_from_metrics(
     objective: str,
     criteria: BestCriteria = "objective",
 ) -> float:
-    objective_score = float(
-        metrics.get(objective, metrics.get("corr_sharpe", float("-inf")))
-    )
+    raw_objective = metrics.get(objective)
+    if raw_objective is None:
+        return float("nan")
+    objective_score = float(raw_objective)
     if criteria != "robust_payout" or objective != "payout_score":
         return objective_score
     robust = compute_robust_payout_score(
@@ -240,7 +249,7 @@ def _format_payout_table(
 ) -> list[str]:
     header = (
         f"--- {title} ---\n"
-        " Payout = 0.75*ValidationSharpe + 2.25*ValidationMmcSharpe\n"
+        " LegacyProxy = 0.75*ValidationSharpe + 2.25*ValidationMmcSharpe\n"
         f" Rank | Trial | {score_label:>11} | ValidationSharpe | "
         "ValidationMmcSharpe | ValidationMeanCorr | HoldoutSharpe | "
         "HoldoutMeanCorr | Models              | Time"
@@ -280,9 +289,9 @@ def format_leaderboard(
                 entries,
                 top_n=top_n,
                 current_trial=current_trial,
-                title=f"LEADERBOARD (top {top_n} by payout on validation)",
+                title=f"LEADERBOARD (top {top_n} by legacy proxy on validation)",
                 sort_key=_rank_score,
-                score_label="Payout",
+                score_label="LegacyProxy",
                 score_getter=lambda entry: entry.payout_score,
             )
         )
@@ -294,11 +303,11 @@ def format_leaderboard(
                     top_n=top_n,
                     current_trial=current_trial,
                     title=(
-                        f"LEADERBOARD (top {top_n} by robust payout: "
-                        "payout penalized when holdout CORR is weak vs validation)"
+                        f"LEADERBOARD (top {top_n} by robust legacy proxy: "
+                        "proxy penalized when holdout CORR is weak vs validation)"
                     ),
                     sort_key=_robust_rank_score,
-                    score_label="RobustPayout",
+                    score_label="RobustProxy",
                     score_getter=lambda entry: entry.robust_payout_score,
                 )
             )

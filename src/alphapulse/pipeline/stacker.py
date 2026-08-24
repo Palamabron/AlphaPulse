@@ -47,7 +47,6 @@ class Stacker:
                 X_train = self.X.iloc[train_idx]
                 y_train = self.y.iloc[train_idx]
                 X_test = self.X.iloc[test_idx]
-                y_test = self.y.iloc[test_idx]
 
                 preprocessors = prep_factory.suggest_fixed(
                     feature_selection=params.get("prep_feature_selection", "none"),
@@ -71,13 +70,11 @@ class Stacker:
                 for pp in preprocessors:
                     X_te_pp = pp.transform(X_te_pp)
 
-                model_type = params.get("model_type", "lightgbm")
+                model_type = params.get("model_type", "LightGBM")
                 model = model_factory.suggest_fixed(model_type)
                 model.train(
                     X_tr_pp,
                     y_train,
-                    X_val=X_te_pp,
-                    y_val=y_test,
                     n_rounds=self.n_rounds,
                     early_stopping_rounds=self.early_stopping_rounds,
                 )

@@ -172,6 +172,8 @@ def build_multi_head_pipeline(
     config: dict[str, Any],
     feature_columns: list[str] | None = None,
     feature_groups: dict[str, list[str]] | None = None,
+    *,
+    apply_neutralization: bool = True,
 ) -> MultiHeadPipeline:
     global_preprocessors = build_preprocessors(config.get("preprocessors", []))
     models_config = config.get("models", [])
@@ -202,6 +204,17 @@ def build_multi_head_pipeline(
         feature_columns=feature_columns,
         ensemble_method=ensemble_method,
         ensemble_params=ensemble_params,
+        neutralize_proportion=(
+            config.get("neutralize_proportion", 0.0) if apply_neutralization else 0.0
+        ),
+        neutralize_features=(
+            config.get("neutralize_features") if apply_neutralization else None
+        ),
+        meta_neutralize_proportion=(
+            config.get("meta_neutralize_proportion", 0.0)
+            if apply_neutralization
+            else 0.0
+        ),
     )
 
 
@@ -272,7 +285,25 @@ def build_multi_target_from_config(
     feature_columns: list[str] | None = None,
     feature_groups: dict[str, list[str]] | None = None,
 ) -> MultiTargetPipeline:
-    preprocessors = build_preprocessors(config.get("preprocessors", []))
+    uses_inner_pipeline = (
+        needs_multi_head_pipeline(config) or len(config.get("models", [])) > 1
+    )
+    ensemble_params = config.get("ensemble_params") or {}
+    if (
+        uses_inner_pipeline
+        and bool(ensemble_params.get("optimize_weights"))
+        and ensemble_params.get("objective") == "payout_score"
+    ):
+        raise ValueError(
+            "Multi-target pipelines do not support inner payout_score weight "
+            "optimization because row-aligned meta-model predictions are not "
+            "available during per-target fitting; use corr_sharpe or fixed weights"
+        )
+    preprocessors = (
+        []
+        if uses_inner_pipeline
+        else build_preprocessors(config.get("preprocessors", []))
+    )
     strategy_targets = [str(flat.get("primary_target", "target"))]
     aux = flat.get("auxiliary_targets") or []
     if isinstance(aux, list):
@@ -283,11 +314,12 @@ def build_multi_target_from_config(
         blend_method = "equal"
 
     def model_factory() -> BaseModel:
-        if needs_multi_head_pipeline(config) or len(config.get("models", [])) > 1:
+        if uses_inner_pipeline:
             pipeline = build_multi_head_pipeline(
                 config,
                 feature_columns=feature_columns,
                 feature_groups=feature_groups,
+                apply_neutralization=False,
             )
             return _PipelineModelAdapter(pipeline)
         models_cfg = config.get("models", [])
@@ -308,4 +340,7 @@ def build_multi_target_from_config(
         target_columns=target_columns,
         primary_target=str(flat.get("primary_target", "target")),
         blend_method=blend_method,
+        neutralize_proportion=config.get("neutralize_proportion", 0.0),
+        neutralize_features=config.get("neutralize_features"),
+        meta_neutralize_proportion=config.get("meta_neutralize_proportion", 0.0),
     )

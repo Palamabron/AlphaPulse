@@ -450,6 +450,42 @@ class TestExperimentV1Schema:
         assert cfg["feature_groups"] == {}
         assert cfg["preprocessors"] == []
 
+    def test_rejects_unknown_fields(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="extra_forbidden"):
+            ExperimentV1.model_validate(
+                {
+                    "data": {"data_dir": str(tmp_path), "trian_subsample": 0.5},
+                    "models": [{"type": "Ridge"}],
+                }
+            )
+
+    def test_rejects_unknown_component_types(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Unknown model type"):
+            ExperimentV1.model_validate(
+                {
+                    "data": {"data_dir": str(tmp_path)},
+                    "models": [{"type": "Ridgge"}],
+                }
+            )
+
+    def test_rejects_empty_model_list(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="too_short"):
+            ExperimentV1.model_validate(
+                {"data": {"data_dir": str(tmp_path)}, "models": []}
+            )
+
+    @pytest.mark.parametrize("routing_field", ["input_columns", "input_groups"])
+    def test_rejects_empty_routing_lists(
+        self, tmp_path: Path, routing_field: str
+    ) -> None:
+        with pytest.raises(ValueError, match="too_short"):
+            ExperimentV1.model_validate(
+                {
+                    "data": {"data_dir": str(tmp_path)},
+                    "models": [{"type": "Ridge", routing_field: []}],
+                }
+            )
+
 
 class TestPurgedErasCVSplitEras:
     def _make_eras(self, n_eras: int, rows_per_era: int = 5) -> pd.Series:

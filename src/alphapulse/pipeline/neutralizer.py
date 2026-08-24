@@ -5,7 +5,12 @@ import pandas as pd
 from scipy.optimize import minimize_scalar
 
 from ..constants import _PROTECTED_COLS
-from ..evaluation.metrics import era_sharpe, era_sharpe_of_mmc, payout_score
+from ..evaluation.metrics import (
+    era_sharpe,
+    era_sharpe_of_mmc,
+    payout_score,
+    rank_normalize,
+)
 
 
 def _numeric_features(features: pd.DataFrame | np.ndarray) -> np.ndarray:
@@ -18,6 +23,29 @@ def _numeric_features(features: pd.DataFrame | np.ndarray) -> np.ndarray:
     return np.asarray(features, dtype=np.float64)
 
 
+def _aligned_vector(
+    values: np.ndarray | pd.Series,
+    index: pd.Index | None,
+    *,
+    name: str,
+    dtype: type[np.float64] | None = np.float64,
+) -> np.ndarray:
+    if isinstance(values, pd.Series) and index is not None:
+        if values.index.has_duplicates:
+            raise ValueError(f"{name} index must not contain duplicates")
+        missing = index.difference(values.index)
+        extra = values.index.difference(index)
+        if len(missing) > 0 or len(extra) > 0:
+            raise ValueError(f"{name} row IDs must exactly match feature row IDs")
+        return np.asarray(values.reindex(index).to_numpy(dtype=dtype), dtype=dtype)
+    array = np.asarray(values, dtype=dtype)
+    if index is not None and len(array) != len(index):
+        raise ValueError(
+            f"{name} length {len(array)} != feature row count {len(index)}"
+        )
+    return array
+
+
 def neutralize_against_meta(
     predictions: np.ndarray | pd.Series,
     meta_model: np.ndarray | pd.Series,
@@ -27,8 +55,13 @@ def neutralize_against_meta(
     """Remove linear exposure of predictions to the Numerai meta model (per era)."""
     if proportion == 0.0:
         return np.asarray(predictions, dtype=np.float64)
-    pred_arr = np.asarray(predictions, dtype=np.float64)
-    meta_arr = np.asarray(meta_model, dtype=np.float64).reshape(-1)
+    reference_index = predictions.index if isinstance(predictions, pd.Series) else None
+    pred_arr = _aligned_vector(
+        predictions, reference_index, name="predictions"
+    ).reshape(-1)
+    meta_arr = _aligned_vector(meta_model, reference_index, name="meta_model").reshape(
+        -1
+    )
     if len(pred_arr) != len(meta_arr):
         raise ValueError(
             f"predictions length {len(pred_arr)} != meta_model length {len(meta_arr)}"
@@ -49,7 +82,13 @@ def neutralize_against_meta(
     if eras is None:
         return _neutralize_slice(pred_arr, meta_arr)
 
-    era_vals = np.asarray(eras)
+    era_vals = _aligned_vector(eras, reference_index, name="eras", dtype=None).reshape(
+        -1
+    )
+    if len(era_vals) != len(pred_arr):
+        raise ValueError(
+            f"eras length {len(era_vals)} != predictions length {len(pred_arr)}"
+        )
     out = pred_arr.copy()
     for era in np.unique(era_vals):
         mask = era_vals == era
@@ -146,13 +185,22 @@ class FeatureNeutralizer:
         features: pd.DataFrame | np.ndarray,
         eras: pd.Series | None = None,
     ) -> np.ndarray:
-        pred_arr = np.asarray(predictions, dtype=np.float64)
+        reference_index = features.index if isinstance(features, pd.DataFrame) else None
+        pred_arr = _aligned_vector(
+            predictions, reference_index, name="predictions"
+        ).reshape(-1)
         feat_arr = _numeric_features(features)
 
         if eras is None:
             return self._neutralize_array(pred_arr, feat_arr, self.proportion)
 
-        era_vals = np.asarray(eras)
+        era_vals = _aligned_vector(
+            eras, reference_index, name="eras", dtype=None
+        ).reshape(-1)
+        if len(era_vals) != len(pred_arr):
+            raise ValueError(
+                f"eras length {len(era_vals)} != predictions length {len(pred_arr)}"
+            )
         out = pred_arr.copy()
         for era in np.unique(era_vals):
             mask = era_vals == era
@@ -208,3 +256,68 @@ class FeatureNeutralizer:
         )
         self.proportion = float(result.x)
         return self.proportion
+
+
+def apply_prediction_neutralization(
+    predictions: np.ndarray | pd.Series,
+    features: pd.DataFrame,
+    *,
+    eras: pd.Series | None = None,
+    feature_columns: list[str] | None = None,
+    neutralize_features: list[str] | None = None,
+    feature_neutralizer: FeatureNeutralizer | None = None,
+    meta_model: np.ndarray | pd.Series | None = None,
+    meta_neutralizer: MetaModelNeutralizer | None = None,
+) -> np.ndarray:
+    output = _aligned_vector(predictions, features.index, name="predictions").reshape(
+        -1
+    )
+    aligned_eras = (
+        pd.Series(
+            _aligned_vector(eras, features.index, name="eras", dtype=None),
+            index=features.index,
+        )
+        if eras is not None
+        else None
+    )
+    if feature_neutralizer is not None:
+        if neutralize_features is not None:
+            missing = [
+                column
+                for column in neutralize_features
+                if column not in features.columns
+            ]
+            if missing:
+                raise ValueError(
+                    "Prediction neutralization is missing configured feature "
+                    f"columns: {missing[:10]}"
+                )
+        requested = neutralize_features or feature_columns or list(features.columns)
+        available = [column for column in requested if column in features.columns]
+        if available:
+            output = feature_neutralizer.neutralize(
+                output,
+                features[available],
+                eras=aligned_eras,
+            )
+        output = rank_normalize(output)
+
+    if meta_neutralizer is None:
+        return output
+    if meta_model is None:
+        raise ValueError(
+            "Meta-model neutralization is configured, but aligned meta-model "
+            "predictions were not provided"
+        )
+
+    meta_arr = _aligned_vector(meta_model, features.index, name="meta_model").reshape(
+        -1
+    )
+    if len(meta_arr) != len(output):
+        raise ValueError(
+            f"meta_model length {len(meta_arr)} != predictions length {len(output)}"
+        )
+    if not np.isfinite(meta_arr).all():
+        raise ValueError("meta_model contains missing or non-finite predictions")
+    output = meta_neutralizer.neutralize(output, meta_arr, eras=aligned_eras)
+    return rank_normalize(output)

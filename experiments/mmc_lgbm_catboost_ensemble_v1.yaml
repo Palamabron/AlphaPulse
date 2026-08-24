@@ -38,7 +38,7 @@ models:
 ensemble_method: weighted
 ensemble_params:
   optimize_weights: true
-  objective: payout_score
+  objective: corr_sharpe
   min_weight: 0.05
   max_weight: 0.90
 neutralization:

@@ -2,17 +2,21 @@ import random as _random_mod
 from pathlib import Path
 from typing import Any
 
-try:
-    from ray import tune
-except ImportError:
-    tune = None
-
 from ..evaluation.era_split import HPO_FAST_N_SUBS_CAP
 from ..features.catalog import load_feature_catalog, load_target_catalog
 from .feature_routing import sample_feature_routing
 from .target_strategy import apply_target_strategy_to_flat, sample_target_strategy
 
+tune: Any
+try:
+    from ray import tune as _ray_tune
+
+    tune = _ray_tune
+except ImportError:
+    tune = None
+
 BOOSTING_MODELS = ["XGBoost", "LightGBM", "Packboost", "CatBoost"]
+CORE_BOOSTING_MODELS = ["XGBoost", "LightGBM", "CatBoost"]
 FOUNDATION_MODELS = ["TabPFN", "TabICL", "TabPFN3"]
 FOUNDATION_SAMPLE_PROB = 0.05
 AUGMENTER_SAMPLE_PROB = 0.05
@@ -23,7 +27,6 @@ DEFAULT_NEUTRALIZATION_PROPORTION = 0.35
 NEUTRALIZATION_PROPORTION_RANGE = (MIN_NEUTRALIZATION_PROPORTION, 0.8)
 MIN_META_NEUTRALIZATION_PROPORTION = 0.5
 DEFAULT_META_NEUTRALIZATION_PROPORTION = 0.6
-META_NEUTRALIZATION_PROPORTION_RANGE = (MIN_META_NEUTRALIZATION_PROPORTION, 0.75)
 FOUNDATION_ENSEMBLE_MAX_WEIGHT = 0.35
 
 
@@ -90,8 +93,11 @@ def _ensemble_weight_bounds(
     default_min = float(flat.get("ensemble_min_weight", 0.05))
     default_max = float(flat.get("ensemble_max_weight", 0.90))
     min_weights = [default_min] * len(model_types)
+    all_foundation = all(t in FOUNDATION_MODELS for t in model_types)
     max_weights = [
-        FOUNDATION_ENSEMBLE_MAX_WEIGHT if t in FOUNDATION_MODELS else default_max
+        FOUNDATION_ENSEMBLE_MAX_WEIGHT
+        if t in FOUNDATION_MODELS and not all_foundation
+        else default_max
         for t in model_types
     ]
     return min_weights, max_weights
@@ -132,6 +138,15 @@ def available_foundation_models(*, hpo_fast: bool = False) -> list[str]:
         pass
     if hpo_fast:
         return [m for m in available if m not in HPO_SLOW_FOUNDATION_TYPES]
+    return available
+
+
+def available_boosting_models() -> list[str]:
+    from ..models.packboost_backend import packboost_cuda_available
+
+    available = list(CORE_BOOSTING_MODELS)
+    if packboost_cuda_available():
+        available.append("Packboost")
     return available
 
 
@@ -208,7 +223,11 @@ def apply_gpu_pipeline_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _sample_model_type(
-    phase: str, rng: _random_mod.Random, *, fast: bool = False
+    phase: str,
+    rng: _random_mod.Random,
+    *,
+    fast: bool = False,
+    use_gpu: bool = False,
 ) -> str:
     if phase != "phase_a":
         roll = rng.random()
@@ -221,7 +240,10 @@ def _sample_model_type(
                 return rng.choice(foundation_models)
     if phase == "phase_a":
         return rng.choice(["XGBoost", "LightGBM"])
-    return rng.choice(BOOSTING_MODELS)
+    pool = available_boosting_models()
+    if not use_gpu:
+        pool = [model for model in pool if model != "Packboost"]
+    return rng.choice(pool)
 
 
 def _loguniform(low: float, high: float, rng: _random_mod.Random) -> float:
@@ -234,10 +256,16 @@ def _enrich_hpo_sampling(
     *,
     fast: bool,
     data_dir: str | Path | None = None,
+    primary_target: str = "target",
 ) -> dict[str, Any]:
     if data_dir is not None:
         target_catalog = load_target_catalog(data_dir)
-        strategy = sample_target_strategy(rng, target_catalog, fast=fast)
+        strategy = sample_target_strategy(
+            rng,
+            target_catalog,
+            fast=fast,
+            primary_target=primary_target,
+        )
         cfg = apply_target_strategy_to_flat(cfg, strategy)
 
         feature_catalog = load_feature_catalog(data_dir)
@@ -250,7 +278,7 @@ def _enrich_hpo_sampling(
         cfg.update(routing_fragment)
     else:
         cfg.setdefault("target_mode", "single")
-        cfg.setdefault("primary_target", "target")
+        cfg.setdefault("primary_target", primary_target)
         cfg.setdefault("auxiliary_targets", [])
         cfg.setdefault("target_blend_method", "equal")
         cfg.setdefault("use_feature_routing", False)
@@ -263,6 +291,8 @@ def sample_random_config(
     phase: str = "phase_b",
     fast: bool = False,
     data_dir: str | Path | None = None,
+    use_gpu: bool = False,
+    primary_target: str = "target",
 ) -> dict[str, Any]:
     """Sample a random flat HPO configuration for local search.
 
@@ -288,9 +318,15 @@ def sample_random_config(
             "packboost_n_rounds_base": 200,
             "packboost_n_rounds_boost": 100,
             "num_models": 1,
-            "model_1_type": _sample_model_type("phase_a", rng, fast=fast),
-            "model_2_type": _sample_model_type("phase_a", rng, fast=fast),
-            "model_3_type": _sample_model_type("phase_a", rng, fast=fast),
+            "model_1_type": _sample_model_type(
+                "phase_a", rng, fast=fast, use_gpu=use_gpu
+            ),
+            "model_2_type": _sample_model_type(
+                "phase_a", rng, fast=fast, use_gpu=use_gpu
+            ),
+            "model_3_type": _sample_model_type(
+                "phase_a", rng, fast=fast, use_gpu=use_gpu
+            ),
             "n_subs": rng.choice([8, 10]),
             "xgb_max_depth": rng.choice([3, 5]),
             "xgb_learning_rate": _loguniform(3e-3, 0.05, rng),
@@ -318,10 +354,7 @@ def sample_random_config(
             "stacking_meta_learner": "ridge",
             "use_neutralization": True,
             "neutralization_proportion": rng.uniform(*NEUTRALIZATION_PROPORTION_RANGE),
-            "use_meta_neutralization": rng.random() < 0.35,
-            "meta_neutralization_proportion": rng.uniform(
-                *META_NEUTRALIZATION_PROPORTION_RANGE
-            ),
+            "use_meta_neutralization": False,
         }
         if fast:
             cfg["hpo_fast"] = True
@@ -329,20 +362,28 @@ def sample_random_config(
             cfg["xgb_n_rounds"] = rng.choice([150, 250, 350])
             cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
         return _enrich_hpo_sampling(
-            _finalize_neutralization_sampling(cfg), rng, fast=fast, data_dir=data_dir
+            _finalize_neutralization_sampling(cfg),
+            rng,
+            fast=fast,
+            data_dir=data_dir,
+            primary_target=primary_target,
         )
 
     cfg = {
         "scaler_type": rng.choice(["StandardScaler", "RobustScaler"]),
-        "use_packboost": rng.choice([True, False]),
+        "use_packboost": (
+            rng.choice([True, False])
+            if use_gpu and "Packboost" in available_boosting_models()
+            else False
+        ),
         "packboost_n_worst_eras": rng.choice([3, 5, 7]),
         "packboost_boost_weight": rng.uniform(0.1, 0.5),
         "packboost_n_rounds_base": rng.choice([200, 300, 500]),
         "packboost_n_rounds_boost": rng.choice([100, 150, 200]),
         "num_models": rng.choice([1, 2, 3]),
-        "model_1_type": _sample_model_type("phase_b", rng, fast=fast),
-        "model_2_type": _sample_model_type("phase_b", rng, fast=fast),
-        "model_3_type": _sample_model_type("phase_b", rng, fast=fast),
+        "model_1_type": _sample_model_type("phase_b", rng, fast=fast, use_gpu=use_gpu),
+        "model_2_type": _sample_model_type("phase_b", rng, fast=fast, use_gpu=use_gpu),
+        "model_3_type": _sample_model_type("phase_b", rng, fast=fast, use_gpu=use_gpu),
         "n_subs": rng.choice([5, 8, 10, 15]),
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
@@ -374,7 +415,8 @@ def sample_random_config(
         "augmenter_n_synthetic": rng.choice([200, 500, 1000]),
         "augmenter_backend": "auto",
         "use_augmentation": rng.random() < 0.05,
-        "use_gpu": False,
+        "use_gpu": use_gpu,
+        "use_meta_neutralization": False,
     }
     if fast:
         cfg["hpo_fast"] = True
@@ -394,37 +436,58 @@ def sample_random_config(
         cfg["use_packboost"] = False
         cfg["use_augmentation"] = rng.random() < 0.03
     return _enrich_hpo_sampling(
-        _finalize_neutralization_sampling(cfg), rng, fast=fast, data_dir=data_dir
+        _finalize_neutralization_sampling(cfg),
+        rng,
+        fast=fast,
+        data_dir=data_dir,
+        primary_target=primary_target,
     )
 
 
-def get_full_param_space() -> dict[str, Any]:
+def get_full_param_space(
+    *,
+    fast: bool = False,
+    max_models: int = 3,
+    use_gpu: bool = False,
+) -> dict[str, Any]:
     if tune is None:
         raise ImportError(
             "ray[tune] is required. Install with: pip install 'ray[tune]'"
         )
 
+    if max_models < 1:
+        raise ValueError("max_models must be >= 1")
+    model_pool = [
+        *available_boosting_models(),
+        *available_foundation_models(hpo_fast=fast),
+    ]
+    if not use_gpu:
+        model_pool = [model for model in model_pool if model != "Packboost"]
+    model_count_choices = list(range(1, min(max_models, 3) + 1))
+    packboost_available = "Packboost" in model_pool
     return {
         "scaler_type": tune.choice(["StandardScaler", "RobustScaler"]),
-        "use_packboost": tune.choice([True, False]),
+        "use_packboost": tune.choice([True, False] if packboost_available else [False]),
         "packboost_n_worst_eras": tune.choice([3, 5, 7]),
         "packboost_boost_weight": tune.uniform(0.1, 0.5),
         "packboost_n_rounds_base": tune.choice([200, 300, 500]),
         "packboost_n_rounds_boost": tune.choice([100, 150, 200]),
-        "num_models": tune.choice([1, 2, 3]),
-        "model_1_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
-        "model_2_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
-        "model_3_type": tune.choice(BOOSTING_MODELS + FOUNDATION_MODELS),
-        "n_subs": tune.choice([5, 8, 10, 15]),
+        "num_models": tune.choice(model_count_choices),
+        "model_1_type": tune.choice(model_pool),
+        "model_2_type": tune.choice(model_pool),
+        "model_3_type": tune.choice(model_pool),
+        "n_subs": tune.choice([3, 5] if fast else [5, 8, 10, 15]),
         "xgb_max_depth": tune.choice([3, 5, 7]),
         "xgb_learning_rate": tune.loguniform(1e-3, 0.1),
-        "xgb_n_rounds": tune.choice([300, 500, 800]),
-        "xgb_early_stopping": tune.choice([30, 50, 100]),
+        "xgb_n_rounds": tune.choice([150, 250, 400] if fast else [300, 500, 800]),
+        "xgb_early_stopping": tune.choice([20, 30, 50] if fast else [30, 50, 100]),
         "lgbm_num_leaves": tune.choice([16, 31, 63, 127]),
         "lgbm_learning_rate": tune.loguniform(5e-3, 0.05),
-        "lgbm_n_rounds": tune.choice([300, 500, 800, 1500]),
+        "lgbm_n_rounds": tune.choice(
+            [200, 400, 600] if fast else [300, 500, 800, 1500]
+        ),
         "lgbm_min_child_samples": tune.choice([100, 200, 500]),
-        "lgbm_early_stopping": tune.choice([50, 100]),
+        "lgbm_early_stopping": tune.choice([30, 50] if fast else [50, 100]),
         "packboost_model_n_worst_eras": tune.choice([3, 5, 7]),
         "packboost_model_boost_weight": tune.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": tune.choice([300, 500]),
@@ -433,7 +496,10 @@ def get_full_param_space() -> dict[str, Any]:
         "stacking_meta_learner": tune.choice(["ridge", "xgboost"]),
         "use_neutralization": tune.choice([True, False]),
         "neutralization_proportion": tune.uniform(0.1, 0.8),
-        "foundation_max_train_rows": tune.choice([5_000, 10_000, 20_000]),
+        "use_meta_neutralization": False,
+        "foundation_max_train_rows": tune.choice(
+            [2_000, 3_000, 5_000] if fast else [5_000, 10_000, 20_000]
+        ),
         "foundation_compression": tune.choice(["pca", "svd"]),
         "foundation_n_components": tune.choice([128, 256, 512]),
     }
@@ -609,10 +675,7 @@ def resolve_flat_config(flat: dict[str, Any]) -> dict[str, Any]:
             ensemble_params["weights"] = flat["ensemble_params"]["weights"]
         else:
             ensemble_params["optimize_weights"] = True
-            ensemble_params["objective"] = flat.get(
-                "ensemble_objective",
-                flat.get("hpo_objective", "corr_sharpe"),
-            )
+            ensemble_params["objective"] = flat.get("ensemble_objective", "corr_sharpe")
             ensemble_params["min_weight"] = float(flat.get("ensemble_min_weight", 0.05))
             ensemble_params["max_weight"] = float(flat.get("ensemble_max_weight", 0.90))
             min_w, max_w = _ensemble_weight_bounds(types, flat)
@@ -648,16 +711,9 @@ _MODEL_TRAIN_KWARGS: dict[str, tuple[str, str, int, int]] = {
 }
 
 
-def get_train_kwargs_from_flat(flat: dict[str, Any]) -> dict[str, Any]:
-    num_models = flat.get("num_models", 1)
-    model_type = flat.get("model_1_type", "XGBoost")
-    if num_models > 1:
-        for key in ("model_1_type", "model_2_type", "model_3_type"):
-            candidate = flat.get(key)
-            if candidate in _MODEL_TRAIN_KWARGS:
-                model_type = candidate
-                break
-
+def _train_kwargs_for_model_type(
+    flat: dict[str, Any], model_type: str
+) -> dict[str, Any]:
     rounds_key, es_key, default_rounds, default_es = _MODEL_TRAIN_KWARGS.get(
         model_type,
         ("xgb_n_rounds", "xgb_early_stopping", 500, 50),
@@ -666,3 +722,21 @@ def get_train_kwargs_from_flat(flat: dict[str, Any]) -> dict[str, Any]:
         "n_rounds": flat.get(rounds_key, default_rounds),
         "early_stopping_rounds": flat.get(es_key, default_es),
     }
+
+
+def get_train_kwargs_from_flat(flat: dict[str, Any]) -> dict[str, Any]:
+    num_models = int(flat.get("num_models", 1))
+    model_types = [
+        str(flat.get(f"model_{index}_type", "XGBoost"))
+        for index in range(1, min(num_models, 3) + 1)
+    ]
+    primary_type = next(
+        (model_type for model_type in model_types if model_type in _MODEL_TRAIN_KWARGS),
+        model_types[0],
+    )
+    train_kwargs = _train_kwargs_for_model_type(flat, primary_type)
+    if len(model_types) > 1:
+        train_kwargs["model_train_kwargs_by_index"] = [
+            _train_kwargs_for_model_type(flat, model_type) for model_type in model_types
+        ]
+    return train_kwargs

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..pipeline.neutralizer import FeatureNeutralizer
 
 WF_N_SPLITS = 3
-WF_N_PURGE = 4
+WF_N_PURGE = 8
 WF_MIN_TRAIN_ERAS = 20
 
 HPO_FAST_HOLDOUT_ERAS = 52
@@ -79,7 +79,7 @@ class EraSplitEvaluator:
         self,
         feature_columns: list[str] | None = None,
         min_train_eras: int = 1,
-        n_purge: int = 4,
+        n_purge: int = 8,
         n_embargo: int = 0,
         n_splits: int | None = None,
         max_train_eras: int | None = None,

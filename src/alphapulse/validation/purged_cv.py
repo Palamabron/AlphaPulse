@@ -17,7 +17,7 @@ class PurgedEraCV:
     def __init__(
         self,
         n_splits: int = 5,
-        n_purge: int = 4,
+        n_purge: int = 8,
         n_embargo: int = 4,
         *,
         max_train_eras: int | None = None,

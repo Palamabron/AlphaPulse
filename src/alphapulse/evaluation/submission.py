@@ -64,16 +64,23 @@ def validate_submission(
             )
 
     if live_df is not None:
-        live_ids = set(
-            live_df[id_col].tolist()
+        live_id_values = (
+            live_df[id_col]
             if id_col in live_df.columns
-            else live_df.index.tolist()
+            else pd.Series(live_df.index, index=live_df.index)
         )
-        pred_ids = set(
-            predictions_df[id_col].tolist()
+        pred_id_values = (
+            predictions_df[id_col]
             if id_col in predictions_df.columns
-            else predictions_df.index.tolist()
+            else pd.Series(predictions_df.index, index=predictions_df.index)
         )
+        if live_id_values.duplicated().any():
+            issues.append("ERROR: Duplicate live IDs found.")
+        if pred_id_values.duplicated().any():
+            issues.append("ERROR: Duplicate prediction IDs found.")
+
+        live_ids = set(live_id_values.tolist())
+        pred_ids = set(pred_id_values.tolist())
 
         missing_ids = live_ids - pred_ids
         extra_ids = pred_ids - live_ids

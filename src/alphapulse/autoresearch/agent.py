@@ -19,14 +19,16 @@ from .state import ResearchState
 _SYSTEM_PROMPT = f"""You are an expert ML researcher specializing in Numerai stock market prediction.
 
 You are running an automated research loop. Analyze the trial history and decide \
-what single pipeline change to make next to maximize the **Numerai payout score**.
+what single pipeline change to make next to maximize the **legacy AlphaPulse HPO proxy**.
 
-## Numerai Payout Formula
+## Historical AlphaPulse proxy (not official Numerai payout)
 payout_score = 0.75 * CORR_sharpe + 2.25 * MMC_sharpe
 
 where:
-- CORR_sharpe = Sharpe ratio of per-era Spearman correlations (consistency of raw predictions)
-- MMC_sharpe = Sharpe ratio of per-era Meta Model Contribution (originality vs. the crowd)
+- CORR_sharpe = Sharpe ratio of legacy per-era Spearman correlations
+- MMC_sharpe = Sharpe ratio of the legacy residual-correlation MMC approximation
+
+This compatibility objective is not official Numerai CORR, MMC, Season score, or payout.
 
 When optimizing, consider both objectives. The Pareto front shows configs that are \
 non-dominated on (CORR_sharpe, MMC_sharpe). MMC rewards models that are different \
@@ -87,7 +89,7 @@ from the Numerai meta model — diversity matters more than raw accuracy.
 - Trials 1–5: Explore broadly. Try CORR-focused config AND an MMC-focused config.
 - Trials 6–15: Build diverse ensembles. Mix tree models with Ridge/RF for originality.
 - Trials 15+: Expand the Pareto front. If CORR is high but MMC is low, add neutralization. If MMC is high but CORR is low, add stronger GBMs.
-- If stuck (no payout improvement in 5+ trials): use try_random_config.
+- If stuck (no legacy-proxy improvement in 5+ trials): use try_random_config.
 - Neutralization (0.2–0.5) typically improves MMC at slight cost to CORR.
 
 ## Response Format
@@ -128,7 +130,7 @@ def _format_history(state: ResearchState, max_trials: int = 30) -> str:
         return "No trials completed yet."
 
     lines = [
-        f"{'Trial':>6} | {'Sharpe':>7} | {'MMC_S':>7} | {'Payout':>7} | {'Models':<30} | Action",
+        f"{'Trial':>6} | {'Sharpe':>7} | {'MMC_S':>7} | {'LegacyProxy':>11} | {'Models':<30} | Action",
         "-" * 95,
     ]
     for t in trials:
@@ -144,7 +146,7 @@ def _format_history(state: ResearchState, max_trials: int = 30) -> str:
     if state.best_trial:
         b = state.best_trial
         payout_str = (
-            f", payout={b.payout_score:.4f}" if b.payout_score is not None else ""
+            f", legacy_proxy={b.payout_score:.4f}" if b.payout_score is not None else ""
         )
         mmc_str = f", mmc_sharpe={b.mmc_sharpe:.4f}" if b.mmc_sharpe is not None else ""
         lines.append(
@@ -158,7 +160,9 @@ def _format_history(state: ResearchState, max_trials: int = 30) -> str:
         lines.append(
             f"\nPARETO FRONT ({len(pareto)} configs — non-dominated on CORR+MMC):"
         )
-        lines.append(f"{'Trial':>6} | {'CORR_S':>7} | {'MMC_S':>7} | {'Payout':>7}")
+        lines.append(
+            f"{'Trial':>6} | {'CORR_S':>7} | {'MMC_S':>7} | {'LegacyProxy':>11}"
+        )
         lines.append("-" * 40)
         for m in sorted(pareto, key=lambda t: t.sharpe, reverse=True):
             mmc_s = f"{m.mmc_sharpe:>7.4f}" if m.mmc_sharpe is not None else "    N/A"

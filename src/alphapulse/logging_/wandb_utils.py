@@ -122,7 +122,7 @@ def log_hpo_summary_table(
         "HoldoutSharpe",
         "ValidationSharpe",
         "ValidationMmcSharpe",
-        "PayoutScore",
+        "LegacyPayoutProxy",
         "HoldoutMeanCorr",
         "ValidationMeanCorr",
         "HoldoutStdCorr",
@@ -217,11 +217,11 @@ def log_hpo_summary_table(
     )
     summary_charts: dict[str, Any] = {}
     if any(r.error is None for r in results):
-        summary_charts["hpo/trial_PayoutScore"] = wandb.plot.scatter(
+        summary_charts["hpo/trial_LegacyPayoutProxy"] = wandb.plot.scatter(
             table,
             "trial",
-            "PayoutScore",
-            title="Trial validation PayoutScore",
+            "LegacyPayoutProxy",
+            title="Trial validation legacy payout proxy",
         )
         summary_charts["hpo/trial_HoldoutSharpe"] = wandb.plot.scatter(
             table,
@@ -299,7 +299,7 @@ def _log_split_metrics(
     if payout is None:
         payout = _finite_metric(metrics.get("payout_score"))
     if payout is not None:
-        logged["validation/PayoutScore"] = payout
+        logged["validation/LegacyPayoutProxy"] = payout
     mmc_mean = _finite_metric(metrics.get("mmc"))
     if mmc_mean is not None:
         logged["validation/ValidationMmc"] = mmc_mean
@@ -438,6 +438,11 @@ def log_hpo_convergence(
     import numpy as np
     import wandb
 
+    from ..hpo.optimization import (
+        is_better_optimization_score,
+        worst_optimization_score,
+    )
+
     wandb.init(
         project=project,
         group=group,
@@ -445,7 +450,7 @@ def log_hpo_convergence(
         job_type="convergence",
         reinit="finish_previous",
     )
-    best_so_far = float("-inf")
+    best_so_far = worst_optimization_score(objective)
     for r in results:
         if r.error:
             continue
@@ -462,8 +467,16 @@ def log_hpo_convergence(
         if val_corr is not None and not np.isfinite(float(val_corr)):
             val_corr = None
 
-        trial_objective = payout if objective == "payout_score" else holdout_corr
-        if trial_objective is not None and trial_objective > best_so_far:
+        trial_objective = r.metrics.get(objective) if r.metrics else None
+        if trial_objective is not None:
+            trial_objective = float(trial_objective)
+            if not np.isfinite(trial_objective):
+                trial_objective = None
+        if trial_objective is not None and is_better_optimization_score(
+            trial_objective,
+            best_so_far,
+            objective,
+        ):
             best_so_far = trial_objective
 
         logged: dict[str, Any] = {}
@@ -474,7 +487,7 @@ def log_hpo_convergence(
         if mmc is not None:
             logged["validation/ValidationMmcSharpe"] = mmc
         if payout is not None:
-            logged["validation/PayoutScore"] = payout
+            logged["validation/LegacyPayoutProxy"] = payout
         if trial_objective is not None:
             logged[f"best_{objective}_so_far"] = best_so_far
         if logged:

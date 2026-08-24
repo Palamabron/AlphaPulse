@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from alphapulse.evaluation.export_serialization import dump_predict_fn
 from alphapulse.evaluation.export_validation import smoke_test_predict_fn
 from alphapulse.evaluation.metrics import rank_normalize, rank_normalize_per_era
 from alphapulse.hpo.trial_db import TrialDB
@@ -94,16 +95,14 @@ class TestToNumeraiPredictColumnAlignment:
         pipe.fit(X, y)
         return pipe
 
-    def test_handles_missing_columns(self) -> None:
+    def test_rejects_missing_columns(self) -> None:
         cols = ["f0", "f1", "f2"]
         pipe = self._make_fitted_pipeline(cols)
         predict_fn = pipe.to_numerai_predict()
         live = pd.DataFrame({"f0": [0.1, 0.2], "f1": [0.3, 0.4]})
         bench = pd.DataFrame({"v2": [0.5, 0.5]})
-        result = predict_fn(live, bench)
-        assert isinstance(result, pd.DataFrame)
-        assert "prediction" in result.columns
-        assert len(result) == 2
+        with pytest.raises(ValueError, match="missing 1 required feature"):
+            predict_fn(live, bench)
 
     def test_handles_extra_columns(self) -> None:
         cols = ["f0", "f1"]
@@ -217,8 +216,7 @@ class TestSmokeTestPredictFn:
             preds = rank_normalize(np.random.default_rng(0).random(len(live_features)))
             return pd.DataFrame({"prediction": preds}, index=live_features.index)
 
-        with open(path, "wb") as f:
-            cloudpickle.dump(predict_fn, f)
+        dump_predict_fn(predict_fn, path)
 
     def test_passes_on_valid_pkl(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -307,6 +305,27 @@ class TestCanonicalArtifactNaming:
         s1 = _artifact_stem({"model_1_type": "XGBoost", "lr": 0.1}, "target")
         s2 = _artifact_stem({"model_1_type": "XGBoost", "lr": 0.2}, "target")
         assert s1.split("_")[-1] != s2.split("_")[-1]
+
+    def test_replace_copy_replaces_legacy_symlink_without_touching_target(
+        self, tmp_path: Path
+    ) -> None:
+        from scripts.export_numerai_pickle import _replace_with_copy
+
+        source = tmp_path / "new.pkl"
+        old_target = tmp_path / "old.pkl"
+        alias = tmp_path / "latest_predict.pkl"
+        source.write_bytes(b"new")
+        old_target.write_bytes(b"old")
+        try:
+            alias.symlink_to(old_target.name)
+        except OSError:
+            pytest.skip("Creating symlinks is unavailable on this system")
+
+        _replace_with_copy(source, alias)
+
+        assert not alias.is_symlink()
+        assert alias.read_bytes() == b"new"
+        assert old_target.read_bytes() == b"old"
 
 
 class TestProvenanceArtifact:

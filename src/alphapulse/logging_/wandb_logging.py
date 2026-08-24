@@ -1,17 +1,14 @@
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 _WANDB_LOGURU_SINK_ID: int | None = None
 
 
 def wandb_run_active() -> bool:
-    try:
-        import wandb
-
-        return wandb.run is not None
-    except ImportError:
-        return False
+    wandb = sys.modules.get("wandb")
+    return wandb is not None and getattr(wandb, "run", None) is not None
 
 
 def attach_wandb_loguru(*, level: str = "INFO") -> None:

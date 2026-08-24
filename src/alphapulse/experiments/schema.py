@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _TOP_LEVEL_MODEL_KEYS = frozenset(
     {
@@ -36,7 +36,11 @@ _TOP_LEVEL_MODEL_KEYS = frozenset(
 )
 
 
-class DataConfig(BaseModel):
+class StrictConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DataConfig(StrictConfigModel):
     data_dir: Path
     train_subsample: float = Field(1.0, gt=0.0, le=1.0)
     target_col: str = "target"
@@ -56,24 +60,50 @@ class DataConfig(BaseModel):
         return self
 
 
-class FeatureConfig(BaseModel):
+class FeatureConfig(StrictConfigModel):
     columns: list[str] | None = None
     groups: dict[str, list[str]] = Field(default_factory=dict)
     use_numerai_groups: bool = False
 
 
-class PreprocessorStep(BaseModel):
+class PreprocessorStep(StrictConfigModel):
     type: str
     params: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str) -> str:
+        from ..hpo.registry import PREPROCESSOR_REGISTRY
 
-class ModelSpec(BaseModel):
+        if value not in PREPROCESSOR_REGISTRY and value != "Grouped":
+            available = ", ".join(sorted([*PREPROCESSOR_REGISTRY, "Grouped"]))
+            raise ValueError(
+                f"Unknown preprocessor type {value!r}. Available types: {available}"
+            )
+        return value
+
+
+class ModelSpec(StrictConfigModel):
     type: str
     params: dict[str, Any] = Field(default_factory=dict)
-    input_columns: list[str] | None = None
+    input_columns: Annotated[list[str], Field(min_length=1)] | None = None
     input_group: str | None = None
+    input_groups: Annotated[list[str], Field(min_length=1)] | None = None
     preprocessors: list[PreprocessorStep] = Field(default_factory=list)
     n_subs: int = Field(default=10, ge=1)
+    use_era_ensemble: bool = True
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, value: str) -> str:
+        from ..hpo.registry import MODEL_REGISTRY
+
+        if value not in MODEL_REGISTRY:
+            available = ", ".join(sorted(MODEL_REGISTRY))
+            raise ValueError(
+                f"Unknown model type {value!r}. Available types: {available}"
+            )
+        return value
 
     @model_validator(mode="after")
     def normalize_model_params(self) -> Self:
@@ -87,7 +117,7 @@ class ModelSpec(BaseModel):
         return self
 
 
-class NeutralizationConfig(BaseModel):
+class NeutralizationConfig(StrictConfigModel):
     """Feature neutralization applied to model predictions after ensembling.
 
     Removes exposure to specified features (or all features when *features* is
@@ -99,20 +129,22 @@ class NeutralizationConfig(BaseModel):
     features: list[str] | None = None
 
 
-class MetaNeutralizationConfig(BaseModel):
+class MetaNeutralizationConfig(StrictConfigModel):
     """Meta-model neutralization applied after feature neutralization.
 
-    Removes linear exposure of predictions to the Numerai meta model, improving
-    MMC by reducing overlap with the stake-weighted meta model.
+    Removes linear exposure to an explicitly supplied, row-aligned meta-model
+    series. The same series must be available at inference time; the transform
+    fails instead of silently skipping when it is absent.
     """
 
     proportion: float = Field(0.0, ge=0.0, le=1.0)
 
 
-class EvaluationConfig(BaseModel):
+class EvaluationConfig(StrictConfigModel):
     primary_metric: Literal[
         "mean_per_era_correlation",
         "corr_sharpe",
+        "numerai_corr_sharpe",
         "payout_score",
         "mmc_sharpe",
     ] = "corr_sharpe"
@@ -120,7 +152,7 @@ class EvaluationConfig(BaseModel):
     era_holdout_last_n: int | None = None
     walk_forward: bool = False
     walk_forward_min_train_eras: int = Field(default=1, ge=1)
-    walk_forward_n_purge: int = Field(default=4, ge=0)
+    walk_forward_n_purge: int = Field(default=8, ge=0)
     walk_forward_n_embargo: int = Field(default=0, ge=0)
     walk_forward_n_splits: Annotated[int, Field(ge=2)] | None = None
     meta_model_path: str | None = None
@@ -128,17 +160,17 @@ class EvaluationConfig(BaseModel):
     mmc_weight: float = Field(default=2.25, ge=0.0)
 
 
-class TrainConfig(BaseModel):
+class TrainConfig(StrictConfigModel):
     n_rounds: int = 500
     early_stopping_rounds: int = 50
 
 
-class ExperimentV1(BaseModel):
+class ExperimentV1(StrictConfigModel):
     version: Literal["1"] = "1"
     data: DataConfig
     features: FeatureConfig = Field(default_factory=FeatureConfig)
     preprocessing: list[PreprocessorStep] = Field(default_factory=list)
-    models: list[ModelSpec]
+    models: Annotated[list[ModelSpec], Field(min_length=1)]
     ensemble_method: Literal["single", "weighted", "stacking"] = "single"
     ensemble_params: dict[str, Any] = Field(default_factory=dict)
     neutralization: NeutralizationConfig = Field(default_factory=NeutralizationConfig)
@@ -152,8 +184,14 @@ class ExperimentV1(BaseModel):
     def validate_feature_routing(self) -> Self:
         defined_groups = set(self.features.groups.keys())
         for i, model in enumerate(self.models):
-            group = model.input_group
-            if group is not None and group not in defined_groups:
+            groups = (
+                [model.input_group]
+                if model.input_group is not None
+                else model.input_groups or []
+            )
+            for group in groups:
+                if group in defined_groups:
+                    continue
                 if defined_groups:
                     available = ", ".join(sorted(defined_groups))
                     raise ValueError(
@@ -167,10 +205,19 @@ class ExperimentV1(BaseModel):
                         f" input_group={group!r}, but features.groups is"
                         f" empty. Define the group in your YAML."
                     )
-            if group is not None and model.input_columns is not None:
+            routing_modes = sum(
+                value is not None
+                for value in (
+                    model.input_group,
+                    model.input_groups,
+                    model.input_columns,
+                )
+            )
+            if routing_modes > 1:
                 raise ValueError(
-                    f"models[{i}] (type={model.type!r}) sets both"
-                    f" input_group and input_columns — use one, not both."
+                    f"models[{i}] (type={model.type!r}) sets more than one input "
+                    "routing option; use only input_columns, input_group, or "
+                    "input_groups."
                 )
         return self
 

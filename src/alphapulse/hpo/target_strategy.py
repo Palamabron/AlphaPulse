@@ -52,10 +52,11 @@ def sample_target_strategy(
     catalog: TargetCatalog,
     *,
     fast: bool = False,
+    primary_target: str = PRIMARY_TARGET,
 ) -> TargetStrategy:
     max_aux = 1 if fast else rng.randint(1, 3)
     multi_prob = 0.30 if fast else 0.35
-    primary = PRIMARY_TARGET
+    primary = primary_target
     if primary not in catalog.targets:
         raise ValueError(f"Primary tournament target {primary!r} missing from catalog")
     if rng.random() < multi_prob:
@@ -79,8 +80,9 @@ def suggest_target_strategy(
     catalog: TargetCatalog,
     *,
     fast: bool = False,
+    primary_target: str = PRIMARY_TARGET,
 ) -> TargetStrategy:
-    primary = PRIMARY_TARGET
+    primary = primary_target
     if primary not in catalog.targets:
         raise ValueError(f"Primary tournament target {primary!r} missing from catalog")
     mode = trial.suggest_categorical("target_mode", ["single", "multi_blend"])

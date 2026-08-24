@@ -7,25 +7,34 @@ from optuna.trial import TrialState
 
 from ..features.catalog import load_feature_catalog, load_target_catalog
 from .feature_routing import suggest_feature_routing
+from .optimization import optimization_direction
 from .search_space import (
-    BOOSTING_MODELS,
     FOUNDATION_MODELS,
+    FOUNDATION_SAMPLE_PROB,
+    HPO_FAST_FOUNDATION_SAMPLE_PROB,
     NEUTRALIZATION_PROPORTION_RANGE,
     _finalize_neutralization_sampling,
     _sampled_model_types,
+    available_boosting_models,
     available_foundation_models,
     uses_neutralization_for_models,
 )
-from .target_strategy import apply_target_strategy_to_flat, suggest_target_strategy
+from .target_strategy import (
+    TargetStrategy,
+    apply_target_strategy_to_flat,
+    suggest_target_strategy,
+)
 
 SamplerName = Literal["tpe", "random"]
 DEFAULT_N_STARTUP_TRIALS = 25
+_OBJECTIVE_ATTR = "alphapulse_objective"
 
 
 def create_hpo_study(
     output_dir: Path,
     *,
     seed: int,
+    objective: str = "corr_sharpe",
     sampler: SamplerName = "tpe",
     resume: bool = False,
     n_startup_trials: int = DEFAULT_N_STARTUP_TRIALS,
@@ -41,13 +50,34 @@ def create_hpo_study(
         )
     else:
         optuna_sampler = RandomSampler(seed=seed)
-    return optuna.create_study(
-        direction="maximize",
+    direction = optimization_direction(objective)
+    study = optuna.create_study(
+        direction=direction,
         sampler=optuna_sampler,
         storage=storage_url,
         study_name="alphapulse_hpo",
         load_if_exists=resume,
     )
+    actual_direction = study.direction.name.lower()
+    if actual_direction != direction:
+        raise ValueError(
+            f"Existing Optuna study uses direction={actual_direction!r}, "
+            f"but objective={objective!r} requires direction={direction!r}."
+        )
+    stored_objective = study.user_attrs.get(_OBJECTIVE_ATTR)
+    if stored_objective is None:
+        if resume and study.trials:
+            raise ValueError(
+                "Existing Optuna study does not record its objective and cannot "
+                "be resumed safely. Start a new output directory."
+            )
+        study.set_user_attr(_OBJECTIVE_ATTR, objective)
+    elif stored_objective != objective:
+        raise ValueError(
+            f"Existing Optuna study uses objective={stored_objective!r}, "
+            f"not requested objective={objective!r}."
+        )
+    return study
 
 
 def tell_trial_result(
@@ -63,14 +93,28 @@ def tell_trial_result(
     study.tell(optuna_trial, score)
 
 
-def _model_pool(*, fast: bool) -> list[str]:
-    pool = list(BOOSTING_MODELS)
-    pool.extend(available_foundation_models(hpo_fast=fast))
-    return list(dict.fromkeys(pool))
-
-
-def _suggest_model_type(trial: optuna.Trial, param: str, *, fast: bool) -> str:
-    return trial.suggest_categorical(param, _model_pool(fast=fast))
+def _suggest_model_type(
+    trial: optuna.Trial,
+    param: str,
+    *,
+    fast: bool,
+    use_gpu: bool,
+    allow_foundation: bool = True,
+) -> str:
+    boosting = available_boosting_models()
+    if not use_gpu:
+        boosting = [model for model in boosting if model != "Packboost"]
+    foundations = available_foundation_models(hpo_fast=fast)
+    if allow_foundation and foundations:
+        if param == "model_1_type" and trial.number < len(foundations):
+            return foundations[trial.number]
+        probability = (
+            HPO_FAST_FOUNDATION_SAMPLE_PROB if fast else FOUNDATION_SAMPLE_PROB
+        )
+        gate = trial.suggest_float(f"{param}_foundation_gate", 0.0, 1.0)
+        if gate < probability:
+            return trial.suggest_categorical(f"{param}_foundation_type", foundations)
+    return trial.suggest_categorical(param, boosting)
 
 
 def _active_model_types(cfg: dict[str, Any]) -> set[str]:
@@ -259,23 +303,34 @@ def _suggest_model_hyperparams(
 
 
 def _suggest_core_params(
-    trial: optuna.Trial, *, fast: bool, max_models: int = 3
+    trial: optuna.Trial,
+    *,
+    fast: bool,
+    max_models: int = 3,
+    use_gpu: bool = False,
 ) -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "scaler_type": trial.suggest_categorical(
             "scaler_type", ["StandardScaler", "RobustScaler"]
         ),
-        "use_gpu": False,
+        "use_gpu": use_gpu,
         "augmenter_backend": "auto",
     }
 
     model_cap = max(1, min(int(max_models), 3))
+    if use_gpu:
+        model_cap = min(model_cap, 2)
     if fast:
         cfg["hpo_fast"] = True
         cfg["use_packboost"] = False
         cfg["num_models"] = trial.suggest_int("num_models", 1, model_cap)
     else:
-        cfg["use_packboost"] = trial.suggest_categorical("use_packboost", [False, True])
+        packboost_available = use_gpu and "Packboost" in available_boosting_models()
+        cfg["use_packboost"] = (
+            trial.suggest_categorical("use_packboost", [False, True])
+            if packboost_available
+            else False
+        )
         cfg["num_models"] = trial.suggest_int("num_models", 1, model_cap)
 
     num_models = int(cfg["num_models"])
@@ -286,11 +341,41 @@ def _suggest_core_params(
     else:
         cfg["ensemble_method"] = "single"
 
-    cfg["model_1_type"] = _suggest_model_type(trial, "model_1_type", fast=fast)
+    cfg["model_1_type"] = _suggest_model_type(
+        trial,
+        "model_1_type",
+        fast=fast,
+        use_gpu=use_gpu,
+    )
     if num_models >= 2:
-        cfg["model_2_type"] = _suggest_model_type(trial, "model_2_type", fast=fast)
+        cfg["model_2_type"] = _suggest_model_type(
+            trial,
+            "model_2_type",
+            fast=fast,
+            use_gpu=use_gpu,
+            allow_foundation=False,
+        )
     if num_models >= 3:
-        cfg["model_3_type"] = _suggest_model_type(trial, "model_3_type", fast=fast)
+        cfg["model_3_type"] = _suggest_model_type(
+            trial,
+            "model_3_type",
+            fast=fast,
+            use_gpu=use_gpu,
+            allow_foundation=False,
+        )
+
+    foundation_types = [
+        str(cfg[f"model_{i}_type"])
+        for i in range(1, num_models + 1)
+        if cfg.get(f"model_{i}_type") in FOUNDATION_MODELS
+    ]
+    if foundation_types:
+        cfg["num_models"] = 1
+        cfg["model_1_type"] = foundation_types[0]
+        cfg.pop("model_2_type", None)
+        cfg.pop("model_3_type", None)
+        cfg["ensemble_method"] = "single"
+        num_models = 1
 
     if cfg.get("use_packboost"):
         cfg.update(_suggest_packboost_preprocessor_params(trial, fast=fast))
@@ -310,8 +395,8 @@ def _suggest_core_params(
             "stacking_meta_learner", ["ridge", "xgboost"]
         )
 
-    cfg["use_augmentation"] = trial.suggest_categorical(
-        "use_augmentation", [False, True]
+    cfg["use_augmentation"] = (
+        False if fast else trial.suggest_categorical("use_augmentation", [False, True])
     )
     if cfg["use_augmentation"]:
         cfg["augmenter_top_fraction"] = trial.suggest_float(
@@ -329,13 +414,7 @@ def _suggest_core_params(
     else:
         cfg["use_neutralization"] = False
 
-    cfg["use_meta_neutralization"] = trial.suggest_categorical(
-        "use_meta_neutralization", [False, True]
-    )
-    if cfg["use_meta_neutralization"]:
-        cfg["meta_neutralization_proportion"] = trial.suggest_float(
-            "meta_neutralization_proportion", 0.5, 0.75
-        )
+    cfg["use_meta_neutralization"] = False
 
     return cfg
 
@@ -346,17 +425,42 @@ def suggest_flat_config(
     fast: bool = False,
     max_models: int | None = None,
     data_dir: str | Path | None = None,
+    use_gpu: bool = False,
+    primary_target: str = "target",
 ) -> dict[str, Any]:
     model_cap = (
         2 if max_models is None and fast else (3 if max_models is None else max_models)
     )
     cfg = _finalize_neutralization_sampling(
-        _suggest_core_params(trial, fast=fast, max_models=model_cap)
+        _suggest_core_params(
+            trial,
+            fast=fast,
+            max_models=model_cap,
+            use_gpu=use_gpu,
+        )
     )
 
     if data_dir is not None:
         target_catalog = load_target_catalog(data_dir)
-        strategy = suggest_target_strategy(trial, target_catalog, fast=fast)
+        active_types = _active_model_types(cfg)
+        requires_single_target = int(cfg.get("num_models", 1)) > 1 or bool(
+            active_types.intersection(FOUNDATION_MODELS)
+        )
+        strategy = (
+            TargetStrategy(
+                target_mode="single",
+                primary_target=primary_target,
+                auxiliary_targets=[],
+                target_blend_method="equal",
+            )
+            if requires_single_target
+            else suggest_target_strategy(
+                trial,
+                target_catalog,
+                fast=fast,
+                primary_target=primary_target,
+            )
+        )
         cfg = apply_target_strategy_to_flat(cfg, strategy)
 
         feature_catalog = load_feature_catalog(data_dir)
@@ -369,7 +473,7 @@ def suggest_flat_config(
         cfg.update(routing_fragment)
     else:
         cfg.setdefault("target_mode", "single")
-        cfg.setdefault("primary_target", "target")
+        cfg.setdefault("primary_target", primary_target)
         cfg.setdefault("auxiliary_targets", [])
         cfg.setdefault("target_blend_method", "equal")
         cfg.setdefault("use_feature_routing", False)

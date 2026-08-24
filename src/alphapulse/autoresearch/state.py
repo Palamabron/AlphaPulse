@@ -92,7 +92,6 @@ class ResearchState:
         self.trials.append(record)
         self.pareto_front.update(record)
         if record.error is None:
-            # Best trial = maximise payout_score when available, else corr_sharpe
             objective = (
                 record.payout_score
                 if record.payout_score is not None

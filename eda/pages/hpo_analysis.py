@@ -1,4 +1,4 @@
-"""HPO Results Analysis."""
+"""HPO results and robustness analysis."""
 
 from __future__ import annotations
 
@@ -11,430 +11,458 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from eda.utils import get_translations
-
-st.set_page_config(page_title="HPO Analysis", page_icon="🔬", layout="wide")
-
-t = get_translations()
-
-st.title(t["hpo.title"])
-st.markdown(t["hpo.description"])
-
-st.sidebar.header(t["hpo.data_source"])
-trials_path = st.sidebar.text_input(
-    t["hpo.path_label"],
-    value="artifacts/hpo/all_trials.json",
-    help=t["hpo.path_help"],
-)
-min_sharpe = st.sidebar.slider(
-    t["hpo.min_sharpe_label"],
-    min_value=-10.0,
-    max_value=5.0,
-    value=-5.0,
-    step=0.1,
+from eda.utils.hpo import (
+    RANKING_METRICS,
+    discover_latest_trials,
+    load_hpo_trials,
+    rank_trials,
+    recipe_summary,
 )
 
+PAGE_ICON = "🔬"
+COLORS = {
+    "primary": "#2563EB",
+    "accent": "#14B8A6",
+    "warning": "#F59E0B",
+    "danger": "#EF4444",
+    "muted": "#64748B",
+}
 
-@st.cache_data
-def load_trials(path: str, _min_sharpe: float) -> pd.DataFrame:
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    rows = []
-    for trial in raw:
-        if trial.get("error"):
-            continue
-        params = trial.get("params", {})
-        metrics = trial.get("metrics", {})
-        num = params.get("num_models", 1)
-        model_types = "+".join(
-            str(params.get(f"model_{i}_type", "?")) for i in range(1, num + 1)
-        )
-        row: dict = {
-            "trial": trial["trial"],
-            "sharpe": trial["sharpe"],
-            "model_types": model_types,
-            "model_1_type": params.get("model_1_type", "?"),
-            "num_models": num,
-            "scaler_type": params.get("scaler_type", "?"),
-            "use_packboost": params.get("use_packboost", False),
-            "n_subs": params.get("n_subs", 10),
-            "ensemble_method": params.get("ensemble_method", "single"),
-            "use_neutralization": params.get("use_neutralization", False),
-            "neutralization_proportion": params.get("neutralization_proportion", 0.0),
-            "xgb_max_depth": params.get("xgb_max_depth"),
-            "xgb_learning_rate": params.get("xgb_learning_rate"),
-            "xgb_n_rounds": params.get("xgb_n_rounds"),
-            "lgbm_num_leaves": params.get("lgbm_num_leaves"),
-            "lgbm_learning_rate": params.get("lgbm_learning_rate"),
-            "lgbm_n_rounds": params.get("lgbm_n_rounds"),
-            "elapsed_seconds": trial.get("elapsed_seconds", 0.0),
-            "mean_era_corr": float(metrics.get("mean_per_era_correlation", 0.0)),
-            "std_era_corr": float(metrics.get("std_per_era_correlation", 0.0)),
-            "corr_sharpe": float(metrics.get("corr_sharpe", trial["sharpe"])),
-            "max_drawdown": float(metrics.get("max_drawdown", 0.0)),
-            "pct_positive_eras": float(metrics.get("pct_positive_eras", 0.0)),
-            "mmc_sharpe": metrics.get("mmc_sharpe"),
-            "payout_score": metrics.get("payout_score"),
-        }
-        rows.append(row)
-    df = pd.DataFrame(rows)
-    return df[df["sharpe"] >= _min_sharpe].reset_index(drop=True)
+st.set_page_config(page_title="AlphaPulse HPO", page_icon=PAGE_ICON, layout="wide")
+translations = get_translations()
 
 
+class HpoTranslations:
+    def get(self, key: str, default: str) -> str:
+        professional_key = key.replace("hpo.", "hpo_professional.", 1)
+        translated = translations.get(professional_key)
+        if translated is not None:
+            return str(translated)
+        return str(translations.get(key, default))
+
+
+t = HpoTranslations()
+
+
+@st.cache_data(show_spinner=False)
+def cached_load_trials(path: str, modified_ns: int) -> pd.DataFrame:
+    del modified_ns
+    return load_hpo_trials(path)
+
+
+def chart_layout(fig: go.Figure, *, height: int = 420) -> go.Figure:
+    fig.update_layout(
+        template="plotly_white",
+        height=height,
+        margin={"l": 16, "r": 16, "t": 54, "b": 16},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
+        hoverlabel={"namelength": -1},
+    )
+    return fig
+
+
+def metric_value(value: object, digits: int = 3) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+    return f"{float(value):.{digits}f}"
+
+
+latest_path = discover_latest_trials()
+default_path = str(latest_path or Path("artifacts/hpo/all_trials.json"))
+
+st.title(t.get("hpo.title", "AlphaPulse HPO"))
+st.caption(
+    t.get(
+        "hpo.description",
+        "Robustness, model recipes, and search progression across completed trials.",
+    )
+)
+
+with st.sidebar:
+    st.header(t.get("hpo.controls", "Analysis controls"))
+    trials_path = st.text_input(
+        t.get("hpo.path_label", "Trials file"),
+        value=default_path,
+        help=t.get(
+            "hpo.path_help",
+            "Path to an all_trials.json artifact. The newest artifact is "
+            "selected by default.",
+        ),
+    )
+    ranking_labels = {
+        t.get("hpo.rank_holdout", "Holdout Sharpe · robust winner"): "holdout",
+        t.get("hpo.rank_validation", "Validation payout · HPO objective"): "validation",
+        t.get("hpo.rank_robust", "Robust payout · transfer-aware"): "robust",
+    }
+    ranking_label = st.selectbox(
+        t.get("hpo.ranking_label", "Rank trials by"),
+        list(ranking_labels),
+    )
+    ranking = ranking_labels[ranking_label]
+    min_holdout = st.number_input(
+        t.get("hpo.min_holdout_label", "Minimum holdout Sharpe"),
+        value=-5.0,
+        step=0.1,
+        help=t.get(
+            "hpo.min_holdout_help",
+            "Applied to tables and comparisons, not to the search-progression chart.",
+        ),
+    )
+
+source = Path(trials_path)
 try:
-    df = load_trials(trials_path, min_sharpe)
+    df_all = cached_load_trials(str(source), source.stat().st_mtime_ns)
 except FileNotFoundError:
-    st.warning(t.format("hpo.file_not_found", path=trials_path))
+    st.warning(t.get("hpo.file_not_found", "Trials file not found."))
     st.stop()
-except Exception as exc:
-    st.error(t.format("hpo.error_loading", error=exc))
-    st.stop()
-
-if df.empty:
-    st.warning(t["hpo.no_valid_trials"])
-    st.stop()
-
-st.header(t["hpo.summary"])
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric(t["hpo.num_trials"], len(df))
-c2.metric(t["hpo.best_sharpe"], f"{df['sharpe'].max():.4f}")
-c3.metric(t["hpo.median_sharpe"], f"{df['sharpe'].median():.4f}")
-best_row = df.loc[df["sharpe"].idxmax()]
-c4.metric(t["hpo.best_model"], best_row["model_types"])
-c5.metric(t["hpo.best_ensemble"], best_row["ensemble_method"])
-
-st.divider()
-
-st.header(t["hpo.trial_history"])
-running_best = df.sort_values("trial")["sharpe"].cummax()
-fig_history = go.Figure()
-fig_history.add_trace(
-    go.Scatter(
-        x=df["trial"],
-        y=df["sharpe"],
-        mode="markers",
-        name=t["hpo.trial_sharpe"],
-        marker={
-            "color": df["sharpe"],
-            "colorscale": "Viridis",
-            "size": 6,
-            "showscale": True,
-        },
-        text=df["model_types"],
-        hovertemplate=t["hpo.trial_hover"],
+except (OSError, ValueError, json.JSONDecodeError) as exc:
+    st.error(
+        t.get("hpo.error_loading", "Could not load trials: {error}").format(error=exc)
     )
+    st.stop()
+
+if df_all.empty:
+    st.warning(t.get("hpo.no_valid_trials", "No completed, finite trials were found."))
+    st.stop()
+
+df = df_all[df_all["holdout_corr_sharpe"] >= min_holdout].copy()
+ranked = rank_trials(df, ranking)
+if ranked.empty:
+    st.warning(t.get("hpo.no_matching_trials", "No trials match the current filter."))
+    st.stop()
+
+rank_metric = RANKING_METRICS[ranking]
+best = ranked.iloc[0]
+best_holdout = rank_trials(df_all, "holdout").iloc[0]
+best_validation = rank_trials(df_all, "validation")
+validation_winner = best_validation.iloc[0] if not best_validation.empty else None
+
+metric_cols = st.columns(6)
+metric_cols[0].metric(t.get("hpo.completed_trials", "Completed trials"), len(df_all))
+metric_cols[1].metric(
+    t.get("hpo.selected_trial", "Selected trial"), f"#{int(best['trial'])}"
 )
-fig_history.add_trace(
-    go.Scatter(
-        x=df.sort_values("trial")["trial"],
-        y=running_best.values,
-        mode="lines",
-        name=t["hpo.best_sharpe_cumulative"],
-        line={"color": "red", "width": 2, "dash": "dash"},
+metric_cols[2].metric(
+    t.get("hpo.holdout_sharpe", "Holdout Sharpe"),
+    metric_value(best["holdout_corr_sharpe"]),
+)
+metric_cols[3].metric(
+    t.get("hpo.validation_payout", "Validation payout"),
+    metric_value(best["payout_score"]),
+)
+metric_cols[4].metric(
+    t.get("hpo.positive_eras", "Positive holdout eras"),
+    f"{float(best['pct_positive_eras']):.1%}"
+    if pd.notna(best["pct_positive_eras"])
+    else "—",
+)
+metric_cols[5].metric(
+    t.get("hpo.max_drawdown", "Max drawdown"),
+    metric_value(best["max_drawdown"]),
+)
+
+transfer_df = df_all.dropna(subset=["payout_score", "holdout_corr_sharpe"])
+transfer_corr = (
+    transfer_df["payout_score"].corr(transfer_df["holdout_corr_sharpe"])
+    if len(transfer_df) >= 2
+    else None
+)
+if validation_winner is not None and int(validation_winner["trial"]) != int(
+    best_holdout["trial"]
+):
+    st.warning(
+        t.get(
+            "hpo.winner_divergence",
+            "Validation and holdout select different winners. Trial #{holdout_trial} "
+            "leads holdout Sharpe ({holdout:.3f}); trial #{validation_trial} leads "
+            "validation payout ({payout:.3f}) but has holdout Sharpe "
+            "{validation_holdout:.3f}.",
+        ).format(
+            holdout_trial=int(best_holdout["trial"]),
+            holdout=best_holdout["holdout_corr_sharpe"],
+            validation_trial=int(validation_winner["trial"]),
+            payout=validation_winner["payout_score"],
+            validation_holdout=validation_winner["holdout_corr_sharpe"],
+        )
     )
+
+overview_tab, recipes_tab, progression_tab, leaderboard_tab = st.tabs(
+    [
+        t.get("hpo.tab_robustness", "Robustness"),
+        t.get("hpo.tab_recipes", "Recipes"),
+        t.get("hpo.tab_progression", "Search progression"),
+        t.get("hpo.tab_leaderboard", "Leaderboard & config"),
+    ]
 )
-fig_history.update_layout(
-    xaxis_title=t["hpo.trial_number"],
-    yaxis_title="Sharpe",
-    height=350,
-    legend={"yanchor": "bottom", "y": 0.01, "xanchor": "right", "x": 0.99},
-)
-st.plotly_chart(fig_history, use_container_width=True)
 
-st.divider()
+with overview_tab:
+    left, right = st.columns([1.35, 1])
+    with left:
+        fig_transfer = px.scatter(
+            transfer_df,
+            x="payout_score",
+            y="holdout_corr_sharpe",
+            color="num_models",
+            size="pct_positive_eras",
+            hover_name="recipe",
+            hover_data={
+                "trial": True,
+                "val_corr_sharpe": ":.3f",
+                "payout_score": ":.3f",
+                "holdout_corr_sharpe": ":.3f",
+                "num_models": False,
+                "pct_positive_eras": ":.1%",
+            },
+            color_continuous_scale=["#94A3B8", COLORS["primary"]],
+            title=t.get(
+                "hpo.transfer_title",
+                "Validation payout does not guarantee holdout performance",
+            ),
+            labels={
+                "payout_score": t.get("hpo.validation_payout", "Validation payout"),
+                "holdout_corr_sharpe": t.get("hpo.holdout_sharpe", "Holdout Sharpe"),
+                "num_models": t.get("hpo.model_count", "Models"),
+            },
+        )
+        fig_transfer.add_hline(y=0, line_dash="dot", line_color=COLORS["muted"])
+        if validation_winner is not None:
+            fig_transfer.add_annotation(
+                x=validation_winner["payout_score"],
+                y=validation_winner["holdout_corr_sharpe"],
+                text=t.get("hpo.validation_winner", "Validation winner"),
+                showarrow=True,
+                arrowcolor=COLORS["warning"],
+            )
+        fig_transfer.add_annotation(
+            x=best_holdout["payout_score"],
+            y=best_holdout["holdout_corr_sharpe"],
+            text=t.get("hpo.holdout_winner", "Holdout winner"),
+            showarrow=True,
+            arrowcolor=COLORS["accent"],
+        )
+        st.plotly_chart(chart_layout(fig_transfer, height=470), width="stretch")
+        st.caption(
+            t.get(
+                "hpo.transfer_correlation",
+                "Validation payout ↔ holdout Sharpe correlation: {value}.",
+            ).format(value=metric_value(transfer_corr, 2))
+        )
 
-st.header(t["hpo.model_comparison"])
+    with right:
+        st.subheader(t.get("hpo.selected_recipe", "Selected recipe"))
+        st.markdown(f"### Trial #{int(best['trial'])}")
+        st.write(best["recipe"])
+        detail_rows = pd.DataFrame(
+            {
+                t.get("hpo.metric", "Metric"): [
+                    t.get("hpo.mean_era_corr", "Mean era correlation"),
+                    t.get("hpo.std_era_corr", "Era correlation volatility"),
+                    t.get("hpo.robust_payout", "Robust payout"),
+                    t.get("hpo.elapsed", "Runtime"),
+                    t.get("hpo.features", "Routed features"),
+                ],
+                t.get("hpo.value", "Value"): [
+                    metric_value(best["mean_era_corr"], 4),
+                    metric_value(best["std_era_corr"], 4),
+                    metric_value(best["robust_payout_score"]),
+                    f"{float(best['elapsed_seconds']) / 60:.1f} min"
+                    if pd.notna(best["elapsed_seconds"])
+                    else "—",
+                    str(int(best["routed_feature_count"]))
+                    if pd.notna(best["routed_feature_count"])
+                    else "—",
+                ],
+            }
+        )
+        st.dataframe(detail_rows, hide_index=True, width="stretch")
+        st.info(
+            t.get(
+                "hpo.selection_note",
+                "Holdout ranking measures robustness. Validation payout measures the "
+                "optimization target. Treat disagreement as model-selection risk.",
+            )
+        )
 
-col_model, col_prep = st.columns(2)
-
-with col_model:
-    st.subheader(t["hpo.sharpe_by_model"])
-    fig_model = px.violin(
-        df,
-        x="model_1_type",
-        y="sharpe",
-        color="model_1_type",
-        box=True,
-        points="all",
-        title=t["hpo.sharpe_distribution"],
+with recipes_tab:
+    recipes = recipe_summary(df)
+    recipe_fig = px.bar(
+        recipes.head(15).sort_values("median_holdout"),
+        x="median_holdout",
+        y="recipe",
+        orientation="h",
+        color="best_holdout",
+        custom_data=["trials", "best_holdout", "median_payout"],
+        color_continuous_scale=["#CBD5E1", COLORS["accent"]],
+        title=t.get("hpo.recipe_title", "Most reliable model recipes"),
         labels={
-            "model_1_type": t["hpo.model_type"],
-            "sharpe": "Sharpe",
+            "median_holdout": t.get("hpo.median_holdout", "Median holdout Sharpe"),
+            "recipe": "",
+            "best_holdout": t.get("hpo.best_holdout", "Best holdout"),
         },
     )
-    fig_model.update_layout(showlegend=False, height=420)
-    st.plotly_chart(fig_model, use_container_width=True)
-
-with col_prep:
-    st.subheader(t["hpo.packboost_impact"])
-    df_pack = df.copy()
-    with_pb = t["hpo.with_packboost"]
-    without_pb = t["hpo.without_packboost"]
-    df_pack["Packboost"] = df_pack["use_packboost"].map(
-        {True: with_pb, False: without_pb}
+    recipe_fig.update_traces(
+        hovertemplate=(
+            "%{y}<br>Median holdout: %{x:.3f}<br>"
+            "Best holdout: %{customdata[1]:.3f}<br>"
+            "Median payout: %{customdata[2]:.3f}<br>"
+            "Trials: %{customdata[0]}<extra></extra>"
+        )
     )
-    fig_pack = px.violin(
-        df_pack,
-        x="Packboost",
-        y="sharpe",
-        color="Packboost",
-        box=True,
-        points="all",
-        title=t["hpo.sharpe_with_without_packboost"],
-        labels={"sharpe": "Sharpe"},
-        color_discrete_map={with_pb: "#2196F3", without_pb: "#9E9E9E"},
+    st.plotly_chart(chart_layout(recipe_fig, height=520), width="stretch")
+
+    recipe_cols = st.columns(3)
+    for column, dimension, title in zip(
+        recipe_cols,
+        ["num_models", "ensemble_method", "use_augmentation"],
+        [
+            t.get("hpo.model_count", "Model count"),
+            t.get("hpo.ensemble_method", "Ensemble method"),
+            t.get("hpo.augmentation", "Synthetic augmentation"),
+        ],
+        strict=True,
+    ):
+        aggregate = (
+            df.groupby(dimension)["holdout_corr_sharpe"]
+            .agg(["count", "median", "max"])
+            .reset_index()
+        )
+        fig = px.bar(
+            aggregate,
+            x=dimension,
+            y="median",
+            color="max",
+            text="count",
+            color_continuous_scale=["#CBD5E1", COLORS["primary"]],
+            title=title,
+            labels={"median": t.get("hpo.median_holdout", "Median holdout Sharpe")},
+        )
+        fig.update_traces(texttemplate="n=%{text}", textposition="outside")
+        column.plotly_chart(chart_layout(fig, height=360), width="stretch")
+
+with progression_tab:
+    history = df_all.sort_values("trial").copy()
+    history["best_holdout_so_far"] = history["holdout_corr_sharpe"].cummax()
+    history["best_payout_so_far"] = history["payout_score"].cummax()
+
+    holdout_fig = go.Figure()
+    holdout_fig.add_trace(
+        go.Scatter(
+            x=history["trial"],
+            y=history["holdout_corr_sharpe"],
+            mode="markers",
+            name=t.get("hpo.trials", "Trials"),
+            marker={
+                "color": history["holdout_corr_sharpe"],
+                "colorscale": "Blues",
+                "size": 7,
+            },
+            text=history["recipe"],
+            customdata=history[["payout_score"]],
+            hovertemplate=(
+                "Trial %{x}<br>Holdout: %{y:.3f}<br>"
+                "Validation payout: %{customdata[0]:.3f}<br>%{text}<extra></extra>"
+            ),
+        )
     )
-    fig_pack.update_layout(showlegend=False, height=420)
-    st.plotly_chart(fig_pack, use_container_width=True)
+    holdout_fig.add_trace(
+        go.Scatter(
+            x=history["trial"],
+            y=history["best_holdout_so_far"],
+            mode="lines",
+            name=t.get("hpo.running_best", "Running best"),
+            line={"color": COLORS["accent"], "width": 3},
+        )
+    )
+    holdout_fig.update_layout(
+        title=t.get("hpo.holdout_progression", "Holdout Sharpe progression"),
+        xaxis_title=t.get("hpo.trial_number", "Trial"),
+        yaxis_title=t.get("hpo.holdout_sharpe", "Holdout Sharpe"),
+    )
+    st.plotly_chart(chart_layout(holdout_fig, height=430), width="stretch")
 
-col_ens, col_neut = st.columns(2)
-
-with col_ens:
-    st.subheader(t["hpo.ensemble_method"])
-    fig_ens = px.box(
-        df,
-        x="ensemble_method",
-        y="sharpe",
+    payout_fig = px.scatter(
+        history.dropna(subset=["payout_score"]),
+        x="trial",
+        y="payout_score",
         color="ensemble_method",
-        points="all",
-        title=t["hpo.sharpe_by_ensemble"],
+        hover_name="recipe",
+        title=t.get("hpo.payout_progression", "Validation payout progression"),
         labels={
-            "ensemble_method": t["hpo.method"],
-            "sharpe": "Sharpe",
+            "trial": t.get("hpo.trial_number", "Trial"),
+            "payout_score": t.get("hpo.validation_payout", "Validation payout"),
+            "ensemble_method": t.get("hpo.ensemble_method", "Ensemble"),
         },
     )
-    fig_ens.update_layout(showlegend=False, height=380)
-    st.plotly_chart(fig_ens, use_container_width=True)
-
-with col_neut:
-    st.subheader(t["hpo.neutralization_impact"])
-    df_neut = df.copy()
-    with_neut = t["hpo.with_neutralization"]
-    without_neut = t["hpo.without_neutralization"]
-    df_neut["Neutralization"] = df_neut["use_neutralization"].map(
-        {True: with_neut, False: without_neut}
+    payout_fig.add_trace(
+        go.Scatter(
+            x=history["trial"],
+            y=history["best_payout_so_far"],
+            mode="lines",
+            name=t.get("hpo.running_best", "Running best"),
+            line={"color": COLORS["warning"], "width": 3},
+        )
     )
-    fig_neut = px.box(
-        df_neut,
-        x="Neutralization",
-        y="sharpe",
-        color="Neutralization",
-        points="all",
-        title=t["hpo.sharpe_with_without_neutralization"],
-        labels={"sharpe": "Sharpe"},
-        color_discrete_map={with_neut: "#4CAF50", without_neut: "#9E9E9E"},
+    st.plotly_chart(chart_layout(payout_fig, height=390), width="stretch")
+
+with leaderboard_tab:
+    max_rows = min(100, len(ranked))
+    top_n = st.slider(
+        t.get("hpo.num_trials_display", "Rows to display"),
+        min_value=1,
+        max_value=max_rows,
+        value=min(20, max_rows),
     )
-    fig_neut.update_layout(showlegend=False, height=380)
-    st.plotly_chart(fig_neut, use_container_width=True)
-
-st.divider()
-
-st.header(t["hpo.nsubs_impact"])
-fig_nsubs = px.strip(
-    df,
-    x="n_subs",
-    y="sharpe",
-    color="model_1_type",
-    title=t["hpo.sharpe_vs_nsubs"],
-    labels={"n_subs": "n_subs", "sharpe": "Sharpe", "model_1_type": "Model"},
-)
-mean_nsubs = df.groupby("n_subs")["sharpe"].mean().reset_index()
-fig_nsubs.add_trace(
-    go.Scatter(
-        x=mean_nsubs["n_subs"],
-        y=mean_nsubs["sharpe"],
-        mode="lines+markers",
-        name=t["hpo.average"],
-        line={"color": "black", "width": 2},
-        marker={"size": 8, "symbol": "diamond"},
+    display_columns = list(
+        dict.fromkeys(
+            [
+                "trial",
+                rank_metric,
+                "holdout_corr_sharpe",
+                "payout_score",
+                "val_corr_sharpe",
+                "mean_era_corr",
+                "max_drawdown",
+                "pct_positive_eras",
+                "recipe",
+                "elapsed_seconds",
+            ]
+        )
     )
-)
-fig_nsubs.update_layout(height=380)
-st.plotly_chart(fig_nsubs, use_container_width=True)
+    leaderboard = ranked.head(top_n)[display_columns].copy()
+    st.dataframe(
+        leaderboard,
+        hide_index=True,
+        width="stretch",
+        height=min(720, 36 * (top_n + 1)),
+        column_config={
+            "trial": st.column_config.NumberColumn("Trial", format="%d"),
+            rank_metric: st.column_config.NumberColumn(
+                t.get("hpo.selection_score", "Selection score"), format="%.4f"
+            ),
+            "holdout_corr_sharpe": st.column_config.NumberColumn(
+                t.get("hpo.holdout_sharpe", "Holdout Sharpe"), format="%.4f"
+            ),
+            "payout_score": st.column_config.NumberColumn(
+                t.get("hpo.validation_payout", "Validation payout"), format="%.4f"
+            ),
+            "pct_positive_eras": st.column_config.NumberColumn(
+                t.get("hpo.positive_eras", "Positive eras"), format="percent"
+            ),
+            "elapsed_seconds": st.column_config.NumberColumn(
+                t.get("hpo.elapsed_seconds", "Runtime (s)"), format="%.0f"
+            ),
+        },
+    )
+    st.download_button(
+        t.get("hpo.download_leaderboard", "Download leaderboard"),
+        data=leaderboard.to_csv(index=False).encode("utf-8"),
+        file_name="alphapulse_hpo_leaderboard.csv",
+        mime="text/csv",
+    )
 
-st.divider()
-
-st.header(t["hpo.hyperparams_impact"])
-
-param_tabs = st.tabs(["XGBoost", "LightGBM"])
-
-with param_tabs[0]:
-    xgb_df = df[df["model_1_type"] == "XGBoost"].dropna(subset=["xgb_learning_rate"])
-    if xgb_df.empty:
-        st.info(t["hpo.no_xgboost"])
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            fig = px.scatter(
-                xgb_df,
-                x="xgb_learning_rate",
-                y="sharpe",
-                color="xgb_max_depth",
-                log_x=True,
-                title="XGBoost: learning_rate vs Sharpe",
-                labels={
-                    "xgb_learning_rate": "Learning rate (log)",
-                    "sharpe": "Sharpe",
-                    "xgb_max_depth": "max_depth",
-                },
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            fig = px.scatter(
-                xgb_df,
-                x="xgb_n_rounds",
-                y="sharpe",
-                color="xgb_max_depth",
-                title="XGBoost: n_rounds vs Sharpe",
-                labels={
-                    "xgb_n_rounds": "n_rounds",
-                    "sharpe": "Sharpe",
-                    "xgb_max_depth": "max_depth",
-                },
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-with param_tabs[1]:
-    lgbm_df = df[df["model_1_type"] == "LightGBM"].dropna(subset=["lgbm_learning_rate"])
-    if lgbm_df.empty:
-        st.info(t["hpo.no_lightgbm"])
-    else:
-        c1, c2 = st.columns(2)
-        with c1:
-            fig = px.scatter(
-                lgbm_df,
-                x="lgbm_learning_rate",
-                y="sharpe",
-                color="lgbm_num_leaves",
-                log_x=True,
-                title="LightGBM: learning_rate vs Sharpe",
-                labels={
-                    "lgbm_learning_rate": "Learning rate (log)",
-                    "sharpe": "Sharpe",
-                    "lgbm_num_leaves": "num_leaves",
-                },
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            fig = px.scatter(
-                lgbm_df,
-                x="lgbm_num_leaves",
-                y="sharpe",
-                color="lgbm_learning_rate",
-                title="LightGBM: num_leaves vs Sharpe",
-                labels={
-                    "lgbm_num_leaves": "num_leaves",
-                    "sharpe": "Sharpe",
-                    "lgbm_learning_rate": "learning_rate",
-                },
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-st.divider()
-
-st.header(t["hpo.parallel_categories"])
-st.markdown(t["hpo.parallel_description"])
-
-cat_dims = ["model_1_type", "scaler_type", "ensemble_method"]
-df_par = df.copy()
-yes_text = t["hpo.yes"]
-no_text = t["hpo.no"]
-df_par["neutralization"] = df_par["use_neutralization"].map(
-    {True: yes_text, False: no_text}
-)
-df_par["packboost"] = df_par["use_packboost"].map({True: yes_text, False: no_text})
-
-q75 = df_par["sharpe"].quantile(0.75)
-top_label = t["hpo.top_25"]
-rest_label = t["hpo.remaining"]
-df_par["sharpe_tier"] = (df_par["sharpe"] >= q75).map(
-    {True: top_label, False: rest_label}
-)
-
-fig_par = px.parallel_categories(
-    df_par,
-    dimensions=["model_1_type", "packboost", "ensemble_method", "neutralization"],
-    color="sharpe",
-    color_continuous_scale="RdYlGn",
-    title=t["hpo.parallel_title"],
-    labels={
-        "model_1_type": "Model",
-        "packboost": "Packboost",
-        "ensemble_method": "Ensemble",
-        "neutralization": t["hpo.neutralization"],
-    },
-)
-fig_par.update_layout(height=450)
-st.plotly_chart(fig_par, use_container_width=True)
-
-st.divider()
-
-st.header(t["hpo.metrics_correlation"])
-numeric_cols = [
-    "sharpe",
-    "mean_era_corr",
-    "std_era_corr",
-    "max_drawdown",
-    "pct_positive_eras",
-    "elapsed_seconds",
-]
-if "payout_score" in df.columns and df["payout_score"].notna().any():
-    numeric_cols.append("payout_score")
-if "mmc_sharpe" in df.columns and df["mmc_sharpe"].notna().any():
-    numeric_cols.append("mmc_sharpe")
-
-corr_matrix = df[numeric_cols].corr()
-fig_corr = px.imshow(
-    corr_matrix,
-    text_auto=".2f",
-    color_continuous_scale="RdBu",
-    zmin=-1,
-    zmax=1,
-    title=t["hpo.correlation_matrix"],
-    aspect="auto",
-)
-fig_corr.update_layout(height=420)
-st.plotly_chart(fig_corr, use_container_width=True)
-
-st.divider()
-
-st.header(t["hpo.leaderboard"])
-top_n = st.slider(
-    t["hpo.num_trials_display"],
-    min_value=5,
-    max_value=min(100, len(df)),
-    value=20,
-)
-rank_col = (
-    "payout_score"
-    if "payout_score" in df.columns and df["payout_score"].notna().any()
-    else "sharpe"
-)
-show_cols = [
-    "trial",
-    rank_col,
-    "mean_era_corr",
-    "std_era_corr",
-    "max_drawdown",
-    "pct_positive_eras",
-    "model_types",
-    "ensemble_method",
-    "use_packboost",
-    "use_neutralization",
-    "elapsed_seconds",
-]
-if rank_col == "payout_score":
-    show_cols.insert(2, "corr_sharpe" if "corr_sharpe" in df.columns else "sharpe")
-
-leaderboard = df.nlargest(top_n, rank_col)[show_cols]
-st.dataframe(
-    leaderboard.style.background_gradient(subset=[rank_col], cmap="RdYlGn"),
-    use_container_width=True,
-    height=420,
-)
-
-csv = leaderboard.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label=t["hpo.download_leaderboard"],
-    data=csv,
-    file_name="hpo_leaderboard.csv",
-    mime="text/csv",
-)
+    st.subheader(
+        t.get("hpo.best_config", "Configuration for selected trial #{trial}").format(
+            trial=int(best["trial"])
+        )
+    )
+    st.json(best["params"], expanded=False)

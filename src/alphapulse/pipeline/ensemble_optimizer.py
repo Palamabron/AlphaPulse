@@ -165,11 +165,16 @@ class EnsembleOptimizer:
             y_oof: True target values aligned with oof_matrix.
             eras_oof: Era labels aligned with oof_matrix.
             meta_model_preds: Optional Numerai meta model predictions. Required
-                when ``objective="payout_score"``; falls back to corr_sharpe if None.
+                when ``objective="payout_score"``.
         """
         k = oof_matrix.shape[1]
         if k < 1:
             raise ValueError("Need at least 1 column in oof_matrix")
+        if self.objective == "payout_score" and meta_model_preds is None:
+            raise ValueError(
+                "payout_score weight optimization requires aligned meta-model "
+                "predictions"
+            )
 
         y_series = pd.Series(y_oof)
         use_payout = self.objective == "payout_score" and meta_model_preds is not None

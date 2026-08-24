@@ -6,16 +6,25 @@ import numpy as np
 import pandas as pd
 
 from ..evaluation.metrics import rank_normalize
+from ..experiments.data import require_meta_model_from_benchmarks
 from ..models.base import BaseModel
 from ..preprocessors.base import BasePreprocessor, TrainEvalPreprocessor
+from ..preprocessors.era_stable import EraStableFeatureSelector
 from .ensemble import EnsembleStrategy
+from .neutralizer import (
+    FeatureNeutralizer,
+    MetaModelNeutralizer,
+    apply_prediction_neutralization,
+)
 from .row_utils import (
+    blend_with_benchmark,
     filter_invalid_rows,
     filter_nan_rows,
     invalid_row_mask,
     protected_metadata_frame,
     reattach_protected_columns,
     safe_median,
+    select_required_features,
 )
 
 
@@ -96,6 +105,9 @@ class MultiHeadPipeline:
         ensemble_method: Literal["single", "weighted", "stacking"] = "single",
         ensemble_params: dict[str, Any] | None = None,
         benchmark_blend_weight: float = 0.0,
+        neutralize_proportion: float = 0.0,
+        neutralize_features: list[str] | None = None,
+        meta_neutralize_proportion: float = 0.0,
     ) -> None:
         if not heads:
             raise ValueError("heads must be non-empty")
@@ -103,9 +115,33 @@ class MultiHeadPipeline:
         self.heads = heads
         self.feature_columns = feature_columns
         self.benchmark_blend_weight = benchmark_blend_weight
+        self.neutralize_proportion = float(neutralize_proportion)
+        self.neutralize_features = neutralize_features
+        self._neutralizer = (
+            FeatureNeutralizer(proportion=self.neutralize_proportion)
+            if self.neutralize_proportion > 0.0
+            else None
+        )
+        self.meta_neutralize_proportion = float(meta_neutralize_proportion)
+        self._meta_neutralizer = (
+            MetaModelNeutralizer(proportion=self.meta_neutralize_proportion)
+            if self.meta_neutralize_proportion > 0.0
+            else None
+        )
         self._ensemble = EnsembleStrategy(
             method=ensemble_method, params=ensemble_params or {}
         )
+
+    @property
+    def ensemble_method(self) -> str:
+        return self._ensemble.method
+
+    @property
+    def ensemble_weights(self) -> list[float] | None:
+        weights = self._ensemble.weights
+        if weights is None:
+            return None
+        return [float(weight) for weight in weights]
 
     def _transform_global(
         self, X: pd.DataFrame, *, fit: bool, y: pd.Series | None
@@ -115,7 +151,10 @@ class MultiHeadPipeline:
             if isinstance(pp, TrainEvalPreprocessor):
                 pp.train() if fit else pp.eval()
             if fit:
-                pp.fit(X, y)
+                if isinstance(pp, EraStableFeatureSelector) and era_meta is not None:
+                    pp.fit(X, y, eras=era_meta["era"])
+                else:
+                    pp.fit(X, y)
             X = pp.transform(X)
             X = reattach_protected_columns(X, era_meta)
         return X
@@ -135,7 +174,10 @@ class MultiHeadPipeline:
             if isinstance(pp, TrainEvalPreprocessor):
                 pp.train() if fit else pp.eval()
             if fit:
-                pp.fit(X_h, y)
+                if isinstance(pp, EraStableFeatureSelector) and era_meta is not None:
+                    pp.fit(X_h, y, eras=era_meta["era"])
+                else:
+                    pp.fit(X_h, y)
             X_h = pp.transform(X_h)
             X_h = reattach_protected_columns(X_h, era_meta)
         return reattach_protected_columns(X_h, era_meta)
@@ -157,10 +199,12 @@ class MultiHeadPipeline:
         y: pd.Series,
         X_val: pd.DataFrame | None = None,
         y_val: pd.Series | None = None,
+        ensemble_meta_preds: pd.Series | np.ndarray | None = None,
         **model_train_kwargs: Any,
     ) -> dict[str, float]:
         era_train = model_train_kwargs.pop("era_train", None)
         era_val = model_train_kwargs.pop("era_val", None)
+        per_model_kwargs = model_train_kwargs.pop("model_train_kwargs_by_index", None)
         X = self._with_era_column(X, era_train)
         if X_val is not None:
             X_val = self._with_era_column(X_val, era_val)
@@ -178,7 +222,28 @@ class MultiHeadPipeline:
             raise ValueError("No valid training rows after global preprocessing")
 
         X_val_g: pd.DataFrame | None = None
+        ensemble_meta_series: pd.Series | None = None
         if X_val is not None:
+            if ensemble_meta_preds is not None:
+                if isinstance(ensemble_meta_preds, pd.Series):
+                    if ensemble_meta_preds.index.has_duplicates:
+                        raise ValueError(
+                            "ensemble_meta_preds index must not contain duplicates"
+                        )
+                    missing = X_val.index.difference(ensemble_meta_preds.index)
+                    extra = ensemble_meta_preds.index.difference(X_val.index)
+                    if len(missing) > 0 or len(extra) > 0:
+                        raise ValueError(
+                            "ensemble_meta_preds row IDs must exactly match X_val"
+                        )
+                    ensemble_meta_series = ensemble_meta_preds.reindex(X_val.index)
+                else:
+                    meta_array = np.asarray(ensemble_meta_preds, dtype=np.float64)
+                    if len(meta_array) != len(X_val):
+                        raise ValueError(
+                            "ensemble_meta_preds length must match X_val length"
+                        )
+                    ensemble_meta_series = pd.Series(meta_array, index=X_val.index)
             X_val, y_val = filter_invalid_rows(X_val, y_val)
             if len(X_val) > 0:
                 X_val_g = self._transform_global(X_val, fit=False, y=None)
@@ -190,15 +255,18 @@ class MultiHeadPipeline:
                 y_val = None
 
         all_metrics: dict[str, float] = {}
-        for head in self.heads:
+        for head_index, head in enumerate(self.heads):
             X_tr = self._head_matrix(X_fit, head, fit=True, y=y)
             X_va_h = (
                 self._head_matrix(X_val_g, head, fit=False, y=None)
                 if X_val_g is not None
                 else None
             )
+            train_kwargs = dict(model_train_kwargs)
+            if per_model_kwargs and head_index < len(per_model_kwargs):
+                train_kwargs.update(per_model_kwargs[head_index])
             metrics = head.model.train(
-                X_tr, y, X_val=X_va_h, y_val=y_val, **model_train_kwargs
+                X_tr, y, X_val=X_va_h, y_val=y_val, **train_kwargs
             )
             for k, v in metrics.items():
                 all_metrics[f"{head.model.name}_{k}"] = v
@@ -219,11 +287,21 @@ class MultiHeadPipeline:
                 n_models=len(self.heads),
                 get_val_predictions=get_val_preds if X_val_g is not None else None,
                 y_val=y_val,
+                eras_val=(
+                    era_val.loc[X_val_g.index]
+                    if era_val is not None and X_val_g is not None
+                    else None
+                ),
+                meta_model_preds=(
+                    ensemble_meta_series.loc[X_val_g.index].to_numpy(dtype=np.float64)
+                    if ensemble_meta_series is not None and X_val_g is not None
+                    else None
+                ),
             )
 
         return all_metrics
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def _predict_raw(self, X: pd.DataFrame) -> np.ndarray:
         input_invalid_mask = invalid_row_mask(X)
 
         if input_invalid_mask.any():
@@ -301,6 +379,24 @@ class MultiHeadPipeline:
         )
         return self._ensemble.combine(preds)
 
+    def predict(
+        self,
+        X: pd.DataFrame,
+        eras: pd.Series | None = None,
+        meta_model: np.ndarray | pd.Series | None = None,
+    ) -> np.ndarray:
+        raw_preds = self._predict_raw(X)
+        return apply_prediction_neutralization(
+            raw_preds,
+            X,
+            eras=eras,
+            feature_columns=self.feature_columns,
+            neutralize_features=self.neutralize_features,
+            feature_neutralizer=self._neutralizer,
+            meta_model=meta_model,
+            meta_neutralizer=self._meta_neutralizer,
+        )
+
     def to_numerai_predict(
         self,
         benchmark_col: str | None = None,
@@ -309,22 +405,37 @@ class MultiHeadPipeline:
         feature_columns = self.feature_columns or []
         blend_weight = self.benchmark_blend_weight
         bench_col = benchmark_col
+        use_neutralization = pipeline._neutralizer is not None
+        use_meta_neutralization = pipeline._meta_neutralizer is not None
 
         def predict(
             live_features: pd.DataFrame,
             live_benchmark_models: pd.DataFrame,
         ) -> pd.DataFrame:
-            X = live_features.reindex(columns=feature_columns, fill_value=0.0)
-            raw_preds = pipeline.predict(X)
+            X = select_required_features(live_features, feature_columns)
+            eras = (
+                live_features["era"]
+                if (use_neutralization or use_meta_neutralization)
+                and "era" in live_features.columns
+                else None
+            )
+            meta_model = (
+                require_meta_model_from_benchmarks(
+                    live_benchmark_models, live_features.index
+                )
+                if use_meta_neutralization
+                else None
+            )
+            raw_preds = pipeline.predict(X, eras=eras, meta_model=meta_model)
             ranked = rank_normalize(raw_preds)
 
-            if (
-                blend_weight > 0.0
-                and bench_col
-                and bench_col in live_benchmark_models.columns
-            ):
-                bench = live_benchmark_models[bench_col].values
-                ranked = (1.0 - blend_weight) * ranked + blend_weight * bench
+            ranked = blend_with_benchmark(
+                ranked,
+                live_benchmark_models,
+                live_features.index,
+                benchmark_column=bench_col,
+                weight=blend_weight,
+            )
 
             return pd.DataFrame({"prediction": ranked}, index=live_features.index)
 

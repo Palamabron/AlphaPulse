@@ -26,6 +26,7 @@ from ..logging_.leaderboard import (
     print_leaderboard,
     save_leaderboard,
 )
+from ..validation.purge import effective_purge_eras
 from . import agent as research_agent
 from .mutations import (
     add_model,
@@ -48,6 +49,7 @@ def _run_one_trial(
     feature_cols: list[str],
     seed: int,
     meta_model: pd.Series | None = None,
+    target_col: str = "target",
 ) -> tuple[dict[str, float], float]:
     rng = np.random.default_rng(seed)
     np.random.seed(int(rng.integers(0, 2**31)))
@@ -71,7 +73,7 @@ def _run_one_trial(
     metrics = EraSplitEvaluator(
         feature_columns=feature_cols,
         n_splits=WF_N_SPLITS,
-        n_purge=WF_N_PURGE,
+        n_purge=effective_purge_eras(WF_N_PURGE, [target_col]),
         min_train_eras=WF_MIN_TRAIN_ERAS,
     ).evaluate_walk_forward(
         X_train, y_train, era_train, train_fn, meta_model=meta_model
@@ -126,6 +128,7 @@ def run_autoresearch(
     resume: bool = False,
     wandb_project: str | None = None,
     data_dir: Path | None = None,
+    target_col: str = "target",
 ) -> ResearchState:
     """Run the agent-driven research loop.
 
@@ -158,7 +161,7 @@ def run_autoresearch(
 
         meta_model = load_meta_model_series(data_dir, X_train.index)
         if meta_model is not None:
-            logger.info("Loaded meta_model.parquet for MMC/payout scoring")
+            logger.info("Loaded meta_model.parquet for legacy MMC/proxy scoring")
 
     if wandb_project:
         from ..logging_.wandb_utils import finish_wandb_run, init_wandb_run
@@ -235,6 +238,7 @@ def run_autoresearch(
                 feature_cols=feature_cols,
                 seed=seed + trial_num,
                 meta_model=meta_model,
+                target_col=target_col,
             )
             sharpe = metrics.get("corr_sharpe", float("-inf"))
             error = None

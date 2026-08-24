@@ -8,6 +8,7 @@ from sklearn.linear_model import Ridge
 
 from alphapulse.evaluation.era_split import EraSplitEvaluator
 from alphapulse.experiments.schema import EvaluationConfig
+from alphapulse.validation.purge import effective_purge_eras
 
 
 def _make_data(
@@ -43,9 +44,9 @@ def _ridge_train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> _Pred:
 
 
 class TestEraSplitEvaluatorDefaults:
-    def test_default_n_purge_is_4(self) -> None:
+    def test_default_n_purge_is_8(self) -> None:
         ev = EraSplitEvaluator()
-        assert ev.n_purge == 4
+        assert ev.n_purge == 8
 
     def test_default_n_embargo_is_0(self) -> None:
         ev = EraSplitEvaluator()
@@ -69,6 +70,12 @@ class TestEraSplitEvaluatorDefaults:
 
 
 class TestPurgeGap:
+    def test_sixty_day_target_requires_sixteen_eras(self) -> None:
+        assert effective_purge_eras(0, ["target_ender_60"]) == 16
+
+    def test_twenty_day_target_requires_eight_eras(self) -> None:
+        assert effective_purge_eras(0, ["target_ender_20"]) == 8
+
     def test_purge_excludes_adjacent_train_eras(self) -> None:
         """With n_purge=2, eras immediately before each test era are not trained on."""
         n_purge = 2
@@ -164,7 +171,7 @@ class TestPurgedCVMode:
 class TestSchemaDefaults:
     def test_new_fields_exist_with_correct_defaults(self) -> None:
         cfg = EvaluationConfig()
-        assert cfg.walk_forward_n_purge == 4
+        assert cfg.walk_forward_n_purge == 8
         assert cfg.walk_forward_n_embargo == 0
         assert cfg.walk_forward_n_splits is None
 

@@ -25,7 +25,11 @@ test:
 		--cov-report=term-missing
 
 # --- Notebooks (.ipynb) via nbQA ---
+ifneq ($(wildcard notebooks),)
 NB := $(shell find notebooks -type f -name "*.ipynb" 2>/dev/null)
+else
+NB :=
+endif
 
 .PHONY: nb-format
 nb-format:
@@ -55,10 +59,10 @@ deadcode:
 .PHONY: eda-lint
 eda-lint:
 	$(RUFF) check eda --config pyproject.toml \
-		--extend-exclude "" \
+		--exclude "" \
 		--select E,F,W,I,UP
 	$(RUFF) format --check eda --config pyproject.toml \
-		--extend-exclude ""
+		--exclude ""
 
 .PHONY: check
 check: lint types test deadcode

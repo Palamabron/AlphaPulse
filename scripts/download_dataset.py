@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from dataclasses import dataclass, field
@@ -9,6 +10,22 @@ from dotenv import load_dotenv
 from loguru import logger
 
 load_dotenv()
+
+
+def _artifact_is_valid(path: Path, *, expected_suffix: str | None = None) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        suffix = expected_suffix or path.suffix
+        if suffix == ".parquet":
+            import pyarrow.parquet as pq
+
+            pq.ParquetFile(path)
+        elif suffix == ".json":
+            json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    return True
 
 
 @dataclass
@@ -38,7 +55,7 @@ class DownloadConfig:
         default_factory=lambda: os.getenv("NUMERAI_PRIVATE_API_KEY")
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.files:
             self.files = [
                 "train.parquet",
@@ -67,7 +84,6 @@ def main(config: DownloadConfig) -> None:
         config (DownloadConfig): Configuration object containing API credentials,
             target version, output path, and file list.
     """
-    # Create versioned output directory
     versioned_output_dir = config.output_dir / config.dataset_version
     versioned_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -79,30 +95,45 @@ def main(config: DownloadConfig) -> None:
 
     try:
         available_files = napi.list_datasets()
-    except Exception as e:
-        logger.error(f"Failed to list datasets from Numerai API: {e}")
-        return
+    except Exception as exc:
+        raise RuntimeError("Failed to list datasets from Numerai API") from exc
 
     logger.info(f"Starting download to: {versioned_output_dir.absolute()}")
 
-    for filename in config.files:
+    failures: list[str] = []
+    for filename in config.files or []:
         full_remote_path = f"{config.dataset_version}/{filename}"
         dest_path = versioned_output_dir / filename
 
         if full_remote_path not in available_files:
             logger.warning(f"File not found on remote: {full_remote_path}. Skipping.")
+            failures.append(f"not available: {full_remote_path}")
             continue
 
-        if dest_path.exists():
+        if _artifact_is_valid(dest_path):
             logger.info(f"File already exists, skipping download: {filename}")
             continue
+        if dest_path.exists():
+            logger.warning(f"Existing file is invalid; downloading again: {filename}")
 
+        part_path = dest_path.with_name(f"{dest_path.name}.part")
+        part_path.unlink(missing_ok=True)
         try:
             logger.info(f"Downloading: {full_remote_path}")
-            napi.download_dataset(full_remote_path, str(dest_path))
+            napi.download_dataset(full_remote_path, str(part_path))
+            if not _artifact_is_valid(part_path, expected_suffix=dest_path.suffix):
+                raise RuntimeError(f"downloaded artifact is invalid: {filename}")
+            part_path.replace(dest_path)
             logger.success(f"Successfully downloaded: {filename}")
-        except Exception as e:
-            logger.error(f"Failed to download {filename}: {e}")
+        except Exception as exc:
+            logger.error(f"Failed to download {filename}: {exc}")
+            failures.append(f"download failed: {filename}")
+        finally:
+            part_path.unlink(missing_ok=True)
+
+    if failures:
+        joined = "; ".join(failures)
+        raise RuntimeError(f"Dataset download incomplete: {joined}")
 
     logger.success("Download process completed.")
 

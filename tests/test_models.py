@@ -146,13 +146,12 @@ def test_xgboost_ray_callbacks_return_training_callback_instances(
 
     fake_ray = types.ModuleType("ray")
     fake_tune = types.ModuleType("ray.tune")
-    fake_session = types.ModuleType("ray.tune.session")
-    fake_session.get_session = lambda: object()  # type: ignore[attr-defined]
-    fake_session.report = lambda metrics: None  # type: ignore[attr-defined]
-    fake_tune.session = fake_session  # type: ignore[attr-defined]
+    fake_context = types.SimpleNamespace(get_trial_id=lambda: "trial-1")
+    fake_tune.get_context = lambda: fake_context  # type: ignore[attr-defined]
+    fake_tune.report = lambda metrics: None  # type: ignore[attr-defined]
+    fake_ray.tune = fake_tune  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", fake_tune)
-    monkeypatch.setitem(sys.modules, "ray.tune.session", fake_session)
 
     callbacks = xgboost_model._make_ray_callbacks()
     assert len(callbacks) == 1

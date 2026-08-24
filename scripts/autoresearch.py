@@ -91,6 +91,7 @@ def main(
         resume=resume,
         wandb_project=wandb_project,
         data_dir=data_dir,
+        target_col=target_col,
     )
 
     n_ok = sum(1 for t in state.trials if t.error is None)
@@ -110,7 +111,7 @@ def main(
     if state.best_trial:
         b = state.best_trial
         payout_str = (
-            f", payout={b.payout_score:.4f}" if b.payout_score is not None else ""
+            f", legacy_proxy={b.payout_score:.4f}" if b.payout_score is not None else ""
         )
         mmc_str = f", mmc_sharpe={b.mmc_sharpe:.4f}" if b.mmc_sharpe is not None else ""
         logger.info(

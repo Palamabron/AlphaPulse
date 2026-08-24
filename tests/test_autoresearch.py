@@ -13,7 +13,7 @@ from alphapulse.autoresearch.state import ResearchState, TrialRecord
 @pytest.fixture
 def toy_data_with_era() -> dict[str, Any]:
     rng = np.random.default_rng(42)
-    n_eras = 40
+    n_eras = 50
     rows_per_era = 8
     n = n_eras * rows_per_era
     X = pd.DataFrame(
@@ -36,6 +36,37 @@ def _base_config() -> dict[str, Any]:
         "ensemble_method": "single",
         "ensemble_params": {},
     }
+
+
+def test_autoresearch_uses_sixteen_era_purge_for_sixty_day_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import alphapulse.autoresearch.loop as loop
+
+    observed: dict[str, int] = {}
+
+    class FakeEvaluator:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["n_purge"] = int(kwargs["n_purge"])
+
+        def evaluate_walk_forward(self, *args: Any, **kwargs: Any) -> dict[str, float]:
+            return {"corr_sharpe": 0.0}
+
+    monkeypatch.setattr(loop, "EraSplitEvaluator", FakeEvaluator)
+    X = pd.DataFrame({"feature": [0.0], "era": ["era_0001"]})
+    y = pd.Series([0.0], index=X.index)
+
+    loop._run_one_trial(
+        _base_config(),
+        X_train=X,
+        y_train=y,
+        era_train=X["era"],
+        feature_cols=["feature"],
+        seed=42,
+        target_col="target_ender_60",
+    )
+
+    assert observed["n_purge"] == 16
 
 
 class TestMutations:

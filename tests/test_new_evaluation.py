@@ -122,6 +122,15 @@ def test_validate_submission_id_alignment_missing() -> None:
     assert any("missing" in msg.lower() for msg in issues)
 
 
+def test_validate_submission_rejects_duplicate_ids() -> None:
+    live = pd.DataFrame({"id": ["a", "b"], "feature": [0.0, 1.0]})
+    predictions = pd.DataFrame({"id": ["a", "a"], "prediction": [0.2, 0.8]})
+
+    issues = validate_submission(predictions, live)
+
+    assert "ERROR: Duplicate prediction IDs found." in issues
+
+
 def test_prepare_submission_shape_and_range() -> None:
     preds = np.random.randn(100)
     ids = [f"row_{i}" for i in range(100)]

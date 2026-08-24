@@ -64,13 +64,37 @@ def test_era_ensemble_predict_shape(
     assert preds.shape == (len(X),)
 
 
-def test_era_ensemble_meta_model_is_ridge(
+def test_era_ensemble_without_validation_uses_equal_average(
     toy_data_with_era: tuple[pd.DataFrame, pd.Series],
     xgb_factory: Callable[[], XGBoostModel],
 ) -> None:
     X, y = toy_data_with_era
     model = EraEnsembleModel(xgb_factory, n_subs=3, name="EraXGB")
     model.train(X, y, n_rounds=5)
+    expected = np.mean(
+        np.column_stack([submodel.predict(X) for submodel in model._sub_models]),
+        axis=1,
+    )
+
+    assert model._meta_model is None
+    np.testing.assert_allclose(model.predict(X), expected)
+
+
+def test_era_ensemble_meta_model_uses_separate_validation_rows(
+    toy_data_with_era: tuple[pd.DataFrame, pd.Series],
+    xgb_factory: Callable[[], XGBoostModel],
+) -> None:
+    X, y = toy_data_with_era
+    split = len(X) // 2
+    model = EraEnsembleModel(xgb_factory, n_subs=3, name="EraXGB")
+    model.train(
+        X.iloc[:split],
+        y.iloc[:split],
+        X_val=X.iloc[split:],
+        y_val=y.iloc[split:],
+        n_rounds=5,
+    )
+
     assert isinstance(model._meta_model, Ridge)
 
 

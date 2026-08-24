@@ -19,6 +19,7 @@ from ..hpo.builder import (
 from ..pipeline.multi_target import MultiTargetPipeline
 from ..pipeline.multihead import MultiHeadPipeline
 from ..pipeline.pipeline import Pipeline
+from ..validation.purge import effective_purge_eras
 from .data import (
     load_meta_model_series,
     load_train_frame_with_era,
@@ -267,21 +268,6 @@ def run_experiment(
                 **train_kw,
             )
             if isinstance(pipeline, Pipeline):
-                from ..hpo.objective import (
-                    _needs_validation_ensemble_opt,
-                    _optimize_ensemble_on_validation,
-                )
-
-                if _needs_validation_ensemble_opt(pipeline_cfg):
-                    _optimize_ensemble_on_validation(
-                        pipeline,
-                        data_dir=data_dir,
-                        feature_cols=feature_cols,
-                        target_col=exp.data.target_col,
-                        train_subsample=exp.data.train_subsample,
-                        seed=exp.data.seed,
-                        pipeline_cfg=pipeline_cfg,
-                    )
                 if pipeline.ensemble_weights is not None:
                     pipeline_cfg.setdefault("ensemble_params", {})["weights"] = (
                         pipeline.ensemble_weights
@@ -328,26 +314,6 @@ def run_experiment(
     )
     if meta_series is not None:
         meta_model_preds = meta_series.reindex(X_val.index).to_numpy(dtype=np.float64)
-
-    if (
-        isinstance(pipeline, Pipeline)
-        and pipeline._meta_neutralizer is not None
-        and meta_model_preds is not None
-        and np.isfinite(meta_model_preds).sum() >= 2
-    ):
-        X_feat = X_val[feature_cols]
-        base_preds = pipeline.predict(X_feat, eras=era_val, meta_model=None)
-        optimized = pipeline._meta_neutralizer.optimize_proportion(
-            base_preds,
-            meta_model_preds,
-            y_val,
-            era_val,
-            objective="payout_score",
-            bounds=(0.5, 0.75),
-            corr_weight=exp.evaluation.corr_weight,
-            mmc_weight=exp.evaluation.mmc_weight,
-        )
-        pipeline.meta_neutralize_proportion = optimized
 
     compute_fnc = len(feature_cols) <= 200
     backtester = Backtester(pipeline, feature_columns=feature_cols)
@@ -494,7 +460,10 @@ def run_experiment(
         wf_metrics = EraSplitEvaluator(
             feature_columns=feature_cols,
             min_train_eras=ev.walk_forward_min_train_eras,
-            n_purge=ev.walk_forward_n_purge,
+            n_purge=effective_purge_eras(
+                ev.walk_forward_n_purge,
+                [exp.data.target_col, *(exp.data.auxiliary_targets or [])],
+            ),
             n_embargo=ev.walk_forward_n_embargo,
             n_splits=ev.walk_forward_n_splits,
         ).evaluate_walk_forward(X_wf, y_wf, era_wf, train_fn)

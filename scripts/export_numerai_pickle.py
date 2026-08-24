@@ -11,14 +11,15 @@ import datetime
 import gc
 import hashlib
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
-import cloudpickle
 import tyro
 from loguru import logger
 
+from alphapulse.evaluation.export_serialization import dump_predict_fn
 from alphapulse.evaluation.export_validation import smoke_test_predict_fn
 from alphapulse.hpo.export import build_hpo_pipeline_from_flat
 from alphapulse.utils import set_global_seed
@@ -34,12 +35,22 @@ def _artifact_stem(flat_config: dict[str, Any], target_col: str) -> str:
     return f"{ts}_{arch}_{target_col}_{config_hash}"
 
 
+def _replace_with_copy(source: Path, destination: Path) -> None:
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    if destination.is_symlink():
+        destination.unlink()
+    if temporary.exists() or temporary.is_symlink():
+        temporary.unlink()
+    shutil.copy2(source, temporary)
+    temporary.replace(destination)
+
+
 def _provenance(
     flat_config: dict[str, Any],
     pipeline_config: dict[str, Any],
     target_col: str,
 ) -> dict[str, Any]:
-    """Build a hermetically sealed provenance record."""
+    """Build a lightweight provenance record for the exported artifact."""
     try:
         git_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], text=True
@@ -127,8 +138,7 @@ def main(
 
     predict_fn = pipeline.to_numerai_predict()
     pkl_path = output_dir / f"{stem}_predict.pkl"
-    with open(pkl_path, "wb") as f:
-        cloudpickle.dump(predict_fn, f)
+    dump_predict_fn(predict_fn, pkl_path)
 
     smoke_test_predict_fn(pkl_path, feature_cols)
     logger.info("Smoke test passed for {}", pkl_path)
@@ -137,13 +147,15 @@ def main(
     pipeline.save_pipeline(pipeline_pkl_path)
 
     latest_predict = output_dir / "latest_predict.pkl"
-    if latest_predict.is_symlink() or latest_predict.exists():
-        latest_predict.unlink()
-    latest_predict.symlink_to(pkl_path.name)
+    canonical_predict = output_dir / "predict.pkl"
+    _replace_with_copy(pkl_path, latest_predict)
+    _replace_with_copy(pkl_path, canonical_predict)
 
     logger.info("Exported Numerai predict to: {}", pkl_path)
     logger.info("Saved trained pipeline to:   {}", pipeline_pkl_path)
-    logger.info("Symlink updated:             {}", latest_predict)
+    logger.info(
+        "Canonical copies updated:    {}, {}", canonical_predict, latest_predict
+    )
 
 
 if __name__ == "__main__":

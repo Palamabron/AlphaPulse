@@ -1,15 +1,26 @@
+from __future__ import annotations
+
+import warnings
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from loguru import logger
 
 from .base import BaseModel, _numeric
 
 
+def _require_xgboost() -> Any:
+    try:
+        import xgboost
+    except ImportError as exc:
+        raise ImportError("XGBoostModel requires xgboost.") from exc
+    return xgboost
+
+
 def _make_progress_callbacks(model_name: str, log_every: int = 10) -> list[Any]:
+    xgb = _require_xgboost()
     ray_callbacks = _make_ray_callbacks()
     if ray_callbacks:
         return ray_callbacks
@@ -20,7 +31,7 @@ def _make_progress_callbacks(model_name: str, log_every: int = 10) -> list[Any]:
         wandb_run_active,
     )
 
-    class _LogProgressCallback(xgb.callback.TrainingCallback):
+    class _LogProgressCallback(xgb.callback.TrainingCallback):  # type: ignore[name-defined]
         def after_iteration(
             self,
             model: Any,
@@ -46,12 +57,16 @@ def _make_progress_callbacks(model_name: str, log_every: int = 10) -> list[Any]:
 
 def _make_ray_callbacks() -> list[Any]:
     try:
-        from ray.tune import session as ray_session
+        xgb = _require_xgboost()
+        from ray import tune as ray_tune
 
-        if ray_session.get_session() is None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            trial_id = ray_tune.get_context().get_trial_id()
+        if trial_id is None:
             return []
 
-        class _RayReportCallback(xgb.callback.TrainingCallback):
+        class _RayReportCallback(xgb.callback.TrainingCallback):  # type: ignore[name-defined]
             def after_iteration(
                 self,
                 model: Any,
@@ -79,7 +94,7 @@ def _make_ray_callbacks() -> list[Any]:
                             eval_rmse = float(value)
                             break
                 if eval_rmse is not None:
-                    ray_session.report({"eval_rmse": eval_rmse})
+                    ray_tune.report({"eval_rmse": eval_rmse})
                 return False
 
         return [_RayReportCallback()]
@@ -110,13 +125,14 @@ class XGBoostModel(BaseModel):
         early_stopping_rounds: int = 100,
         **kwargs: Any,
     ) -> dict[str, float]:
+        xgb = _require_xgboost()
         feat_train = _numeric(X_train)
         if feat_train.shape[1] == 0:
             raise ValueError(f"{self.name}: no numeric feature columns found.")
 
         dtrain = xgb.DMatrix(feat_train, label=y_train)
 
-        eval_set: list[tuple[xgb.DMatrix, str]] = []
+        eval_set: list[tuple[Any, str]] = []
         if X_val is not None and y_val is not None:
             feat_val = _numeric(X_val)
             dval = xgb.DMatrix(feat_val, label=y_val)
@@ -155,6 +171,7 @@ class XGBoostModel(BaseModel):
         return metrics
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
+        xgb = _require_xgboost()
         self._require_trained()
         feat = _numeric(X)
         dtest = xgb.DMatrix(feat)
@@ -166,7 +183,8 @@ class XGBoostModel(BaseModel):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.model.save_model(str(path))
 
-    def load(self, path: Path) -> "XGBoostModel":
+    def load(self, path: Path) -> XGBoostModel:
+        xgb = _require_xgboost()
         booster = xgb.Booster()
         booster.load_model(str(path))
         self.model = booster

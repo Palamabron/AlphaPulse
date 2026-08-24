@@ -18,7 +18,7 @@ program: scripts/hpo_pipeline.py
 method: bayes           # Bayesian optimization (faster convergence than random)
 metric:
   goal: maximize
-  name: payout_score    # 0.75*CORR_sharpe + 2.25*MMC_sharpe (requires meta_model.parquet)
+  name: payout_score    # Legacy AlphaPulse proxy; not official Numerai payout
 
 # --- Hyperparameter search space ---
 parameters:

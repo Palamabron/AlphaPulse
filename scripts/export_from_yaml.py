@@ -15,15 +15,28 @@ import json
 from pathlib import Path
 from typing import Any
 
-import cloudpickle
 import tyro
 from loguru import logger
 
+from alphapulse.evaluation.export_serialization import dump_predict_fn
 from alphapulse.evaluation.export_validation import smoke_test_predict_fn
+from alphapulse.experiments.data import (
+    load_train_only_frame,
+    load_train_targets_frame,
+)
+from alphapulse.experiments.pipeline_build import (
+    experiment_target_flat,
+    is_multi_target_experiment,
+    needs_internal_val_for_experiment,
+)
 from alphapulse.experiments.runner import load_experiment_dict
 from alphapulse.experiments.schema import ExperimentV1
 from alphapulse.experiments.split import internal_val_split
-from alphapulse.hpo.builder import TREE_MODEL_NAMES, build_pipeline_or_multi
+from alphapulse.hpo.builder import (
+    TREE_MODEL_NAMES,
+    build_multi_target_from_config,
+    build_pipeline_or_multi,
+)
 
 
 def _needs_era(exp: ExperimentV1) -> bool:
@@ -68,16 +81,29 @@ def main(
     )
 
     need_era = _needs_era(exp)
-    from alphapulse.experiments.data import load_train_only_frame
-
-    X_train, y_train, feature_cols = load_train_only_frame(
-        data_dir=data_dir,
-        train_subsample=exp.data.train_subsample,
-        target_col=exp.data.target_col,
-        seed=exp.data.seed,
-        feature_columns=exp.features.columns,
-        need_era=need_era,
-    )
+    multi_target = is_multi_target_experiment(exp)
+    targets = None
+    if multi_target:
+        X_train, y_train, targets, feature_cols = load_train_targets_frame(
+            data_dir=data_dir,
+            train_subsample=exp.data.train_subsample,
+            primary_target=exp.data.target_col,
+            auxiliary_targets=exp.data.auxiliary_targets,
+            seed=exp.data.seed,
+            feature_columns=exp.features.columns,
+            need_era=need_era,
+            benchmark_columns=exp.data.benchmark_columns or None,
+        )
+    else:
+        X_train, y_train, feature_cols = load_train_only_frame(
+            data_dir=data_dir,
+            train_subsample=exp.data.train_subsample,
+            target_col=exp.data.target_col,
+            seed=exp.data.seed,
+            feature_columns=exp.features.columns,
+            need_era=need_era,
+            benchmark_columns=exp.data.benchmark_columns or None,
+        )
     gc.collect()
 
     logger.info(
@@ -88,19 +114,38 @@ def main(
     )
 
     pipeline_cfg = exp.to_pipeline_config()
-    pipeline = build_pipeline_or_multi(
-        pipeline_cfg,
-        feature_columns=feature_cols,
-        feature_groups=exp.features.groups,
-    )
+    if multi_target:
+        pipeline = build_multi_target_from_config(
+            pipeline_cfg,
+            experiment_target_flat(exp),
+            feature_columns=feature_cols,
+            feature_groups=exp.features.groups,
+        )
+    else:
+        pipeline = build_pipeline_or_multi(
+            pipeline_cfg,
+            feature_columns=feature_cols,
+            feature_groups=exp.features.groups,
+        )
 
-    stacking_needs_val = exp.ensemble_method == "stacking" and len(exp.models) > 1
     era_train = X_train["era"] if "era" in X_train.columns else None
     X_fit, y_fit, X_val_internal, y_val_internal = internal_val_split(
         X_train,
         y_train,
         era_train=era_train,
-        force_internal=stacking_needs_val,
+        force_internal=needs_internal_val_for_experiment(exp),
+    )
+    targets_fit = targets.loc[X_fit.index] if targets is not None else None
+    targets_val = (
+        targets.loc[X_val_internal.index]
+        if targets is not None and X_val_internal is not None
+        else None
+    )
+    era_fit = era_train.loc[X_fit.index] if era_train is not None else None
+    era_val = (
+        era_train.loc[X_val_internal.index]
+        if era_train is not None and X_val_internal is not None
+        else None
     )
     del X_train, y_train
     gc.collect()
@@ -111,7 +156,30 @@ def main(
     }
 
     logger.info("Fitting pipeline...")
-    pipeline.fit(X_fit, y_fit, X_val=X_val_internal, y_val=y_val_internal, **train_kw)
+    if multi_target:
+        assert targets_fit is not None
+        pipeline.fit(
+            X_fit.drop(columns=["era"], errors="ignore"),
+            targets_fit,
+            X_val=(
+                X_val_internal.drop(columns=["era"], errors="ignore")
+                if X_val_internal is not None
+                else None
+            ),
+            targets_val=targets_val,
+            era_train=era_fit,
+            era_val=era_val,
+            **train_kw,
+        )
+    else:
+        pipeline.fit(
+            X_fit,
+            y_fit,
+            X_val=X_val_internal,
+            y_val=y_val_internal,
+            era_val=era_val,
+            **train_kw,
+        )
     del X_fit, y_fit, X_val_internal, y_val_internal
     gc.collect()
 
@@ -123,8 +191,7 @@ def main(
 
     predict_fn = pipeline.to_numerai_predict(benchmark_col)
     pkl_path = output_dir / "predict.pkl"
-    with open(pkl_path, "wb") as f:
-        cloudpickle.dump(predict_fn, f)
+    dump_predict_fn(predict_fn, pkl_path)
 
     smoke_test_predict_fn(pkl_path, feature_cols)
     logger.info("Smoke test passed for {}", pkl_path)

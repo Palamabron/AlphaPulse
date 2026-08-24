@@ -3,8 +3,63 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 META_MODEL_COLUMN = "numerai_meta_model"
+_PARQUET_READ_ATTEMPTS = 3
+_PARQUET_COLUMN_BATCH_SIZE = 256
+
+
+def read_parquet_frame(
+    path: Path,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    requested = list(columns) if columns is not None else None
+    if requested is not None and len(requested) > _PARQUET_COLUMN_BATCH_SIZE:
+        frames = [
+            _table_to_frame(_read_parquet_table(path, batch))
+            for batch in _column_batches(requested)
+        ]
+        return pd.concat(frames, axis=1)
+    table = _read_parquet_table(path, requested)
+    return _table_to_frame(table)
+
+
+def _column_batches(columns: list[str]) -> list[list[str]]:
+    return [
+        columns[start : start + _PARQUET_COLUMN_BATCH_SIZE]
+        for start in range(0, len(columns), _PARQUET_COLUMN_BATCH_SIZE)
+    ]
+
+
+def _table_to_frame(table: pa.Table) -> pd.DataFrame:
+    frame = table.replace_schema_metadata(None).to_pandas(ignore_metadata=True)
+    if "id" in frame.columns:
+        row_ids = frame.pop("id")
+        frame.index = pd.Index(row_ids, name="id")
+    return frame
+
+
+def _read_parquet_table(path: Path, requested: list[str] | None) -> pa.Table:
+    last_error: pa.ArrowException | OSError | None = None
+    for _ in range(_PARQUET_READ_ATTEMPTS):
+        try:
+            parquet_file = pq.ParquetFile(path)
+            read_columns = requested
+            if "id" in parquet_file.schema_arrow.names and (
+                requested is None or "id" not in requested
+            ):
+                read_columns = [*requested, "id"] if requested is not None else None
+            return parquet_file.read(
+                columns=read_columns,
+                use_threads=False,
+                use_pandas_metadata=False,
+            )
+        except (pa.ArrowException, OSError) as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
 
 
 def meta_model_from_benchmarks(
@@ -15,6 +70,23 @@ def meta_model_from_benchmarks(
         return None
     aligned = live_benchmark_models[META_MODEL_COLUMN].reindex(index)
     return np.asarray(aligned.to_numpy(dtype=np.float64), dtype=np.float64)
+
+
+def require_meta_model_from_benchmarks(
+    live_benchmark_models: pd.DataFrame,
+    index: pd.Index,
+) -> np.ndarray:
+    meta_model = meta_model_from_benchmarks(live_benchmark_models, index)
+    if meta_model is None:
+        raise ValueError(
+            f"Meta-model neutralization requires benchmark column {META_MODEL_COLUMN!r}"
+        )
+    if not np.isfinite(meta_model).all():
+        raise ValueError(
+            f"Benchmark column {META_MODEL_COLUMN!r} is missing or non-finite "
+            "for one or more live rows"
+        )
+    return meta_model
 
 
 def load_meta_model_series(
@@ -31,7 +103,7 @@ def load_meta_model_series(
     if not path.exists():
         return None
 
-    meta_df = pd.read_parquet(path)
+    meta_df = read_parquet_frame(path)
     if META_MODEL_COLUMN not in meta_df.columns:
         return None
 
@@ -61,12 +133,12 @@ def load_mmc_validation_frame(
     if not meta_path.exists() or not val_path.exists():
         return None
 
-    meta_df = pd.read_parquet(meta_path)
+    meta_df = read_parquet_frame(meta_path)
     if META_MODEL_COLUMN not in meta_df.columns:
         return None
 
     read_cols = list(dict.fromkeys([*feature_cols, target_col, "era"]))
-    val_df = pd.read_parquet(val_path, columns=read_cols)
+    val_df = read_parquet_frame(val_path, columns=read_cols)
     common_idx = val_df.index.intersection(meta_df.index)
     if common_idx.empty:
         return None
@@ -172,7 +244,7 @@ def load_validation_frames(
         )
 
     read_cols = list(dict.fromkeys(feature_cols + [target_col, "era"]))
-    val_df = pd.read_parquet(val_path, columns=read_cols)
+    val_df = read_parquet_frame(val_path, columns=read_cols)
     x_cols = feature_cols + (["era"] if need_era else [])
     return val_df[x_cols], val_df[target_col], val_df["era"]
 
@@ -234,10 +306,10 @@ def load_train_only_frame(
                 + (["era"] if need_era else [])
             )
         )
-        train_df = pd.read_parquet(train_path, columns=read_cols)
+        train_df = read_parquet_frame(train_path, columns=read_cols)
         cols = [c for c in feature_names if c in train_df.columns and c not in excluded]
     else:
-        train_df = pd.read_parquet(train_path)
+        train_df = read_parquet_frame(train_path)
         cols = resolve_feature_columns(
             train_df, data_dir, feature_columns, benchmark_columns
         )
@@ -284,7 +356,7 @@ def load_train_targets_frame(
     read_cols = list(
         dict.fromkeys(feature_names + target_cols + (["era"] if need_era else []))
     )
-    train_df = pd.read_parquet(train_path, columns=read_cols)
+    train_df = read_parquet_frame(train_path, columns=read_cols)
     feature_cols = [
         c for c in feature_names if c in train_df.columns and c not in excluded
     ]
@@ -294,6 +366,7 @@ def load_train_targets_frame(
     train_df = train_df.sample(frac=train_subsample, random_state=seed)
     if "era" in train_df.columns:
         train_df = train_df.sort_values("era", kind="mergesort")
+    train_df = train_df.reset_index(drop=True)
 
     x_cols = feature_cols + (["era"] if need_era else [])
     X_train = train_df[x_cols]
@@ -322,10 +395,10 @@ def load_train_frame_with_era(
     feature_names = feature_columns or load_feature_names(data_dir)
     if feature_names:
         read_cols = list(dict.fromkeys(feature_names + [target_col, "era"]))
-        train_df = pd.read_parquet(train_path, columns=read_cols)
+        train_df = read_parquet_frame(train_path, columns=read_cols)
         cols = [c for c in feature_names if c in train_df.columns and c not in excluded]
     else:
-        train_df = pd.read_parquet(train_path)
+        train_df = read_parquet_frame(train_path)
         cols = resolve_feature_columns(
             train_df, data_dir, feature_columns, benchmark_columns
         )

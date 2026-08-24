@@ -14,10 +14,10 @@ from .base import BaseModel
 class EraEnsembleModel(BaseModel):
     """Era-partitioned ensemble model (V3X-style).
 
-    Partitions training eras into n_subs groups, trains one sub-model per
-    group on its era partition, collects each sub-model's predictions on the
-    *full* training set (creating temporal diversity), then fits a Ridge
-    meta-learner to combine them.
+    Partitions training eras into n_subs groups and trains one sub-model per
+    group. Predictions are averaged unless a separate validation set is
+    provided, in which case a Ridge meta-learner is fitted only on that
+    out-of-sample set.
 
     Falls back to single-model training when era data is unavailable, so
     existing tests that don't pass era columns continue to work.
@@ -81,7 +81,6 @@ class EraEnsembleModel(BaseModel):
             len(unique_eras),
         )
 
-        sub_preds: list[np.ndarray] = []
         self._sub_models = []
 
         for i, era_group in enumerate(era_partitions):
@@ -118,15 +117,22 @@ class EraEnsembleModel(BaseModel):
             )
             self._sub_models.append(model)
 
-            sub_preds.append(model.predict(X_train))
-
-        logger.info(
-            "{}: fitting Ridge meta-learner on {} sub-models",
-            self.name,
-            len(self._sub_models),
-        )
-        X_meta = np.column_stack(sub_preds)
-        self._meta_model = Ridge(alpha=100.0).fit(X_meta, y_train)
+        self._meta_model = None
+        if X_val is not None and y_val is not None and len(X_val) >= 2:
+            X_meta = np.column_stack(
+                [model.predict(X_val) for model in self._sub_models]
+            )
+            y_meta = np.asarray(y_val, dtype=np.float64)
+            finite = np.isfinite(X_meta).all(axis=1) & np.isfinite(y_meta)
+            if finite.sum() >= 2:
+                logger.info(
+                    "{}: fitting Ridge meta-learner on {} validation rows",
+                    self.name,
+                    int(finite.sum()),
+                )
+                self._meta_model = Ridge(alpha=100.0).fit(
+                    X_meta[finite], y_meta[finite]
+                )
         self.is_trained = True
         return {}
 
@@ -134,7 +140,7 @@ class EraEnsembleModel(BaseModel):
         self._require_trained()
         preds = [m.predict(X) for m in self._sub_models]
         if self._meta_model is None:
-            return preds[0]
+            return np.asarray(np.mean(np.column_stack(preds), axis=1), dtype=np.float64)
         result: np.ndarray = self._meta_model.predict(np.column_stack(preds))
         return result
 

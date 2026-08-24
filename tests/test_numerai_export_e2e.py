@@ -1,11 +1,13 @@
 import json
 import random
 from pathlib import Path
+from typing import Any
 
-import cloudpickle
 import numpy as np
 import pandas as pd
+import pytest
 
+from alphapulse.evaluation.export_serialization import dump_predict_fn
 from alphapulse.evaluation.export_validation import smoke_test_predict_fn
 from alphapulse.features.catalog import TargetCatalog
 from alphapulse.hpo.export import (
@@ -75,6 +77,19 @@ def test_hpo_primary_is_target() -> None:
         assert strategy.primary_target == "target"
 
 
+def test_hpo_respects_explicit_primary_target() -> None:
+    catalog = TargetCatalog(targets=["target", "target_ender_60", "target_alpha_20"])
+    strategy = sample_target_strategy(
+        random.Random(7),
+        catalog,
+        fast=True,
+        primary_target="target_ender_60",
+    )
+
+    assert strategy.primary_target == "target_ender_60"
+    assert "target_ender_60" not in strategy.auxiliary_targets
+
+
 def test_export_matches_worker_build_context(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     _write_toy_dataset(data_dir)
@@ -113,9 +128,41 @@ def test_export_routed_config(tmp_path: Path) -> None:
     )
     assert isinstance(result.pipeline, Pipeline | MultiHeadPipeline)
     pkl = tmp_path / "predict.pkl"
-    with open(pkl, "wb") as f:
-        cloudpickle.dump(result.pipeline.to_numerai_predict(), f)
+    dump_predict_fn(result.pipeline.to_numerai_predict(), pkl)
     smoke_test_predict_fn(pkl, result.feature_columns)
+
+
+def test_export_reuses_persisted_data_and_model_seeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import alphapulse.hpo.export as export_module
+
+    data_dir = tmp_path / "data"
+    _write_toy_dataset(data_dir)
+    observed: dict[str, int] = {}
+    original_loader = export_module.load_hpo_training_frames
+
+    def recording_loader(*args: Any, seed: int, **kwargs: Any) -> Any:
+        observed["data_seed"] = seed
+        return original_loader(*args, seed=seed, **kwargs)
+
+    def recording_fit(*args: Any, seed: int | None, **kwargs: Any) -> Any:
+        assert seed is not None
+        observed["model_seed"] = seed
+        return object()
+
+    monkeypatch.setattr(export_module, "load_hpo_training_frames", recording_loader)
+    monkeypatch.setattr(export_module, "fit_hpo_pipeline", recording_fit)
+
+    build_hpo_pipeline_from_flat(
+        {**_minimal_flat(), "data_seed": 17, "model_seed": 71},
+        data_dir,
+        train_subsample=0.5,
+        seed=42,
+    )
+
+    assert observed == {"data_seed": 17, "model_seed": 71}
 
 
 def test_export_multi_blend_config(tmp_path: Path) -> None:
@@ -136,12 +183,11 @@ def test_export_multi_blend_config(tmp_path: Path) -> None:
     )
     assert isinstance(result.pipeline, MultiTargetPipeline)
     pkl = tmp_path / "predict_multi.pkl"
-    with open(pkl, "wb") as f:
-        cloudpickle.dump(result.pipeline.to_numerai_predict(), f)
+    dump_predict_fn(result.pipeline.to_numerai_predict(), pkl)
     smoke_test_predict_fn(pkl, result.feature_columns)
 
 
-def test_multitarget_predict_reindex_missing_columns() -> None:
+def test_multitarget_predict_rejects_missing_columns() -> None:
     from alphapulse.models.xgboost_model import XGBoostModel
     from alphapulse.preprocessors.scaling import StandardScalerPreprocessor
 
@@ -184,6 +230,5 @@ def test_multitarget_predict_reindex_missing_columns() -> None:
         }
     )
     predict_fn = pipeline.to_numerai_predict()
-    out = predict_fn(live, pd.DataFrame())
-    assert "prediction" in out.columns
-    assert out["prediction"].between(0.0, 1.0).all()
+    with pytest.raises(ValueError, match="missing 1 required feature"):
+        predict_fn(live, pd.DataFrame())

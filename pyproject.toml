@@ -74,6 +74,15 @@ eda = [
   "networkx>=3.2",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'win32' and platform_machine == 'AMD64'" },
+]
 
 [project.urls]
 Documentation = "https://github.com/Palamabron/AlphaPulse/blob/main/README.md"
@@ -208,6 +217,8 @@ module = [
   "tabicl.*",
   "packboost",
   "packboost.*",
+  "plotly",
+  "plotly.*",
 ]
 ignore_missing_imports = true
 

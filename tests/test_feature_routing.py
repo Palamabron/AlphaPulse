@@ -2,6 +2,8 @@ import json
 import random
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from alphapulse.features.catalog import load_feature_catalog
@@ -82,6 +84,19 @@ def test_resolve_grouped_path_single_model_with_lane_steps(catalog_dir: Path) ->
     routing = resolve_feature_routing(flat, catalog)
     assert routing.build_path == "grouped"
     assert routing.pipeline_config_patch["preprocessors"][0]["type"] == "Grouped"
+    assert routing.pipeline_config_patch["models"] == [{}]
+
+    cfg = merge_routing_into_pipeline_config(resolve_flat_config(flat), routing)
+    pipeline = build_pipeline_or_multi(
+        cfg,
+        feature_columns=routing.feature_columns,
+        feature_groups=routing.feature_groups,
+    )
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(40, 2)), columns=["f_a", "f_b"])
+    y = pd.Series(rng.normal(size=40), index=X.index)
+    pipeline.fit(X, y)
+    assert np.isfinite(pipeline.predict(X)).all()
 
 
 def test_resolve_multihead_path(catalog_dir: Path) -> None:

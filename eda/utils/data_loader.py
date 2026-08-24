@@ -46,8 +46,7 @@ def load_numerai_data(
 
     feature_set = ds.feature_columns
     messages["info"].append(
-        f"✅ Loading feature set: {feature_set_name} "
-        f"({len(feature_set)} features)"
+        f"✅ Loading feature set: {feature_set_name} ({len(feature_set)} features)"
     )
 
     all_target_cols = [c for c in ds.df.columns if c.startswith("target")]
@@ -60,16 +59,13 @@ def load_numerai_data(
         sampled_eras = unique_eras[::4]
         train = train[train["era"].isin(sampled_eras)]
         messages["info"].append(
-            f"📅 Subsampling: {len(sampled_eras)} of "
-            f"{len(unique_eras)} eras"
+            f"📅 Subsampling: {len(sampled_eras)} of {len(unique_eras)} eras"
         )
 
     return train, feature_set, messages
 
 
-def get_era_statistics(
-    df: pd.DataFrame, target_col: str = "target"
-) -> pd.DataFrame:
+def get_era_statistics(df: pd.DataFrame, target_col: str = "target") -> pd.DataFrame:
     era_stats = (
         df.groupby("era")
         .agg({target_col: ["mean", "std", "min", "max"], "era": "size"})
@@ -100,6 +96,4 @@ def get_feature_correlations(
                     "Abs_Correlation": abs(float(corr)),
                 }
             )
-    return pd.DataFrame(correlations).sort_values(
-        "Abs_Correlation", ascending=False
-    )
+    return pd.DataFrame(correlations).sort_values("Abs_Correlation", ascending=False)

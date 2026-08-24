@@ -302,7 +302,7 @@ def resolve_feature_routing(
                 },
             }
         ]
-        patch["models"] = [{"input_columns": feature_columns}]
+        patch["models"] = [{}]
     else:
         models_patch: list[dict[str, Any]] = []
         for model_idx in range(1, num_models + 1):

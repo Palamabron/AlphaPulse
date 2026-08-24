@@ -7,6 +7,7 @@ from alphapulse.logging_.wandb_logging import (
     attach_wandb_loguru,
     log_boosting_round_metrics,
     parse_xgb_evals_log,
+    wandb_run_active,
 )
 
 
@@ -19,6 +20,11 @@ def test_parse_xgb_evals_log() -> None:
     )
     assert parsed["train_rmse"] == pytest.approx(0.21)
     assert parsed["eval_rmse"] == pytest.approx(0.22)
+
+
+def test_wandb_run_active_does_not_import_wandb() -> None:
+    with patch.dict("sys.modules", {"wandb": None}):
+        assert wandb_run_active() is False
 
 
 def test_log_boosting_round_metrics_logs_to_wandb() -> None:
