@@ -51,7 +51,7 @@
 \hypersetup{
   pdftitle={Konfigurowalne środowisko AutoML dla finansowych potoków predykcyjnych w turnieju Numerai},
   pdfauthor={Kamil Czyżewski; Kuba Szulc},
-  pdfsubject={Praca magisterska -- AlphaPulse},
+  pdfsubject={Praca magisterska - AlphaPulse},
   pdfkeywords={AutoML, Numerai, uczenie maszynowe, walidacja czasowa, HPO}
 }
 
@@ -60,7 +60,7 @@
 \input{figures/generated_metrics}
 
 \onehalfspacing
-\setlength{\parindent}{1.25cm}
+\setlength{\parindent}{0.75cm}
 \setlength{\parskip}{0pt}
 \setlength{\emergencystretch}{2em}
 \widowpenalty=10000
@@ -144,7 +144,7 @@
 \hypersetup{pageanchor=true}
 \selectlanguage{polish}
 \chapter*{Abstrakt}
-Praca przedstawia projekt i implementację AlphaPulse --- konfigurowalnego środowiska
+Praca przedstawia projekt i implementację AlphaPulse - konfigurowalnego środowiska
 AutoML do budowy, strojenia, walidacji i eksportu finansowych potoków predykcyjnych
 dla turnieju Numerai. System łączy deklaratywne konfiguracje YAML, routing cech,
 modularny preprocessing, modele tabelaryczne, optymalizację hiperparametrów z użyciem
@@ -205,7 +205,7 @@ hyperparameter optimisation
 Prognozowanie rynków finansowych należy do najtrudniejszych problemów uczenia
 maszynowego. Dane finansowe wyróżniają się niskim stosunkiem sygnału do szumu,
 niestacjonarnością, silną zależnością czasową między obserwacjami oraz strukturą grupową
-(ery --- tygodniowe przekroje rynku), która wyklucza zastosowanie standardowych technik
+(ery - tygodniowe przekroje rynku), która wyklucza zastosowanie standardowych technik
 podziału danych. Jednocześnie skuteczność predykcji jest weryfikowana przez rzeczywisty
 rynek, co eliminuje ryzyko nadmiernego dopasowania do artefaktów zbioru testowego.
 
@@ -230,7 +230,7 @@ Ogólne platformy AutoML automatyzują dobór modeli i hiperparametrów, lecz ni
 automatycznie wymagań specyficznych dla Numerai: podziałów według er, separacji
 czasowej zależnej od horyzontu celu, oficjalnych metryk konkursowych oraz eksportu
 przenośnej funkcji predykcyjnej \cite{automl-survey}. AlphaPulse integruje te elementy
-w jednym przepływie pracy --- od pobrania danych, przez definicję i ocenę eksperymentu,
+w jednym przepływie pracy - od pobrania danych, przez definicję i ocenę eksperymentu,
 po walidację artefaktu końcowego.
 
 \section{Problem badawczy}
@@ -250,8 +250,8 @@ niezbędne do obsługi pełnego spektrum konfiguracji stosowanych w danych
 finansowych o strukturze szeregów czasowych?
 \item Jak zapewnić poprawną walidację krzyżową uwzględniającą zależności temporalne i
 korelacje wewnątrz er, by uniknąć wycieku informacji?
-\item W jakim stopniu automatyzacja poszukiwania hiperparametrów i konfiguracji modeli --
-w tym z użyciem agentowego modelu językowego -- może zastąpić lub wspomóc
+\item W jakim stopniu automatyzacja poszukiwania hiperparametrów i konfiguracji modeli -
+w tym z użyciem agentowego modelu językowego - może zastąpić lub wspomóc
 manualne eksperymenty badacza?
 \item Jak zintegrować wszystkie etapy przepływu pracy w spójny, konfigurowalny system
 zgodny z wymaganiami Numerai?
@@ -261,20 +261,20 @@ zgodny z wymaganiami Numerai?
 Głównym celem pracy jest zaprojektowanie i zaimplementowanie frameworku AlphaPulse,
 który:
 \begin{itemize}
-\item Ujednolica pełny przepływ pracy konkursu Numerai --- od pobierania danych po eksport submisji.
+\item Ujednolica pełny przepływ pracy konkursu Numerai - od pobierania danych po eksport submisji
 \item Umożliwia deklaratywne definiowanie eksperymentów w formacie YAML, bez
-konieczności modyfikowania kodu źródłowego.
-\item Zapewnia poprawną walidację z uwzględnieniem struktury er, purging i embargo.
+konieczności modyfikowania kodu źródłowego
+\item Zapewnia poprawną walidację z uwzględnieniem struktury er, purging i embargo
 \item Automatyzuje poszukiwanie optymalnych hiperparametrów i konfiguracji pipeline'u za
 pomocą Optuna (tryb \texttt{--local}) lub Ray Tune (tryb rozproszony), z obsługą
-\texttt{--resume} i bazą TrialDB.
+\texttt{--resume} i bazą TrialDB
 \item Wprowadza autonomiczną pętlę badawczą (AutoResearch) sterowaną dużym
 modelem językowym (LLM), która iteracyjnie proponuje i testuje modyfikacje
-konfiguracji.
-\item Raportuje oficjalnie zdefiniowane CORR i MMC oraz ich agregaty per-era.
+konfiguracji
+\item Raportuje oficjalnie zdefiniowane CORR i MMC oraz ich agregaty per-era
 \item Eksportuje wyniki w postaci pliku \texttt{predict.pkl} zgodnego z wymaganiami API Numerai
 oraz wspiera tygodniowy cykl produkcyjny: inferencja na \texttt{live.parquet} i
-automatyczna submisja predykcji.
+automatyczna submisja predykcji
 \end{itemize}
 
 Celami pomocniczymi są: ocena skuteczności podejścia agentowego w kontekście AutoML,
@@ -287,16 +287,16 @@ wykorzystuje zestaw danych w wersji \datasetver{}. Zakres pracy obejmuje:
 \begin{itemize}
 \item Modele tabelaryczne: gradient boosting, modele drzewiste, modele liniowe,
 fundamentalne modele tabelaryczne (TabPFN, TabPFN3, TabICL) oraz uczenie głębokie
-(\texttt{TabularDL} z architekturami FT-Transformer i MLP).
+(\texttt{TabularDL} z architekturami FT-Transformer i MLP)
 \item Preprocessory: skalowanie, redukcja wymiarowości, selekcja cech,
 autoenkoder, kompresja cech, selektor stabilności per-era
-(\path{EraStableFeatureSelector}) i regularyzacja poprzez szum gaussowski.
+(\path{EraStableFeatureSelector}) i regularyzacja poprzez szum gaussowski
 \item Strategie ensemble: \texttt{single}, \texttt{weighted}, \texttt{stacking};
 potoki wielogłowicowe (\path{MultiHeadPipeline}) i wielocelowe
-(\path{MultiTargetPipeline}).
+(\path{MultiTargetPipeline})
 \item Optymalizację hiperparametrów (Optuna TPE w trybie lokalnym, Ray Tune w trybie
-rozproszonym) oraz system AutoResearch z agentem Claude.
-\item Panel EDA (Streamlit) do eksploracji danych i wizualizacji wyników HPO.
+rozproszonym) oraz system AutoResearch z agentem Claude
+\item Panel EDA (Streamlit) do eksploracji danych i wizualizacji wyników HPO
 \end{itemize}
 
 Praca nie obejmuje: analizy modeli sekwencyjnych, czyli na przykład LSTM czy Transformer,
@@ -307,14 +307,14 @@ a także integracji z turniejem Numerai Signals.
 Wkład pracy obejmuje:
 \begin{itemize}
     \item projekt i implementację frameworku \repo{} w wersji 0.6.0
-    (Python 3.12+, repozytorium \texttt{main}) \cite{alphapulse},
-    \item deklaratywny format eksperymentów (Experiment v1 YAML) z katalogiem cech (\texttt{features/catalog.py}),
-    \item integrację HPO (Optuna/Ray Tune, TrialDB) oraz pętli agentowej AutoResearch,
+    (Python 3.12+, repozytorium \texttt{main}) \cite{alphapulse}
+    \item deklaratywny format eksperymentów (Experiment v1 YAML) z katalogiem cech (\texttt{features/catalog.py})
+    \item integrację HPO (Optuna/Ray Tune, TrialDB) oraz pętli agentowej AutoResearch
     \item oficjalne diagnostyki CORR i MMC oraz diagnostykę W\&B
-    (SHAP, ekspozycja cech, wykresy per-era),
+    (SHAP, ekspozycja cech, wykresy per-era)
     \item ujednolicony pipeline od pobrania danych Numerai przez eksport
     \path{predict.pkl}
-    do inferencji \textit{live} i submisji tygodniowej.
+    do inferencji \textit{live} i submisji tygodniowej
 \end{itemize}
 \section{Kryteria sukcesu}
 Praca uznaje się za spełnioną, jeśli:
@@ -344,10 +344,10 @@ na zmianę warunków rynkowych \cite{numerai-scoring}.
 
 W praktyce oznacza to, że:
 \begin{itemize}
-    \item dane mają strukturę czasową i grupową (ery),
-    \item błędna walidacja może prowadzić do sztucznie zawyżonych wyników,
-    \item wysokie znaczenie ma reprodukowalność eksperymentów,
-    \item końcowym artefaktem jest plik predykcji zgodny z wymaganym formatem submisji.
+    \item dane mają strukturę czasową i grupową (ery)
+    \item błędna walidacja może prowadzić do sztucznie zawyżonych wyników
+    \item wysokie znaczenie ma reprodukowalność eksperymentów
+    \item końcowym artefaktem jest plik predykcji zgodny z wymaganym formatem submisji
 \end{itemize}
 
 Takie środowisko premiuje podejście systemowe: powtarzalne pipeline'y, kontrolę konfiguracji,
@@ -357,10 +357,10 @@ jasne logowanie eksperymentów i automatyzację przeszukiwania przestrzeni model
 Dane używane w zadaniach Numerai należą do kategorii danych tabelarycznych o silnym
 komponencie czasowym. Z perspektywy modelowania najważniejsze cechy tych danych to:
 \begin{itemize}
-    \item niski stosunek sygnału do szumu,
-    \item niestacjonarność rozkładów cech i celu,
-    \item zależności temporalne między obserwacjami,
-    \item podatność na przeciek informacji przy niepoprawnym podziale danych.
+    \item niski stosunek sygnału do szumu
+    \item niestacjonarność rozkładów cech i celu
+    \item zależności temporalne między obserwacjami
+    \item podatność na przeciek informacji przy niepoprawnym podziale danych
 \end{itemize}
 
 Konsekwencją jest konieczność ostrożnego projektowania zarówno preprocessingu,
@@ -381,11 +381,11 @@ S_{\mathrm{CORR}}=\frac{\overline{c}}{s_c},
 gdzie $c_e$ oznacza oficjalny CORR w erze, $\overline{c}$ jego średnią, a $s_c$
 odchylenie standardowe między erami. AlphaPulse raportuje ponadto:
 \begin{itemize}
-    \item średni CORR i odchylenie standardowe między erami,
-    \item udział er z dodatnim CORR oraz maksymalne obsunięcie skumulowanego CORR,
+    \item średni CORR i odchylenie standardowe między erami
+    \item udział er z dodatnim CORR oraz maksymalne obsunięcie skumulowanego CORR
     \item oficjalny MMC, który mierzy przyrost informacji po ortogonalizacji predykcji
     względem Meta Modelu, wraz z jego średnią i współczynnikiem Sharpe'a
-    \cite{numerai-mmc}.
+    \cite{numerai-mmc}
 \end{itemize}
 
 Implementacje zweryfikowano względem zamrożonej wersji \path{numerai-tools} 0.6.0
@@ -399,9 +399,9 @@ Jednym z najważniejszych problemów metodologicznych w modelach finansowych jes
 \textit{look-ahead bias}, czyli niejawne wykorzystanie informacji, która w momencie
 predykcji nie byłaby dostępna. Zjawisko to może wystąpić na wielu etapach:
 \begin{itemize}
-    \item podczas przygotowania cech,
-    \item przy podziale danych na train/validation,
-    \item przy doborze hiperparametrów.
+    \item podczas przygotowania cech
+    \item przy podziale danych na train/validation
+    \item przy doborze hiperparametrów
 \end{itemize}
 
 Dlatego system klasy \textit{AlphaPulse} musi wspierać walidację zgodną z naturą danych
@@ -417,8 +417,8 @@ oraz Ray Tune do wykonania rozproszonego \cite{optuna,ray}. Warstwa optymalizacj
 zastępuje metodyki badawczej: każda konfiguracja przechodzi ten sam podział czasowy,
 ten sam scoring i zapis proweniencji.
 
-Przestrzeń modeli obejmuje algorytmy gradient boosting --- XGBoost, LightGBM i
-CatBoost --- które pozostają silnymi punktami odniesienia dla danych tabelarycznych
+Przestrzeń modeli obejmuje algorytmy gradient boosting - XGBoost, LightGBM i
+CatBoost - które pozostają silnymi punktami odniesienia dla danych tabelarycznych
 \cite{xgboost,lightgbm,catboost}. Uzupełniają je modele liniowe, zespoły drzew oraz
 fundamentalne modele tabelaryczne, w tym TabPFN \cite{tabpfn}. Z perspektywy badawczej
 ważna jest wspólna abstrakcja modelu: umożliwia porównanie rodzin w jednym protokole,
@@ -463,14 +463,14 @@ Na poziomie operacyjnym framework obejmuje pełny przepływ pracy konkursowej:
 
 W projekcie uwzględniono również:
 \begin{itemize}
-    \item modularny preprocessing (m.in.\ skalowanie, PCA, autoenkoder, kompresja, selekcja stabilności per-era),
+    \item modularny preprocessing (m.in.\ skalowanie, PCA, autoenkoder, kompresja, selekcja stabilności per-era)
     \item szeroką rodzinę modeli tabelarycznych (boosting, modele drzewiaste, liniowe,
-    TabPFN/TabPFN3/TabICL, \texttt{TabularDL}),
-    \item potoki \texttt{MultiHeadPipeline} i \texttt{MultiTargetPipeline} z neutralizacją cech,
-    \item strategie ensemble (\texttt{single}, \texttt{weighted}, \texttt{stacking}),
-    \item diagnostykę eksperymentów w W\&B (wykresy SHAP, ekspozycja cech, zbieżność HPO),
-    \item panel EDA (Streamlit, 8 modułów analitycznych, interfejs PL/EN),
-    \item standaryzację uruchomień przez zestaw skryptów CLI i targety \texttt{Makefile}.
+    TabPFN/TabPFN3/TabICL, \texttt{TabularDL})
+    \item potoki \texttt{MultiHeadPipeline} i \texttt{MultiTargetPipeline} z neutralizacją cech
+    \item strategie ensemble (\texttt{single}, \texttt{weighted}, \texttt{stacking})
+    \item diagnostykę eksperymentów w W\&B (wykresy SHAP, ekspozycja cech, zbieżność HPO)
+    \item panel EDA (Streamlit, 8 modułów analitycznych, interfejs PL/EN)
+    \item standaryzację uruchomień przez zestaw skryptów CLI i targety \texttt{Makefile}
 \end{itemize}
 
 Ten zakres stanowi podstawę układu kolejnych rozdziałów: najpierw architektura,
@@ -513,15 +513,15 @@ w jaki architektura wspiera reprodukowalność i iteracyjny rozwój eksperyment�
 Projekt \textit{AlphaPulse} został oparty na kilku kluczowych założeniach:
 \begin{itemize}
     \item \textbf{Konfigurowalność}: eksperymenty są definiowane deklaratywnie, bez
-    każdorazowej modyfikacji kodu źródłowego.
+    każdorazowej modyfikacji kodu źródłowego
     \item \textbf{Modularność}: preprocessing, modele i strategie ensemble są odseparowane
-    i mogą być dowolnie komponowane.
+    i mogą być dowolnie komponowane
     \item \textbf{Reprodukowalność}: uruchomienia mają deterministyczny charakter
-    przy ustalonej konfiguracji i ziarnie losowym.
+    przy ustalonej konfiguracji i ziarnie losowym
     \item \textbf{Rozszerzalność}: nowe komponenty mogą być dodawane bez naruszania
-    istniejącego przepływu.
+    istniejącego przepływu
     \item \textbf{Automatyzacja}: architektura wspiera zarówno klasyczne eksperymenty,
-    jak i zautomatyzowane przeszukiwanie konfiguracji (HPO, AutoResearch).
+    jak i zautomatyzowane przeszukiwanie konfiguracji (HPO, AutoResearch)
 \end{itemize}
 
 \section{Widok warstwowy systemu}
@@ -530,10 +530,10 @@ Architekturę systemu można opisać jako układ pięciu współpracujących war
 \subsection{Warstwa danych}
 Warstwa danych odpowiada za:
 \begin{itemize}
-    \item pobranie i lokalne utrzymanie zbiorów Numerai,
-    \item ładowanie podziałów (np. train/validation),
-    \item przygotowanie macierzy cech, celu i metadanych (era),
-    \item kontrolę parametrów wejściowych (np. subsampling, feature set).
+    \item pobranie i lokalne utrzymanie zbiorów Numerai
+    \item ładowanie podziałów (np. train/validation)
+    \item przygotowanie macierzy cech, celu i metadanych (era)
+    \item kontrolę parametrów wejściowych (np. subsampling, feature set)
 \end{itemize}
 
 Ta warstwa dostarcza ustandaryzowany interfejs wejściowy dla całego pipeline'u.
@@ -542,12 +542,12 @@ Ta warstwa dostarcza ustandaryzowany interfejs wejściowy dla całego pipeline'u
 Konfiguracja eksperymentu jest deklarowana w formacie YAML (schema-driven).
 Opisuje m.in.:
 \begin{itemize}
-    \item źródło danych i parametry podziału,
-    \item zestawy cech i grupy cech,
-    \item listę preprocessingu,
-    \item typy modeli oraz ich hiperparametry,
-    \item strategię ensemble,
-    \item parametry treningu i ewaluacji.
+    \item źródło danych i parametry podziału
+    \item zestawy cech i grupy cech
+    \item listę preprocessingu
+    \item typy modeli oraz ich hiperparametry
+    \item strategię ensemble
+    \item parametry treningu i ewaluacji
 \end{itemize}
 
 Dzięki temu logika eksperymentu jest jawna i łatwa do wersjonowania.
@@ -558,9 +558,9 @@ Warstwa pipeline'u realizuje sekwencję:
 \texttt{Model(e)} $\rightarrow$ \texttt{Ensemble} $\rightarrow$ \texttt{Prediction}.
 W ramach tej warstwy:
 \begin{itemize}
-    \item preprocessory przekształcają cechy wejściowe,
-    \item modele bazowe uczą się predykcji celu,
-    \item ensemble agreguje sygnały modeli cząstkowych.
+    \item preprocessory przekształcają cechy wejściowe
+    \item modele bazowe uczą się predykcji celu
+    \item ensemble agreguje sygnały modeli cząstkowych
 \end{itemize}
 
 Pipeline jest budowany dynamicznie na podstawie konfiguracji, co umożliwia szybkie
@@ -575,10 +575,10 @@ System wspiera dwa poziomy automatyzacji:
     (\texttt{TrialDB}), co umożliwia wznowienie przerwanej serii (\texttt{--resume}).
     Głównym celem optymalizacji w badaniu jest oficjalny
     \texttt{numerai\_corr\_sharpe}; raport obejmuje także średni CORR, maksymalne
-    obsunięcie, udział dodatnich er oraz MMC na niezależnym przedziale.
+    obsunięcie, udział dodatnich er oraz MMC na niezależnym przedziale
     \item \textbf{AutoResearch}: agentowa pętla badawcza, która proponuje
     mutacje konfiguracji (dodanie lub usunięcie modelu, zmianę preprocessingu,
-    ensemble albo neutralizację) i ocenia ich wpływ na metryki.
+    ensemble albo neutralizację) i ocenia ich wpływ na metryki
 \end{itemize}
 
 Wynikiem działania tej warstwy jest ranking prób, najlepsza konfiguracja (\texttt{best\_config.json}),
@@ -588,20 +588,20 @@ historia decyzji eksperymentalnych oraz diagnostyka w Weights \& Biases.
 Warstwa ewaluacji obejmuje:
 \begin{itemize}
     \item \textbf{Backtester} i \textbf{EraSplitEvaluator} z opcjonalną
-    neutralizacją cech (\path{FeatureNeutralizer}) przed obliczeniem metryk,
+    neutralizacją cech (\path{FeatureNeutralizer}) przed obliczeniem metryk
     \item walidację krzyżową \textit{PurgedEraCV} oraz walk-forward z
-    \textit{purge}/\textit{embargo},
-    \item raporty SHAP (\texttt{shap\_report.py}) i ważności cech per-era,
+    \textit{purge}/\textit{embargo}
+    \item raporty SHAP (\texttt{shap\_report.py}) i ważności cech per-era
     \item logowanie wykresów diagnostycznych do W\&B (\texttt{wandb\_diagnostics.py}):
-    korelacja per-era, ekspozycja cech, heatmapa korelacji ensemble, zbieżność HPO.
+    korelacja per-era, ekspozycja cech, heatmapa korelacji ensemble, zbieżność HPO
 \end{itemize}
 
 \subsection{Warstwa artefaktów i eksportu}
 Warstwa artefaktów odpowiada za:
 \begin{itemize}
-    \item zapisy metryk i logów eksperymentów,
-    \item serializację najlepszych konfiguracji,
-    \item eksport predykcji do formatu wymaganej submisji (np. \texttt{predict.pkl}).
+    \item zapisy metryk i logów eksperymentów
+    \item serializację najlepszych konfiguracji
+    \item eksport predykcji do formatu wymaganej submisji (np. \texttt{predict.pkl})
 \end{itemize}
 
 To domyka przepływ od eksperymentu badawczego do artefaktu konkursowego.
@@ -622,13 +622,13 @@ oddzielają definicję eksperymentu od mechaniki wykonania.
 \section{Komponenty funkcjonalne i ich odpowiedzialności}
 Architektura dzieli odpowiedzialności pomiędzy komponenty:
 \begin{itemize}
-    \item \textbf{Data Loader}: odczyt danych i przygotowanie splitów,
-    \item \textbf{Experiment Schema}: walidacja konfiguracji wejściowej,
-    \item \textbf{Pipeline Builder}: konstrukcja grafu preprocessingu, modeli i ensemble,
-    \item \textbf{Trainer/Evaluator}: trening i obliczanie metryk jakości,
-    \item \textbf{HPO Engine}: zarządzanie próbami optymalizacyjnymi,
-    \item \textbf{AutoResearch Loop}: agentowe sterowanie kolejnymi eksperymentami,
-    \item \textbf{Exporter}: generowanie artefaktów konkursowych.
+    \item \textbf{Data Loader}: odczyt danych i przygotowanie splitów
+    \item \textbf{Experiment Schema}: walidacja konfiguracji wejściowej
+    \item \textbf{Pipeline Builder}: konstrukcja grafu preprocessingu, modeli i ensemble
+    \item \textbf{Trainer/Evaluator}: trening i obliczanie metryk jakości
+    \item \textbf{HPO Engine}: zarządzanie próbami optymalizacyjnymi
+    \item \textbf{AutoResearch Loop}: agentowe sterowanie kolejnymi eksperymentami
+    \item \textbf{Exporter}: generowanie artefaktów konkursowych
 \end{itemize}
 
 Takie rozdzielenie upraszcza testowanie i ułatwia rozwój systemu.
@@ -636,10 +636,10 @@ Takie rozdzielenie upraszcza testowanie i ułatwia rozwój systemu.
 \section{Wzorce zapewniające jakość inżynierską}
 W \textit{AlphaPulse} zastosowano praktyki zwiększające niezawodność:
 \begin{itemize}
-    \item \textbf{Separation of concerns} między konfiguracją, logiką uczenia i eksportem,
-    \item \textbf{CLI-first workflow} dla łatwej automatyzacji uruchomień,
-    \item \textbf{Jednoznaczne artefakty wyjściowe} dla porównywania eksperymentów,
-    \item \textbf{Integracja testów i narzędzi jakości kodu} dla stabilności rozwoju.
+    \item \textbf{Separation of concerns} między konfiguracją, logiką uczenia i eksportem
+    \item \textbf{CLI-first workflow} dla łatwej automatyzacji uruchomień
+    \item \textbf{Jednoznaczne artefakty wyjściowe} dla porównywania eksperymentów
+    \item \textbf{Integracja testów i narzędzi jakości kodu} dla stabilności rozwoju
 \end{itemize}
 
 W efekcie architektura nadaje się zarówno do badań iteracyjnych, jak i do utrzymania
@@ -648,9 +648,9 @@ dłuższej linii rozwojowej projektu.
 \section{Ograniczenia architektury}
 Pomimo wysokiej elastyczności architektura ma ograniczenia:
 \begin{itemize}
-    \item skuteczność zależy od jakości zdefiniowanej przestrzeni konfiguracji,
-    \item duża liczba wariantów zwiększa koszt obliczeniowy eksperymentów,
-    \item automatyzacja agentowa wymaga kontroli jakości proponowanych mutacji.
+    \item skuteczność zależy od jakości zdefiniowanej przestrzeni konfiguracji
+    \item duża liczba wariantów zwiększa koszt obliczeniowy eksperymentów
+    \item automatyzacja agentowa wymaga kontroli jakości proponowanych mutacji
 \end{itemize}
 
 Ograniczenia te są naturalne dla systemów AutoML i stanowią punkt wyjścia do
@@ -718,12 +718,12 @@ artefaktu submisyjnego.
 Implementacja projektu została podzielona na warstwy odpowiadające cyklowi pracy
 eksperymentalnej:
 \begin{itemize}
-    \item \texttt{src/alphapulse/} --- kod domenowy (pipeline, HPO, ewaluacja, AutoResearch, \texttt{features/}),
-    \item \texttt{scripts/} --- skrypty wykonawcze CLI dla najważniejszych scenariuszy,
-    \item \texttt{experiments/} --- deklaratywne definicje eksperymentów (YAML),
-    \item \texttt{eda/} --- samodzielny panel Streamlit do analizy eksploracyjnej,
-    \item \texttt{tests/} --- testy jednostkowe i integracyjne (w tym metryki MMC),
-    \item \texttt{artifacts/} --- wyniki uruchomień, konfiguracje i eksporty.
+    \item \texttt{src/alphapulse/} - kod domenowy (pipeline, HPO, ewaluacja, AutoResearch, \texttt{features/})
+    \item \texttt{scripts/} - skrypty wykonawcze CLI dla najważniejszych scenariuszy
+    \item \texttt{experiments/} - deklaratywne definicje eksperymentów (YAML)
+    \item \texttt{eda/} - samodzielny panel Streamlit do analizy eksploracyjnej
+    \item \texttt{tests/} - testy jednostkowe i integracyjne (w tym metryki MMC)
+    \item \texttt{artifacts/} - wyniki uruchomień, konfiguracje i eksporty
 \end{itemize}
 
 Taki podział rozdziela logikę frameworku od warstwy operacyjnej (uruchamianie),
@@ -733,16 +733,16 @@ co zwiększa czytelność i ułatwia utrzymanie projektu.
 \subsection{Skrypty wykonawcze}
 System udostępnia zestaw skryptów CLI obsługujących pełny przepływ:
 \begin{itemize}
-    \item \texttt{download\_dataset.py} --- pobieranie danych Numerai,
-    \item \texttt{run\_experiment.py} --- uruchamianie eksperymentów YAML (z opcją \texttt{--wandb-project}),
-    \item \texttt{hpo\_pipeline.py} --- HPO (Optuna lokalnie lub Ray Tune),
-    \item \texttt{autoresearch.py} --- pętla agentowa AutoResearch,
-    \item \texttt{run\_test\_pipeline.py} --- lekki test end-to-end,
-    \item \path{export_numerai_pickle.py}, \path{export_from_yaml.py} ---
-    eksport \path{predict.pkl},
-    \item \texttt{live\_inference.py} --- predykcje na \texttt{live.parquet},
-    \item \texttt{submit\_predictions.py} --- upload predykcji do API Numerai,
-    \item \texttt{make\_feature\_groups.py} --- generowanie grup cech z \texttt{features.json}.
+    \item \texttt{download\_dataset.py} - pobieranie danych Numerai
+    \item \texttt{run\_experiment.py} - uruchamianie eksperymentów YAML (z opcją \texttt{--wandb-project})
+    \item \texttt{hpo\_pipeline.py} - HPO (Optuna lokalnie lub Ray Tune)
+    \item \texttt{autoresearch.py} - pętla agentowa AutoResearch
+    \item \texttt{run\_test\_pipeline.py} - lekki test end-to-end
+    \item \path{export_numerai_pickle.py}, \path{export_from_yaml.py} -
+    eksport \path{predict.pkl}
+    \item \texttt{live\_inference.py} - predykcje na \texttt{live.parquet}
+    \item \texttt{submit\_predictions.py} - upload predykcji do API Numerai
+    \item \texttt{make\_feature\_groups.py} - generowanie grup cech z \texttt{features.json}
 \end{itemize}
 
 Skrypty pełnią rolę cienkiej warstwy orkiestracji: pobierają argumenty, walidują wejście,
@@ -751,10 +751,10 @@ inicjują komponenty frameworku i zapisują artefakty.
 \subsection{Konwencja parametrów wejściowych}
 Interfejs CLI wykorzystuje jednolitą konwencję argumentów:
 \begin{itemize}
-    \item ścieżki danych i artefaktów (\texttt{--data-dir}, \texttt{--output-dir}),
-    \item parametry skali eksperymentu (\texttt{--train-subsample}, liczba prób),
-    \item wskazanie konfiguracji źródłowej (\texttt{--config}, \texttt{--best-config-path}),
-    \item tryb lokalny lub rozproszony (zależnie od skryptu).
+    \item ścieżki danych i artefaktów (\texttt{--data-dir}, \texttt{--output-dir})
+    \item parametry skali eksperymentu (\texttt{--train-subsample}, liczba prób)
+    \item wskazanie konfiguracji źródłowej (\texttt{--config}, \texttt{--best-config-path})
+    \item tryb lokalny lub rozproszony (zależnie od skryptu)
 \end{itemize}
 
 Ujednolicenie argumentów upraszcza automatyzację i integrację z narzędziami CI/CD.
@@ -763,13 +763,13 @@ Ujednolicenie argumentów upraszcza automatyzację i integrację z narzędziami 
 \subsection{Schemat i walidacja}
 Eksperymenty definiowane są deklaratywnie. Schemat obejmuje sekcje:
 \begin{itemize}
-    \item \texttt{data},
-    \item \texttt{features},
-    \item \texttt{preprocessing},
-    \item \texttt{models},
-    \item \texttt{ensemble\_method}/\texttt{ensemble\_params},
-    \item \texttt{train},
-    \item \texttt{evaluation}.
+    \item \texttt{data}
+    \item \texttt{features}
+    \item \texttt{preprocessing}
+    \item \texttt{models}
+    \item \texttt{ensemble\_method}/\texttt{ensemble\_params}
+    \item \texttt{train}
+    \item \texttt{evaluation}
 \end{itemize}
 
 Każde uruchomienie przechodzi walidację zgodności konfiguracji, co ogranicza liczbę
@@ -779,10 +779,10 @@ błędów wykonania i gwarantuje spójność eksperymentów.
 Najważniejszą własnością implementacji jest możliwość modyfikacji eksperymentu
 poprzez edycję YAML:
 \begin{itemize}
-    \item zmiana modelu i hiperparametrów,
-    \item podmiana preprocessingu,
-    \item przełączenie strategii ensemble,
-    \item zmiana metryki głównej ewaluacji.
+    \item zmiana modelu i hiperparametrów
+    \item podmiana preprocessingu
+    \item przełączenie strategii ensemble
+    \item zmiana metryki głównej ewaluacji
 \end{itemize}
 
 Pozwala to prowadzić szybkie iteracje badawcze przy zachowaniu pełnej ścieżki audytu
@@ -793,9 +793,9 @@ zmian w repozytorium.
 Warstwa danych dostarcza zunifikowany interfejs ładowania splitów oraz metadanych.
 Implementacja obejmuje:
 \begin{itemize}
-    \item odczyt plików parquet i plików opisowych,
-    \item wybór zestawu cech i subsamplingu,
-    \item przygotowanie struktur \texttt{X}, \texttt{y}, \texttt{era}.
+    \item odczyt plików parquet i plików opisowych
+    \item wybór zestawu cech i subsamplingu
+    \item przygotowanie struktur \texttt{X}, \texttt{y}, \texttt{era}
 \end{itemize}
 
 Taki kontrakt danych jest wykorzystywany przez wszystkie wyższe warstwy pipeline'u.
@@ -804,9 +804,9 @@ Taki kontrakt danych jest wykorzystywany przez wszystkie wyższe warstwy pipelin
 Loader obsługuje zarówno pełne zbiory, jak i tryby szybkich testów na podzbiorach danych.
 To umożliwia:
 \begin{itemize}
-    \item szybkie iteracje deweloperskie,
-    \item tańsze testy poprawności potoku,
-    \item stopniowe skalowanie kosztownych eksperymentów.
+    \item szybkie iteracje deweloperskie
+    \item tańsze testy poprawności potoku
+    \item stopniowe skalowanie kosztownych eksperymentów
 \end{itemize}
 
 \section{Implementacja pipeline'u modelowego}
@@ -814,9 +814,9 @@ To umożliwia:
 Implementacja preprocessingu wykorzystuje listę kroków konfigurowanych w YAML.
 Wspierane są m.in.:
 \begin{itemize}
-    \item skalowanie (\textit{StandardScaler}, \textit{RobustScaler}),
-    \item redukcja wymiarowości (\textit{PCA}, \textit{TruncatedSVD}),
-    \item selekcja cech i transformacje regularizujące.
+    \item skalowanie (\textit{StandardScaler}, \textit{RobustScaler})
+    \item redukcja wymiarowości (\textit{PCA}, \textit{TruncatedSVD})
+    \item selekcja cech i transformacje regularizujące
 \end{itemize}
 
 Kroki preprocessingu są wykonywane deterministycznie i mogą być łączone w sekwencje.
@@ -825,10 +825,10 @@ Kroki preprocessingu są wykonywane deterministycznie i mogą być łączone w s
 Warstwa modeli została zaprojektowana jako zestaw wymiennych adapterów
 (spójny interfejs \textit{fit/predict}) dla różnych rodzin:
 \begin{itemize}
-    \item gradient boosting,
-    \item modele drzewiaste,
-    \item modele liniowe,
-    \item wybrane modele fundamentowe dla danych tabelarycznych.
+    \item gradient boosting
+    \item modele drzewiaste
+    \item modele liniowe
+    \item wybrane modele fundamentowe dla danych tabelarycznych
 \end{itemize}
 
 Standaryzacja interfejsu upraszcza porównywanie modeli i ich integrację z ensemble.
@@ -836,10 +836,10 @@ Standaryzacja interfejsu upraszcza porównywanie modeli i ich integrację z ense
 \subsection{Strategie ensemble}
 Implementacja obsługuje trzy podstawowe tryby:
 \begin{itemize}
-    \item \texttt{single} -- pojedynczy model,
-    \item \texttt{weighted} -- ważona agregacja predykcji,
-    \item \texttt{stacking} -- meta-model uczony na predykcjach bazowych
-    \cite{stacking}.
+    \item \texttt{single} - pojedynczy model
+    \item \texttt{weighted} - ważona agregacja predykcji
+    \item \texttt{stacking} - meta-model uczony na predykcjach bazowych
+    \cite{stacking}
 \end{itemize}
 
 Strategia ensemble jest traktowana jako pełnoprawny element konfiguracji eksperymentu.
@@ -850,31 +850,31 @@ HPO realizowane jest przez moduł \texttt{src/alphapulse/hpo/} z dwoma trybami u
 \begin{itemize}
     \item \textbf{Tryb lokalny} (\texttt{--local}): Optuna TPE \cite{optuna}
     (Bayesowski sampler) z izolacją
-    każdej próby w osobnym podprocesie; baza \texttt{optuna.db} i \texttt{trials.db} (TrialDB).
+    każdej próby w osobnym podprocesie; baza \texttt{optuna.db} i \texttt{trials.db} (TrialDB)
     \item \textbf{Tryb rozproszony}: Ray Tune \cite{ray} z callbackiem W\&B;
-    wymaga zależności \texttt{alphapulse[hpo]}.
+    wymaga zależności \texttt{alphapulse[hpo]}
 \end{itemize}
 
 Wspólne elementy obu trybów:
 \begin{itemize}
-    \item definicja przestrzeni przeszukiwania (\texttt{search\_space.py}, \texttt{registry.py}),
+    \item definicja przestrzeni przeszukiwania (\texttt{search\_space.py}, \texttt{registry.py})
     \item funkcja celu (\path{objective.py}) z oceną era-holdout lub
-    walk-forward (3 foldy),
+    walk-forward (3 foldy)
     \item routing cech (\path{feature_routing.py}) i strategie wielocelowe
-    (\path{target_strategy.py}),
+    (\path{target_strategy.py})
     \item limit czasu próby (\path{--trial-timeout}, domyślnie 3600\,s)
-    i budżet godzinowy (\path{--max-hours}),
-    \item eksport najlepszej konfiguracji (\texttt{hpo/export.py}).
+    i budżet godzinowy (\path{--max-hours})
+    \item eksport najlepszej konfiguracji (\texttt{hpo/export.py})
 \end{itemize}
 
 \subsection{Śledzenie wyników prób}
 Każda próba HPO generuje komplet informacji eksperymentalnych:
 \begin{itemize}
-    \item parametry wejściowe i hash konfiguracji,
+    \item parametry wejściowe i hash konfiguracji
     \item oficjalne diagnostyki \path{numerai_corr_*} i
-    \path{numerai_mmc_*} dla holdoutu oraz niezależnego przedziału walidacyjnego,
-    \item wykresy diagnostyczne w W\&B (ważność cech, ekspozycja, korelacja per-era),
-    \item metadane wykonania (czas, typ modelu, ewentualny błąd).
+    \path{numerai_mmc_*} dla holdoutu oraz niezależnego przedziału walidacyjnego
+    \item wykresy diagnostyczne w W\&B (ważność cech, ekspozycja, korelacja per-era)
+    \item metadane wykonania (czas, typ modelu, ewentualny błąd)
 \end{itemize}
 Po zakończeniu sweepu logowany jest run \texttt{best-trial-diagnostics} oraz wykresy
 \texttt{search-convergence} i \texttt{hpo-summary} (scatter: corr Sharpe vs.\ MMC Sharpe vs.\ czas).
@@ -901,23 +901,23 @@ rozstrzygany na podstawie samej implementacji.
 \section{Eksport predykcji i artefakty końcowe}
 Końcowym etapem implementacji jest produkcja artefaktu submisyjnego:
 \begin{itemize}
-    \item odtworzenie najlepszego pipeline'u z \texttt{best\_config.json} lub YAML,
-    \item trening na wskazanym zbiorze z zachowaniem kontraktu schematu cech,
-    \item wygenerowanie predykcji z normalizacją rangową per-era,
+    \item odtworzenie najlepszego pipeline'u z \texttt{best\_config.json} lub YAML
+    \item trening na wskazanym zbiorze z zachowaniem kontraktu schematu cech
+    \item wygenerowanie predykcji z normalizacją rangową per-era
     \item serializacja do \path{predict.pkl} z nazwą kanoniczną
     \path{<TIMESTAMP>_<ARCH>_<TARGET>_<CONFIG_HASH>_predict.pkl}
-    i symlinkiem \path{latest_predict.pkl},
+    i symlinkiem \path{latest_predict.pkl}
     \item zapis \path{*_provenance.json}: rozwiązana konfiguracja, snapshot
-    zależności (\path{uv export}) i hash commita Git,
-    \item test dymny: czysty podproces ładuje pickle i wykonuje forward pass na syntetycznej ramce danych.
+    zależności (\path{uv export}) i hash commita Git
+    \item test dymny: czysty podproces ładuje pickle i wykonuje forward pass na syntetycznej ramce danych
 \end{itemize}
 
 \subsection{Workflow produkcyjny (inferencja i submisja)}
 Tygodniowy cykl turniejowy realizowany jest trzema krokami:
 \begin{enumerate}
     \item pobranie świeżych danych (\texttt{live.parquet}),
-    \item \texttt{live\_inference.py} --- predykcje z walidacją formatu (\texttt{--validate}),
-    \item \texttt{submit\_predictions.py} --- upload CSV (\texttt{id}, \texttt{prediction}) do API Numerai.
+    \item \texttt{live\_inference.py} - predykcje z walidacją formatu (\texttt{--validate}),
+    \item \texttt{submit\_predictions.py} - upload CSV (\texttt{id}, \texttt{prediction}) do API Numerai.
 \end{enumerate}
 Skrypty wymagają kluczy \path{NUMERAI_PUBLIC_API_KEY} i
 \path{NUMERAI_PRIVATE_API_KEY}
@@ -926,12 +926,12 @@ Skrypty wymagają kluczy \path{NUMERAI_PUBLIC_API_KEY} i
 \section{Zapewnienie jakości kodu}
 W implementacji zastosowano standardowe mechanizmy jakości:
 \begin{itemize}
-    \item linting i formatowanie (\texttt{ruff}, \texttt{make fmt}, \texttt{make lint}),
-    \item statyczne sprawdzanie typów (\texttt{mypy}, \texttt{make types}),
-    \item testy automatyczne z pokryciem (\texttt{pytest}, \texttt{make test}),
-    \item wykrywanie martwego kodu (\texttt{vulture}, \texttt{make deadcode}),
-    \item hooki pre-commit i target \texttt{make check} (lint + types + test + deadcode),
-    \item osobna ścieżka jakości dla modułu EDA (\texttt{make eda-lint}).
+    \item linting i formatowanie (\texttt{ruff}, \texttt{make fmt}, \texttt{make lint})
+    \item statyczne sprawdzanie typów (\texttt{mypy}, \texttt{make types})
+    \item testy automatyczne z pokryciem (\texttt{pytest}, \texttt{make test})
+    \item wykrywanie martwego kodu (\texttt{vulture}, \texttt{make deadcode})
+    \item hooki pre-commit i target \texttt{make check} (lint + types + test + deadcode)
+    \item osobna ścieżka jakości dla modułu EDA (\texttt{make eda-lint})
 \end{itemize}
 
 To ogranicza regresje i zwiększa stabilność frameworku w kolejnych iteracjach.
@@ -958,10 +958,10 @@ evaluation:
 \section{Przestrzeń przeszukiwania HPO}
 Przykładowe parametry optymalizowane przez HPO (Optuna/Ray Tune):
 \begin{itemize}
-    \item typ modelu (XGBoost/LightGBM/CatBoost/Ridge/...),
-    \item hiperparametry modelu (\texttt{max\_depth}, \texttt{learning\_rate}, \texttt{n\_estimators}),
-    \item wybór preprocessingu i jego parametrów,
-    \item metoda ensemble i parametry meta-modelu.
+    \item typ modelu (XGBoost/LightGBM/CatBoost/Ridge/...)
+    \item hiperparametry modelu (\texttt{max\_depth}, \texttt{learning\_rate}, \texttt{n\_estimators})
+    \item wybór preprocessingu i jego parametrów
+    \item metoda ensemble i parametry meta-modelu
 \end{itemize}
 W badaniu końcowym przestrzeń ograniczono do jednego modelu z puli XGBoost,
 LightGBM, CatBoost, TabPFN i TabICL. Po 20 próbach inicjalnych sampler TPE korzystał
@@ -983,7 +983,7 @@ Analiza odpowiada na cztery pytania:
     \item Które rodziny modeli osiągają najwyższy oficjalny CORR w ustalonym
     budżecie i podziale czasowym?
     \item Jak zgodne są rankingi na purged holdoucie i późniejszym przedziale
-    walidacyjnym oraz które konfiguracje tworzą kompromis CORR--MMC?
+    walidacyjnym oraz które konfiguracje tworzą kompromis CORR-MMC?
     \item Jaki koszt wykonania i poziom kompletności prób uzyskano w serii HPO?
 \end{enumerate}
 
@@ -995,7 +995,7 @@ kontrolowana ablacja ani dowód przyczynowy.
 Materiał empiryczny obejmuje benchmark pełnoskalowy i końcową serię HPO
 (tabela~\ref{tab:research-series}). Różne wersje danych i cele wykluczają wspólny
 ranking jakości. Pierwsza seria odpowiada na pytanie o wykonalność i czas pełnej
-ścieżki, druga --- o jakość konfiguracji według oficjalnych metryk.
+ścieżki, druga - o jakość konfiguracji według oficjalnych metryk.
 
 \begin{table}[htbp]
 \centering
@@ -1120,7 +1120,7 @@ wersję Pythona, commit, skróty kodu i danych, seed, liczbę próbkowanych wier
 cel oraz parametry oceny. Konfiguracja każdej próby i jej metryki są przechowywane
 w pojedynczym rekordzie SQLite, a przebieg jest równolegle rejestrowany w W\&B.
 
-Minimalne odtworzenie badania w środowisku projektu wymaga następujących poleceń:
+Odtworzenie badania w środowisku projektu wymaga następujących poleceń:
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily,breaklines=true,breakatwhitespace=true,columns=fullflexible]
 uv sync --extra dev --extra hpo --extra foundation
 uv run python scripts/download_dataset.py --config.dataset-version v5.3 --config.output-dir data
@@ -1154,23 +1154,23 @@ Palamabron, \textit{AlphaPulse v0.6.0}.
 \url{https://github.com/Palamabron/AlphaPulse}.
 
 \bibitem{numerai-scoring}
-Numerai, \textit{Scoring --- Numerai Tournament Documentation}.
+Numerai, \textit{Scoring - Numerai Tournament Documentation}.
 \url{https://docs.numer.ai/numerai-tournament/scoring/},
 [dostęp: 23.08.2026].
 
 \bibitem{numerai-corr}
-Numerai, \textit{Correlation (CORR) --- Numerai Tournament Documentation}.
+Numerai, \textit{Correlation (CORR) - Numerai Tournament Documentation}.
 \url{https://docs.numer.ai/numerai-tournament/scoring/correlation-corr},
 [dostęp: 23.08.2026].
 
 \bibitem{numerai-mmc}
-Numerai, \textit{Meta Model Contribution (MMC) --- Numerai Tournament
+Numerai, \textit{Meta Model Contribution (MMC) - Numerai Tournament
 Documentation}.
 \url{https://docs.numer.ai/numerai-tournament/scoring/meta-model-contribution-mmc},
 [dostęp: 23.08.2026].
 
 \bibitem{numerai-staking}
-Numerai, \textit{Staking --- Numerai Tournament Documentation}.
+Numerai, \textit{Staking - Numerai Tournament Documentation}.
 \url{https://docs.numer.ai/numerai-tournament/staking},
 [dostęp: 23.08.2026].
 
@@ -1209,11 +1209,11 @@ Features'', \textit{Advances in Neural Information Processing Systems}, 2018.
 
 \bibitem{stacking}
 D. H. Wolpert, ``Stacked Generalization'', \textit{Neural Networks},
-vol. 5, no. 2, pp. 241--259, 1992.
+vol. 5, no. 2, pp. 241-259, 1992.
 
 \bibitem{tabpfn}
 N. Hollmann et al., ``Accurate Predictions on Small Data with a Tabular
-Foundation Model'', \textit{Nature}, vol. 637, pp. 319--326, 2025.
+Foundation Model'', \textit{Nature}, vol. 637, pp. 319-326, 2025.
 
 \end{thebibliography}
 \end{document}

@@ -1,8 +1,8 @@
 \chapter{Dyskusja i zakończenie}
 
 \section{Realizacja celu pracy}
-Główny cel pracy --- stworzenie konfigurowalnego środowiska AutoML dla finansowych
-potoków Numerai --- został zrealizowany na poziomie architektury, implementacji
+Główny cel pracy - stworzenie konfigurowalnego środowiska AutoML dla finansowych
+potoków Numerai - został zrealizowany na poziomie architektury, implementacji
 i badania empirycznego. AlphaPulse łączy pobieranie danych, walidowany schemat YAML,
 routing cech, modele, HPO, ocenę czasową, zapis proweniencji i eksport funkcji
 predykcyjnej. Benchmark pełnoskalowy potwierdził wykonalność kompletnego przepływu,
@@ -25,7 +25,7 @@ limitami pamięciowymi. Poprawna interpretacja brzmi zatem: w przyjętym budżec
 celu \texttt{target\_ender\_60} najlepsze konfiguracje pochodziły z dwóch rodzin
 boostingowych.
 
-Umiarkowana korelacja rankingów holdout--validation potwierdza znaczenie separacji
+Umiarkowana korelacja rankingów holdout-validation potwierdza znaczenie separacji
 czasowej. W danych o niskim stosunku sygnału do szumu wybór najlepszego punktu na
 jednym przedziale łatwo przejmuje jego lokalną specyfikę. Purging ogranicza przeciek
 wynikający z nakładania się horyzontu celu, ale nie eliminuje niestacjonarności rynku
@@ -48,7 +48,7 @@ niż arbitralne połączenie metryk w jeden wskaźnik.
     \item \textbf{Rodziny modeli.} W badanym budżecie najwyższe mediany holdoutu
     uzyskały CatBoost i LightGBM. Wynik ma charakter opisowy, ponieważ HPO nie jest
     zrównoważoną ablacją.
-    \item \textbf{Transfer i kompromis CORR--MMC.} Zgodność dwóch przedziałów jest
+    \item \textbf{Transfer i kompromis CORR-MMC.} Zgodność dwóch przedziałów jest
     dodatnia, ale umiarkowana. Próby 22 i 4 tworzą front Pareto na niezależnym
     validation i reprezentują odpowiednio profil CORR oraz MMC.
     \item \textbf{Koszt i kompletność procesu.} Analiza obejmuje 27 kompletnych
