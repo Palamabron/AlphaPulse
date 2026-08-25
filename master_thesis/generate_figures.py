@@ -255,10 +255,11 @@ def plot_validation_design() -> None:
     axis.text(
         6.0,
         1.65,
-        "NIEZALEŻNY ZBIÓR VALIDATION · 88 ER",
+        "PÓŹNIEJSZY PRZEDZIAŁ SELEKCYJNY · 88 ER",
         ha="center",
         weight="bold",
         color=PURPLE,
+        fontsize=10,
     )
     axis.text(
         6.0,
@@ -284,7 +285,12 @@ def plot_hpo_progression(trials: pd.DataFrame) -> None:
 
     for axis, metric, best, ylabel in (
         (axes[0], "holdout", "best_holdout", "CORR Sharpe · holdout"),
-        (axes[1], "validation", "best_validation", "CORR Sharpe · validation"),
+        (
+            axes[1],
+            "validation",
+            "best_validation",
+            "CORR Sharpe · późniejszy przedział",
+        ),
     ):
         for model, group in history.groupby("model"):
             axis.scatter(
@@ -376,7 +382,7 @@ def plot_holdout_validation(trials: pd.DataFrame) -> None:
         bbox={"facecolor": "white", "edgecolor": LIGHT_GRAY, "pad": 4},
     )
     axis.set_xlabel("CORR Sharpe na holdoucie (52 ery)")
-    axis.set_ylabel("CORR Sharpe na validation (88 er)")
+    axis.set_ylabel("CORR Sharpe - późniejszy przedział (88 er)")
     axis.set_title("Zgodność jakości między dwoma przedziałami czasowymi")
     axis.legend(frameon=False, ncols=2, loc="lower right")
     axis.xaxis.set_major_formatter(FuncFormatter(polish_axis))
@@ -444,8 +450,8 @@ def plot_pareto(trials: pd.DataFrame) -> None:
         )
     axis.axhline(0.0, color=GRAY, linewidth=0.7)
     axis.axvline(0.0, color=GRAY, linewidth=0.7)
-    axis.set_xlabel("CORR Sharpe na validation")
-    axis.set_ylabel("MMC Sharpe na validation")
+    axis.set_xlabel("CORR Sharpe - późniejszy przedział")
+    axis.set_ylabel("MMC Sharpe - późniejszy przedział")
     axis.set_title("Front Pareto jakości sygnału i jego unikalności")
     axis.legend(
         frameon=False,

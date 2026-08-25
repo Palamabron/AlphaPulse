@@ -19,41 +19,45 @@ jednocześnie dodając wymagania specyficzne dla danych finansowych
 \section{Interpretacja wyników modelowych}
 LightGBM i CatBoost osiągnęły najwyższe mediany CORR Sharpe na holdoucie. Jest to
 spójne z pozycją gradient boostingu jako silnej klasy modeli dla danych tabelarycznych
-\cite{lightgbm,catboost}. Nie oznacza jednak uniwersalnej przewagi tych algorytmów.
+\cite{lightgbm,catboost,grinsztajn}. Nie oznacza jednak uniwersalnej przewagi tych algorytmów.
 Przestrzeń była próbkowana adaptacyjnie, a modele fundamentowe działały z ostrzejszymi
 limitami pamięciowymi. Poprawna interpretacja brzmi zatem: w przyjętym budżecie i dla
 celu \texttt{target\_ender\_60} najlepsze konfiguracje pochodziły z dwóch rodzin
 boostingowych.
 
-Umiarkowana korelacja rankingów holdout-validation potwierdza znaczenie separacji
-czasowej. W danych o niskim stosunku sygnału do szumu wybór najlepszego punktu na
+Umiarkowana korelacja rankingów między holdoutem i późniejszym przedziałem pokazuje
+znaczenie separacji czasowej. W danych o niskim stosunku sygnału do szumu wybór
+najlepszego punktu na
 jednym przedziale łatwo przejmuje jego lokalną specyfikę. Purging ogranicza przeciek
 wynikający z nakładania się horyzontu celu, ale nie eliminuje niestacjonarności rynku
-\cite{lopez}. Zewnętrzny przedział 88 er pełni dlatego inną rolę niż holdout HPO:
-nie steruje samplerem i pozwala ocenić transfer wybranych receptur.
+\cite{lopez,bergmeir-cv}. Późniejszy przedział 88 er pełni dlatego inną rolę niż
+holdout HPO: nie steruje samplerem i pozwala porównać transfer receptur. Ponieważ
+jednak służy również do wyboru prób 22 i 4, nie jest końcowym zbiorem testowym
+\cite{cawley-talbot,varma-simon}.
 
 Najbardziej praktycznym wynikiem jest front Pareto. Próba 22 maksymalizuje CORR na
-validation przy dodatnim MMC, natomiast próba 4 maksymalizuje MMC przy nieco słabszym
-CORR. Są to dwa uzasadnione cele wdrożeniowe. Pierwszy profil preferuje stabilną
+późniejszym przedziale przy dodatnim MMC, natomiast próba 4 maksymalizuje MMC przy
+nieco słabszym CORR. Są to dwa uzasadnione profile kandydackie. Pierwszy preferuje stabilną
 zgodność z celem, drugi większy wkład niezależny od Meta Modelu
 \cite{numerai-corr,numerai-mmc}. Zachowanie obu kandydatów jest bardziej informacyjne
-niż arbitralne połączenie metryk w jeden wskaźnik.
+niż arbitralne połączenie metryk w jeden wskaźnik, lecz ich wartości pozostają
+warunkowe względem przeprowadzonej selekcji.
 
 \section{Odpowiedzi na pytania eksperymentalne}
 \begin{enumerate}
     \item \textbf{Skalowalność i reprodukowalność.} Pełnoskalowy potok przetworzył
     2,75 mln wierszy uczących i 3,90 mln wierszy walidacyjnych w 31,5 min. Każde
     uruchomienie zapisuje konfigurację, hash, metryki i artefakty, a końcowe HPO
-    dodatkowo utrwala skróty danych oraz wersję kodu.
+    dodatkowo utrwala skróty danych oraz wersję kodu
     \item \textbf{Rodziny modeli.} W badanym budżecie najwyższe mediany holdoutu
     uzyskały CatBoost i LightGBM. Wynik ma charakter opisowy, ponieważ HPO nie jest
-    zrównoważoną ablacją.
+    zrównoważoną ablacją
     \item \textbf{Transfer i kompromis CORR-MMC.} Zgodność dwóch przedziałów jest
-    dodatnia, ale umiarkowana. Próby 22 i 4 tworzą front Pareto na niezależnym
-    validation i reprezentują odpowiednio profil CORR oraz MMC.
+    dodatnia, ale umiarkowana. Próby 22 i 4 tworzą front Pareto na późniejszym
+    przedziale i reprezentują odpowiednio profil CORR oraz MMC
     \item \textbf{Koszt i kompletność procesu.} Analiza obejmuje 27 kompletnych
     prób z medianą 127,2 s. Baza TrialDB zachowała 84,4\% uruchomionej puli jako
-    kompletne rekordy możliwe do bezpośredniego porównania.
+    kompletne rekordy możliwe do bezpośredniego porównania
 \end{enumerate}
 
 Odpowiedzi te odnoszą się bezpośrednio do pomiarów dostępnych w artefaktach. Nie
@@ -67,8 +71,8 @@ separację; oficjalne metryki są częścią ewaluatora; a format submisji jest 
 w czystym podprocesie. Dzięki temu ryzyka metodologiczne są ograniczane przez
 architekturę, a nie tylko przez dyscyplinę osoby prowadzącej eksperyment.
 
-Istotna jest również warstwa artefaktów. 	exttt{protocol.json} dokumentuje wejście
-i reguły badania, 	exttt{trials.db} przechowuje stan każdej próby, a W\&B umożliwia
+Istotna jest również warstwa artefaktów. \texttt{protocol.json} dokumentuje wejście
+i reguły badania, \texttt{trials.db} przechowuje stan każdej próby, a W\&B umożliwia
 porównanie krzywych oraz diagnostyk. Razem tworzą ślad audytowy potrzebny zarówno
 w pracy naukowej, jak i w iteracyjnym utrzymaniu modelu. Z kolei eksport
 \texttt{predict.pkl} zamyka lukę między eksperymentem i inferencją live.
@@ -80,18 +84,28 @@ wariancji między seedami ani przedstawić przedziałów ufności dla rankingu. 
 próbkowanie TPE utrudnia także przyczynową interpretację różnic między rodzinami.
 
 Drugie ograniczenie dotyczy selekcji czasowej. Holdout uczestniczy w funkcji celu,
-więc jego maksimum jest obciążone wielokrotnym porównaniem. Niezależny validation
-ogranicza to ryzyko, lecz 88 er nadal odpowiada jednemu okresowi rynkowemu. Wyniki
-nie są prognozą rezultatu live ani podstawą do automatycznego stakingu.
+więc jego maksimum jest obciążone wielokrotnym porównaniem. Późniejszy przedział
+nie steruje HPO, ale posłużył do porównania 27 prób i wyłonienia kandydatów. Ogranicza
+zatem zależność od holdoutu, lecz nie zapewnia bezstronnej oceny końcowej
+\cite{cawley-talbot,bailey-backtest}. Ponadto 88 er odpowiada jednemu okresowi
+rynkowemu. Wyniki nie są prognozą rezultatu live ani podstawą do automatycznego
+stakingu.
 
 Benchmark pełnoskalowy używa innej wersji danych i celu niż końcowe HPO. Dostarcza
 dowodu skalowalności, ale nie stanowi baseline jakości. W pracy celowo nie
 ekstrapolowano wartości CORR lub MMC z próbki 10\% na pełny zbiór: zależność jakości
 od liczby wierszy nie musi być liniowa.
 
+Trzecie ograniczenie stanowi brak kontrolowanego baseline'u i ablacji. Konfiguracje
+HPO różnią się wieloma elementami jednocześnie, dlatego obserwowanych różnic nie można
+przypisać wyłącznie rodzinie modelu, selekcji cech ani neutralizacji. Porównanie rodzin
+ma charakter opisowy, podobnie jak wskazanie przewagi kandydatów w ramach badanego
+budżetu. Nie oceniano także oszczędności czasu człowieka ani jakości decyzji
+AutoResearch względem TPE.
+
 \section{Rekomendacja wdrożeniowa i dalszy rozwój}
 Pierwszym kandydatem do ponownego treningu na pełnych danych v5.3 jest próba 22,
-ponieważ łączy najwyższy CORR na niezależnym validation z dodatnim MMC. Próba 4
+ponieważ łączy najwyższy CORR na późniejszym przedziale z dodatnim MMC. Próba 4
 powinna zostać zachowana jako alternatywa nastawiona na unikalność sygnału. Po
 treningu pełnoskalowym oba modele należy oceniać w kolejnych rundach bez zmiany
 konfiguracji; dopiero taki monitoring pozwoli oszacować stabilność live.
@@ -107,9 +121,10 @@ walidacji artefaktu i monitorowania dryfu metryk per-era.
 AlphaPulse realizuje pełny, reprodukowalny cykl eksperymentu dla Numerai: od danych
 i deklaratywnej konfiguracji, przez czasowo poprawną walidację i HPO, po diagnostykę
 i eksport. Empirycznie system obsłużył trening pełnoskalowy oraz wyłonił na danych
-v5.3 dwa niezdominowane profile modelu. Najbardziej zrównoważona próba 22 osiągnęła
-CORR Sharpe 0,4247 i MMC Sharpe 0,2467 na niezależnym validation, a próba 4 podniosła
-MMC Sharpe do 0,3063.
+v5.3 dwa niezdominowane profile modelu. Próba 22 osiągnęła w badanej serii
+CORR Sharpe 0,4247 i MMC Sharpe 0,2467 na późniejszym przedziale, a próba 4
+osiągnęła MMC Sharpe 0,3063. Wartości te uzasadniają dalszą obserwację kandydatów,
+ale nie są nieobciążoną prognozą wyników live.
 
 Najważniejszym wkładem pracy jest połączenie poprawnej metodyki finansowej z
 inżynierią eksperymentów. Wynik nie jest pojedynczą liczbą, lecz systemem, który

@@ -155,10 +155,10 @@ Ewaluacja obejmuje pełnoskalowy benchmark przetwarzania 2,75 mln wierszy ucząc
 oraz końcową serię HPO na danych Numerai \datasetver{} dla celu
 \texttt{target\_ender\_60}. W serii końcowej oceniono 27 kompletnych konfiguracji na
 deterministycznej próbie \FinalSampleRows{} wierszy. Protokół wykorzystuje 16 er
-separacji, 52 ery holdoutu oraz niezależny przedział 88 er z predykcją Meta Modelu.
+separacji, 52 ery holdoutu oraz późniejszy przedział selekcyjny 88 er z predykcją Meta Modelu.
 Najlepszy wynik holdoutowy uzyskała próba \FinalBestTrial{} z modelem
 \FinalBestModel{}: oficjalny CORR Sharpe równy \FinalBestCorrSharpe{} przy średnim
-CORR \FinalBestMeanCorr{}. Na niezależnym przedziale próba 22 osiągnęła najwyższy
+CORR \FinalBestMeanCorr{}. Na późniejszym przedziale próba 22 osiągnęła najwyższy
 CORR Sharpe 0,425, natomiast próba 4 najwyższy MMC Sharpe 0,306; obie konfiguracje
 tworzą front Pareto jakości sygnału i jego unikalności. Rezultaty potwierdzają, że
 AlphaPulse realizuje reprodukowalny cykl od danych do porównywalnych artefaktów
@@ -182,10 +182,10 @@ The evaluation comprises a full-scale processing benchmark with 2.75 million tra
 rows and a final HPO study on Numerai \datasetver{} data for the
 \texttt{target\_ender\_60} target. The final study evaluates 27 complete configurations
 on a deterministic sample of \FinalSampleRows{} rows. Its protocol uses a 16-era gap,
-a 52-era holdout and an independent 88-era interval with aligned Meta Model
+a 52-era holdout and a later 88-era selection interval with aligned Meta Model
 predictions. Trial \FinalBestTrial{} with \FinalBestModel{} achieved the best holdout
 result: an official CORR Sharpe of \FinalBestCorrSharpe{} and mean CORR of
-\FinalBestMeanCorr{}. On the independent interval, trial 22 obtained the highest CORR
+\FinalBestMeanCorr{}. On the later interval, trial 22 obtained the highest CORR
 Sharpe of 0.425, while trial 4 obtained the highest MMC Sharpe of 0.306; together they
 form the Pareto frontier between signal quality and uniqueness. The results show that
 AlphaPulse provides a reproducible workflow from data to comparable experimental
@@ -197,7 +197,10 @@ hyperparameter optimisation
 
 \selectlanguage{polish}
 \setcounter{tocdepth}{1}
+\begingroup
+\singlespacing
 \tableofcontents
+\endgroup
 
 \chapter{Wstęp}
 
@@ -205,18 +208,20 @@ hyperparameter optimisation
 Prognozowanie rynków finansowych należy do najtrudniejszych problemów uczenia
 maszynowego. Dane finansowe wyróżniają się niskim stosunkiem sygnału do szumu,
 niestacjonarnością, silną zależnością czasową między obserwacjami oraz strukturą grupową
-(ery - tygodniowe przekroje rynku), która wyklucza zastosowanie standardowych technik
-podziału danych. Jednocześnie skuteczność predykcji jest weryfikowana przez rzeczywisty
-rynek, co eliminuje ryzyko nadmiernego dopasowania do artefaktów zbioru testowego.
+(ery - tygodniowe przekroje rynku), która ogranicza zasadność losowych technik
+podziału danych. Późniejsza ocena na kolejnych okresach rynkowych zmniejsza zależność
+wniosków od jednego historycznego podziału, ale nie eliminuje ryzyka przeuczenia procesu
+selekcji ani niestacjonarności rynku \cite{bailey-backtest,cawley-talbot}.
 
 Turniej Numerai, uruchomiony w 2015 roku przez firmę Numerai Inc., stanowi unikalną
 platformę badawczą w obszarze finansowego uczenia maszynowego. Numerai dostarcza
 uczestnikom zaszyfrowane, zanonimizowane dane tabelaryczne opisujące spółki giełdowe i
 ich atrybuty fundamentalne, techniczne oraz rynkowe. Zadaniem uczestników jest
 wytrenowanie modeli predykujących przyszłe stopy zwrotu neutralne względem rynku
-(alpha) w horyzoncie 20 dni roboczych. Prognozy wszystkich uczestników są agregowane
+(alpha) dla jednego z udostępnionych celów i horyzontów. Badanie końcowe wykorzystuje
+cel \texttt{target\_ender\_60}. Prognozy wszystkich uczestników są agregowane
 przez fundusz hedgingowy Numerai do jednego Meta Modelu, który steruje rzeczywistymi
-decyzjami inwestycyjnymi. Uczestnicy mogą zbierać tokeny NMR (kryptowaluta Numerai) na
+decyzjami inwestycyjnymi. Uczestnicy mogą stakować tokeny NMR na
 swoje modele, zdobywając nagrody za pozytywne wyniki lub tracąc środki w przypadku
 słabych predykcji \cite{numerai-staking}.
 
@@ -237,24 +242,21 @@ po walidację artefaktu końcowego.
 Niniejsza praca podejmuje następujący problem badawczy:
 
 \begin{quote}
-Jak zaprojektować i zaimplementować framework, który umożliwia systematyczne i
-reprodukowalne eksperymentowanie z potokami uczenia maszynowego dla danych
-finansowych turnieju Numerai, redukując jednocześnie nakład pracy inżynierskiej wymagany
-do testowania nowych konfiguracji?
+Jak zaprojektować, zaimplementować i zweryfikować środowisko, które umożliwia
+systematyczne i reprodukowalne eksperymentowanie z potokami uczenia maszynowego
+dla danych finansowych turnieju Numerai?
 \end{quote}
 
 Problem ten dekomponuje się na następujące pytania szczegółowe:
 \begin{enumerate}[label=\arabic*.]
-\item Jakie abstrakcje komponentów (preprocessory, modele, strategie ensemble) są
-niezbędne do obsługi pełnego spektrum konfiguracji stosowanych w danych
-finansowych o strukturze szeregów czasowych?
-\item Jak zapewnić poprawną walidację krzyżową uwzględniającą zależności temporalne i
-korelacje wewnątrz er, by uniknąć wycieku informacji?
-\item W jakim stopniu automatyzacja poszukiwania hiperparametrów i konfiguracji modeli -
-w tym z użyciem agentowego modelu językowego - może zastąpić lub wspomóc
-manualne eksperymenty badacza?
-\item Jak zintegrować wszystkie etapy przepływu pracy w spójny, konfigurowalny system
-zgodny z wymaganiami Numerai?
+\item Jakie kontrakty komponentów są potrzebne, aby połączyć dane, preprocessing,
+modele, strategie zespołowe, ewaluację i eksport w jednym systemie?
+\item Jak zakodować wymagania walidacji czasowej i reprodukowalności tak, aby kolejne
+konfiguracje były oceniane według tego samego protokołu?
+\item Czy zaimplementowany potok wykonuje kompletny przebieg na pełnej skali danych
+i pozostawia artefakty umożliwiające audyt uruchomienia?
+\item Jak w ustalonym budżecie zachowują się badane rodziny modeli oraz w jakim stopniu
+ranking z holdoutu przenosi się na późniejszy przedział czasowy?
 \end{enumerate}
 
 \section{Cele pracy}
@@ -268,18 +270,20 @@ konieczności modyfikowania kodu źródłowego
 \item Automatyzuje poszukiwanie optymalnych hiperparametrów i konfiguracji pipeline'u za
 pomocą Optuna (tryb \texttt{--local}) lub Ray Tune (tryb rozproszony), z obsługą
 \texttt{--resume} i bazą TrialDB
-\item Wprowadza autonomiczną pętlę badawczą (AutoResearch) sterowaną dużym
-modelem językowym (LLM), która iteracyjnie proponuje i testuje modyfikacje
-konfiguracji
+\item Udostępnia rozszerzenie AutoResearch, w którym model językowy proponuje
+modyfikacje konfiguracji, bez przypisywania temu mechanizmowi przewagi empirycznej
+w badaniu końcowym
 \item Raportuje oficjalnie zdefiniowane CORR i MMC oraz ich agregaty per-era
 \item Eksportuje wyniki w postaci pliku \texttt{predict.pkl} zgodnego z wymaganiami API Numerai
 oraz wspiera tygodniowy cykl produkcyjny: inferencja na \texttt{live.parquet} i
 automatyczna submisja predykcji
 \end{itemize}
 
-Celami pomocniczymi są: ocena skuteczności podejścia agentowego w kontekście AutoML,
-analiza wpływu wyboru modeli i strategii ensemble na metryki jakości predykcji oraz
-porównanie różnych strategii walidacji krzyżowej dla danych finansowych z strukturą er.
+Celami pomocniczymi są: weryfikacja skalowalności kompletnego przepływu,
+opisowe porównanie rodzin modeli w jednakowym protokole HPO, analiza zgodności
+rankingów na dwóch kolejnych przedziałach czasowych oraz wskazanie kandydatów
+reprezentujących kompromis CORR-MMC. Praca nie mierzy oszczędności czasu człowieka,
+przewagi AutoResearch ani przyczynowego wpływu pojedynczych komponentów.
 
 \section{Zakres i ograniczenia}
 Framework AlphaPulse jest przeznaczony dla turnieju Numerai Classic, a badanie końcowe
@@ -295,7 +299,7 @@ autoenkoder, kompresja cech, selektor stabilności per-era
 potoki wielogłowicowe (\path{MultiHeadPipeline}) i wielocelowe
 (\path{MultiTargetPipeline})
 \item Optymalizację hiperparametrów (Optuna TPE w trybie lokalnym, Ray Tune w trybie
-rozproszonym) oraz system AutoResearch z agentem Claude
+rozproszonym) oraz system AutoResearch z agentem opartym na modelu językowym
 \item Panel EDA (Streamlit) do eksploracji danych i wizualizacji wyników HPO
 \end{itemize}
 
@@ -304,27 +308,31 @@ dla danych czasowych, strategii tradingowych ani mechanizmów stakowania tokenó
 a także integracji z turniejem Numerai Signals.
 
 \section{Wkład autorów}
-Wkład pracy obejmuje:
+Praca powstała wspólnie, przy następującym głównym podziale odpowiedzialności:
 \begin{itemize}
-    \item projekt i implementację frameworku \repo{} w wersji 0.6.0
-    (Python 3.12+, repozytorium \texttt{main}) \cite{alphapulse}
-    \item deklaratywny format eksperymentów (Experiment v1 YAML) z katalogiem cech (\texttt{features/catalog.py})
-    \item integrację HPO (Optuna/Ray Tune, TrialDB) oraz pętli agentowej AutoResearch
-    \item oficjalne diagnostyki CORR i MMC oraz diagnostykę W\&B
-    (SHAP, ekspozycja cech, wykresy per-era)
-    \item ujednolicony pipeline od pobrania danych Numerai przez eksport
-    \path{predict.pkl}
-    do inferencji \textit{live} i submisji tygodniowej
+    \item Kuba Szulc odpowiadał przede wszystkim za architekturę i implementację rdzenia
+    \repo{}, potoki modelowe, warstwę HPO, reprodukowalność uruchomień, eksperymenty
+    końcowe oraz integrację eksportu i inferencji
+    \item Kamil Czyżewski odpowiadał przede wszystkim za panel analizy eksploracyjnej,
+    przygotowanie i interpretację wizualizacji, dokumentację systemu oraz redakcję
+    i skład pracy
+    \item Obaj autorzy uczestniczyli w definiowaniu zakresu systemu, przeglądzie wyników,
+    weryfikacji poprawności metryk i formułowaniu wniosków
 \end{itemize}
+Repozytorium i historia wersji dokumentują ewolucję implementacji oraz wkład autorów
+\cite{alphapulse}.
 \section{Kryteria sukcesu}
 Praca uznaje się za spełnioną, jeśli:
 \begin{enumerate}
-    \item framework umożliwia powtarzalne uruchomienia tej samej konfiguracji (seed globalny, artefakt \texttt{*\_provenance.json}),
-    \item HPO poprawnie realizuje próbkowanie, ocenę, persystencję i wznowienie prób,
-    \item AutoResearch poprawnie proponuje mutacje oraz zapisuje stan umożliwiający wznowienie,
-    \item końcowy artefakt submisji przechodzi walidację formatu i test dymny (\textit{export smoke test}).
+    \item framework umożliwia powtarzalne uruchomienia tej samej konfiguracji (seed globalny, artefakt \texttt{*\_provenance.json})
+    \item HPO poprawnie realizuje próbkowanie, ocenę, persystencję i wznowienie prób
+    \item mechanizm AutoResearch poprawnie proponuje mutacje oraz zapisuje stan
+    umożliwiający wznowienie, przy czym jego skuteczność nie jest przedmiotem
+    porównania empirycznego
+    \item końcowy artefakt submisji przechodzi walidację formatu i test dymny (\textit{export smoke test})
     \item seria eksperymentalna identyfikuje co najmniej jedną konfigurację o dodatnim
-    CORR Sharpe na holdoucie i dodatnim MMC Sharpe na niezależnym przedziale walidacyjnym.
+    CORR Sharpe na holdoucie i dodatnim MMC Sharpe na późniejszym przedziale
+    selekcyjnym
 \end{enumerate}
 
 \chapter{Podstawy problemu i kontekst systemu AlphaPulse}
@@ -366,6 +374,8 @@ komponencie czasowym. Z perspektywy modelowania najważniejsze cechy tych danych
 Konsekwencją jest konieczność ostrożnego projektowania zarówno preprocessingu,
 jak i procedury walidacyjnej. W praktyce szczególnie istotne stają się metody walidacji
 uwzględniające strukturę er oraz separację czasową między zbiorem uczącym i walidacyjnym.
+Zmiana rozkładu między okresem uczenia i przyszłą oceną dodatkowo ogranicza możliwość
+przenoszenia wyników bez kontroli stabilności w czasie \cite{sugiyama-shift}.
 
 \section{Metryki jakości i kryteria oceny}
 W odróżnieniu od wielu zadań regresyjnych, ocena modeli finansowych nie powinna
@@ -390,9 +400,11 @@ odchylenie standardowe między erami. AlphaPulse raportuje ponadto:
 
 Implementacje zweryfikowano względem zamrożonej wersji \path{numerai-tools} 0.6.0
 \cite{numerai-tools}. W badaniu głównym kryterium optymalizacji stanowi
-$S_{\mathrm{CORR}}$ na purged holdoucie. CORR i MMC na niezależnym przedziale
-walidacyjnym służą do oceny transferu w czasie oraz wyboru kompromisu między siłą
-i unikalnością sygnału.
+$S_{\mathrm{CORR}}$ na holdoucie oddzielonym strefą purge. CORR i MMC na późniejszym
+przedziale selekcyjnym służą do analizy transferu w czasie oraz wyboru kompromisu
+między siłą i unikalnością sygnału. Ponieważ ten drugi przedział uczestniczy w wyborze
+kandydatów, raportowane na nim wartości nie są bezstronnym oszacowaniem przyszłego
+wyniku produkcyjnego \cite{cawley-talbot,varma-simon}.
 
 \section{Ryzyko wycieku informacji i poprawna walidacja}
 Jednym z najważniejszych problemów metodologicznych w modelach finansowych jest
@@ -407,20 +419,28 @@ predykcji nie byłaby dostępna. Zjawisko to może wystąpić na wielu etapach:
 Dlatego system klasy \textit{AlphaPulse} musi wspierać walidację zgodną z naturą danych
 czasowych i erowych, w tym podejścia \textit{era-aware} oraz \textit{purged cross-validation}.
 Wymóg ten stanowi fundament wiarygodnej oceny i bezpośrednio wpływa na konstrukcję
-architektury frameworku \cite{lopez}.
+architektury frameworku \cite{lopez,bergmeir-cv}. Sama separacja czasowa nie usuwa
+jednak błędu selekcyjnego. Wielokrotna optymalizacja na tym samym holdoucie może
+dopasować konfigurację do szumu kryterium, dlatego wynik wybranej próby należy
+interpretować warunkowo względem całej procedury wyszukiwania
+\cite{cawley-talbot,bailey-backtest}.
 
 \section{AutoML, HPO i modele tabelaryczne}
 Systemy AutoML automatyzują dobór algorytmu, transformacji i hiperparametrów, ale ich
-skuteczność zależy od poprawnej definicji przestrzeni poszukiwań i protokołu walidacji
-\cite{automl-survey}. AlphaPulse wykorzystuje Optuna TPE do sekwencyjnego wyboru prób
-oraz Ray Tune do wykonania rozproszonego \cite{optuna,ray}. Warstwa optymalizacji nie
-zastępuje metodyki badawczej: każda konfiguracja przechodzi ten sam podział czasowy,
-ten sam scoring i zapis proweniencji.
+skuteczność zależy od poprawnej definicji przestrzeni poszukiwań, budżetu i protokołu
+walidacji \cite{automl-survey,autosklearn,autoweka}. Losowe wyszukiwanie stanowi
+naturalny punkt odniesienia dla metod adaptacyjnych, ponieważ efektywny wymiar
+przestrzeni hiperparametrów bywa znacznie mniejszy od jej wymiaru nominalnego
+\cite{bergstra-random}. AlphaPulse wykorzystuje Optuna TPE do sekwencyjnego wyboru
+prób oraz Ray Tune do wykonania rozproszonego \cite{optuna,ray}. Warstwa optymalizacji
+nie zastępuje metodyki badawczej: każda konfiguracja przechodzi ten sam podział
+czasowy, ten sam scoring i zapis proweniencji.
 
 Przestrzeń modeli obejmuje algorytmy gradient boosting - XGBoost, LightGBM i
 CatBoost - które pozostają silnymi punktami odniesienia dla danych tabelarycznych
-\cite{xgboost,lightgbm,catboost}. Uzupełniają je modele liniowe, zespoły drzew oraz
-fundamentalne modele tabelaryczne, w tym TabPFN \cite{tabpfn}. Z perspektywy badawczej
+\cite{xgboost,lightgbm,catboost,grinsztajn}. Uzupełniają je modele liniowe, zespoły
+drzew oraz fundamentalne modele tabelaryczne, w tym TabPFN i TabICL
+\cite{tabpfn,tabicl}. Z perspektywy badawczej
 ważna jest wspólna abstrakcja modelu: umożliwia porównanie rodzin w jednym protokole,
 bez wiązania warstwy danych i ewaluacji z konkretną biblioteką.
 
@@ -448,17 +468,19 @@ Skrypt konkursowy & zależna od implementacji & możliwa & zwykle pojedynczy for
 
 Podejście \textit{configuration-driven} rozdziela opis eksperymentu od mechaniki
 wykonania. Dzięki temu konfiguracja jest wersjonowalna, a ten sam graf potoku można
-uruchomić w trybie pojedynczym, HPO, diagnostycznym i eksportowym.
+uruchomić w trybie pojedynczym, HPO, diagnostycznym i eksportowym. Utrwalenie kodu,
+danych, zależności i parametrów odpowiada praktykom reprodukowalnego raportowania
+badań ML \cite{pineau-reproducibility}.
 
 \section{Zakres funkcjonalny AlphaPulse jako punkt odniesienia dalszych rozdziałów}
 Na poziomie operacyjnym framework obejmuje pełny przepływ pracy konkursowej:
 \begin{enumerate}
-    \item pobranie danych (\texttt{train}, \texttt{validation}, \texttt{live}, \texttt{meta\_model}),
-    \item uruchamianie eksperymentów opisanych YAML,
-    \item automatyczną optymalizację hiperparametrów (HPO),
-    \item agentową pętlę badawczą (\textit{AutoResearch}),
-    \item eksport predykcji do formatu submisji,
-    \item inferencję na danych \textit{live} i automatyczną submisję do API Numerai.
+    \item pobranie danych (\texttt{train}, \texttt{validation}, \texttt{live}, \texttt{meta\_model})
+    \item uruchamianie eksperymentów opisanych YAML
+    \item automatyczną optymalizację hiperparametrów (HPO)
+    \item agentową pętlę badawczą (\textit{AutoResearch})
+    \item eksport predykcji do formatu submisji
+    \item inferencję na danych \textit{live} i automatyczną submisję do API Numerai
 \end{enumerate}
 
 W projekcie uwzględniono również:
@@ -575,7 +597,7 @@ System wspiera dwa poziomy automatyzacji:
     (\texttt{TrialDB}), co umożliwia wznowienie przerwanej serii (\texttt{--resume}).
     Głównym celem optymalizacji w badaniu jest oficjalny
     \texttt{numerai\_corr\_sharpe}; raport obejmuje także średni CORR, maksymalne
-    obsunięcie, udział dodatnich er oraz MMC na niezależnym przedziale
+    obsunięcie, udział dodatnich er oraz MMC na późniejszym przedziale czasowym
     \item \textbf{AutoResearch}: agentowa pętla badawcza, która proponuje
     mutacje konfiguracji (dodanie lub usunięcie modelu, zmianę preprocessingu,
     ensemble albo neutralizację) i ocenia ich wpływ na metryki
@@ -609,11 +631,11 @@ To domyka przepływ od eksperymentu badawczego do artefaktu konkursowego.
 \section{Przepływ wykonania end-to-end}
 Typowy scenariusz działania systemu obejmuje następujące etapy:
 \begin{enumerate}
-    \item pobranie danych i przygotowanie lokalnego katalogu roboczego,
-    \item uruchomienie eksperymentu z pliku YAML,
-    \item trenowanie i ewaluacja modeli bazowych oraz ensemble,
-    \item (opcjonalnie) uruchomienie HPO lub AutoResearch,
-    \item wybór najlepszej konfiguracji i eksport predykcji.
+    \item pobranie danych i przygotowanie lokalnego katalogu roboczego
+    \item uruchomienie eksperymentu z pliku YAML
+    \item trenowanie i ewaluacja modeli bazowych oraz ensemble
+    \item (opcjonalnie) uruchomienie HPO lub AutoResearch
+    \item wybór najlepszej konfiguracji i eksport predykcji
 \end{enumerate}
 
 W ujęciu operacyjnym odpowiada temu zestaw dedykowanych skryptów CLI, które
@@ -872,7 +894,7 @@ Każda próba HPO generuje komplet informacji eksperymentalnych:
 \begin{itemize}
     \item parametry wejściowe i hash konfiguracji
     \item oficjalne diagnostyki \path{numerai_corr_*} i
-    \path{numerai_mmc_*} dla holdoutu oraz niezależnego przedziału walidacyjnego
+    \path{numerai_mmc_*} dla holdoutu oraz późniejszego przedziału czasowego
     \item wykresy diagnostyczne w W\&B (ważność cech, ekspozycja, korelacja per-era)
     \item metadane wykonania (czas, typ modelu, ewentualny błąd)
 \end{itemize}
@@ -883,10 +905,10 @@ Po zakończeniu sweepu logowany jest run \texttt{best-trial-diagnostics} oraz wy
 \subsection{Pętla agentowa}
 \textit{AutoResearch} rozszerza klasyczny HPO o mechanizm agentowy:
 \begin{enumerate}
-    \item analiza dotychczasowych wyników,
-    \item propozycja mutacji konfiguracji,
-    \item uruchomienie kolejnej próby,
-    \item aktualizacja stanu badania.
+    \item analiza dotychczasowych wyników
+    \item propozycja mutacji konfiguracji
+    \item uruchomienie kolejnej próby
+    \item aktualizacja stanu badania
 \end{enumerate}
 
 Stan eksperymentu i decyzje agenta są zapisywane w artefaktach, co pozwala audytować
@@ -915,9 +937,9 @@ Końcowym etapem implementacji jest produkcja artefaktu submisyjnego:
 \subsection{Workflow produkcyjny (inferencja i submisja)}
 Tygodniowy cykl turniejowy realizowany jest trzema krokami:
 \begin{enumerate}
-    \item pobranie świeżych danych (\texttt{live.parquet}),
-    \item \texttt{live\_inference.py} - predykcje z walidacją formatu (\texttt{--validate}),
-    \item \texttt{submit\_predictions.py} - upload CSV (\texttt{id}, \texttt{prediction}) do API Numerai.
+    \item pobranie świeżych danych (\texttt{live.parquet})
+    \item \texttt{live\_inference.py} - predykcje z walidacją formatu (\texttt{--validate})
+    \item \texttt{submit\_predictions.py} - upload CSV (\texttt{id}, \texttt{prediction}) do API Numerai
 \end{enumerate}
 Skrypty wymagają kluczy \path{NUMERAI_PUBLIC_API_KEY} i
 \path{NUMERAI_PRIVATE_API_KEY}
@@ -1027,16 +1049,19 @@ SHA-256 w pliku \texttt{protocol.json}. Każda próba przewiduje
 Ostatnie 52 ery próbki tworzą holdout. Szesnaście bezpośrednio poprzedzających er
 zostaje usuniętych z uczenia ze względu na nakładający się horyzont celu. W efekcie
 część ucząca obejmuje 506 er i 238\,769 wierszy, strefa separacji 7814 wierszy,
-a holdout 28\,044 wiersze. Drugim punktem oceny jest niezależny fragment
+a holdout 28\,044 wiersze. Drugim punktem oceny jest późniejszy fragment
 \texttt{validation.parquet}: 88 er, dla których dostępna jest wyrównana predykcja
-Meta Modelu. Umożliwia to obliczenie zarówno CORR, jak i MMC.
+Meta Modelu. Umożliwia to obliczenie zarówno CORR, jak i MMC. Fragment ten nie
+steruje samplerem TPE, lecz uczestniczy w wyborze kandydatów końcowych, dlatego
+w dalszej części jest nazywany późniejszym przedziałem selekcyjnym, a nie zbiorem
+testowym.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{validation_design}
 \caption[Podział czasowy badania końcowego]{Podział czasowy badania końcowego.
-Strefa 16 er oddziela uczenie od holdoutu; zewnętrzny przedział 88 er służy do
-oceny transferu oraz MMC.}
+Strefa 16 er oddziela uczenie od holdoutu; późniejszy przedział 88 er służy do
+analizy transferu, wyboru kandydatów oraz oceny MMC.}
 \label{fig:validation-design}
 \end{figure}
 
@@ -1056,7 +1081,7 @@ Element & Ustawienie \\
 Wersja danych i cel & Numerai v5.3, \texttt{target\_ender\_60} \\
 Próba i ziarno & 10\%, \FinalSampleRows{} wierszy, seed 20260824 \\
 Podział & 506 er train, 16 er purge, 52 ery holdout \\
-Walidacja zewnętrzna & 88 er z predykcją Meta Modelu \\
+Późniejszy przedział & 88 er z predykcją Meta Modelu \\
 Funkcja celu & oficjalny \texttt{numerai\_corr\_sharpe} na holdoucie \\
 Sampler & Optuna TPE, 20 prób inicjalnych \\
 Przestrzeń modeli & XGBoost, LightGBM, CatBoost, TabPFN, TabICL \\
@@ -1070,7 +1095,7 @@ Wersja kodu & commit \texttt{1a86893}, protokół \texttt{corrected-hpo-2026-08-
 
 Do analizy włączono wyłącznie rekordy ze statusem \texttt{completed}, kompletną
 konfiguracją i skończonym wektorem trzech kluczowych miar: CORR Sharpe na holdoucie,
-CORR Sharpe na validation oraz MMC Sharpe na validation. Wcześniejsze uruchomienia
+CORR Sharpe na późniejszym przedziale oraz MMC Sharpe na tym przedziale. Wcześniejsze uruchomienia
 kontrolne z identycznym ziarnem i konfiguracją nie są liczone ponownie.
 
 \section{Przestrzeń konfiguracji}
@@ -1090,23 +1115,28 @@ konkretnym budżecie, a nie ogólną przewagę jednej architektury nad drugą.
 Główną metryką jest oficjalny CORR Sharpe z równania~\eqref{eq:corr-sharpe}
 na 52-erowym holdoucie. Dla obu przedziałów raportowane są średni CORR,
 odchylenie, udział dodatnich er i maksymalne obsunięcie. Na 88-erowym
-validation obliczany jest dodatkowo oficjalny MMC Sharpe.
+późniejszym przedziale obliczany jest dodatkowo oficjalny MMC Sharpe.
 
 Nie tworzono syntetycznej funkcji łączącej CORR i MMC. Zamiast tego wyróżniono:
 \begin{enumerate}
-    \item lidera CORR Sharpe na holdoucie,
-    \item lidera CORR Sharpe na niezależnym validation,
-    \item lidera MMC Sharpe na validation,
-    \item zbiór Pareto względem CORR i MMC na validation.
+    \item lidera CORR Sharpe na holdoucie
+    \item lidera CORR Sharpe na późniejszym przedziale
+    \item lidera MMC Sharpe na późniejszym przedziale
+    \item zbiór Pareto względem CORR i MMC na późniejszym przedziale
 \end{enumerate}
 Taka reguła zachowuje interpretowalność kompromisu między siłą sygnału i jego
-wkładem niezależnym od Meta Modelu.
+wkładem niezależnym od Meta Modelu. Jednocześnie wybór maksimum spośród 27 prób
+powoduje błąd selekcyjny, więc wartości kandydatów opisują badaną serię, a nie
+nieobciążone oczekiwanie wyniku przyszłego \cite{cawley-talbot,varma-simon}.
 
 \section{Metody analizy}
 Dla każdej kompletnej próby zestawiono metryki, czas wykonania, rodzinę modelu
 i liczbę trasowanych cech. Zgodność dwóch przedziałów czasowych oceniono korelacją
-Pearsona oraz korelacją rang Spearmana. Rodziny modeli porównano za pomocą median,
-wykresów pudełkowych i wszystkich punktów, zawsze z podaniem liczebności.
+Pearsona oraz korelacją rang Spearmana. Ze względu na małą liczbę konfiguracji
+i adaptacyjny sposób ich doboru współczynniki te są statystykami opisowymi; nie
+raportuje się dla nich testów istotności ani przedziałów ufności. Rodziny modeli
+porównano za pomocą median, wykresów pudełkowych i wszystkich punktów, zawsze
+z podaniem liczebności.
 
 Front Pareto wyznaczono przez dominację dwukryterialną: konfiguracja należy do frontu,
 jeżeli nie istnieje inna próba o co najmniej takim samym CORR Sharpe i MMC Sharpe
@@ -1119,6 +1149,8 @@ Kompletna proweniencja końcowej serii znajduje się w plikach
 wersję Pythona, commit, skróty kodu i danych, seed, liczbę próbkowanych wierszy,
 cel oraz parametry oceny. Konfiguracja każdej próby i jej metryki są przechowywane
 w pojedynczym rekordzie SQLite, a przebieg jest równolegle rejestrowany w W\&B.
+Zakres proweniencji odpowiada zaleceniom raportowania kodu, danych, zależności
+i warunków wykonania w badaniach uczenia maszynowego \cite{pineau-reproducibility}.
 
 Odtworzenie badania w środowisku projektu wymaga następujących poleceń:
 \begin{lstlisting}[basicstyle=\footnotesize\ttfamily,breaklines=true,breakatwhitespace=true,columns=fullflexible]
@@ -1136,12 +1168,83 @@ skalowalności, lecz z powodu innego celu i wersji danych nie stanowi porównani
 jakościowego.
 
 Holdout był wielokrotnie wykorzystywany przez funkcję celu, dlatego rozstrzygnięcie
-praktyczne opiera się również na późniejszym przedziale validation. Jego 88 er
-zwiększa niezależność oceny, ale nadal reprezentuje jeden zakres rynkowy. Wdrożenie
-produkcyjne powinno poprzedzać ponowne uczenie wybranej receptury na pełnych danych
-oraz monitoring wielu kolejnych rund live.
+praktyczne opiera się również na późniejszym przedziale 88 er. Przedział ten nie
+sterował samplerem, ale został użyty do porównania wszystkich kompletnych prób i
+wyboru kandydatów. Nie jest zatem nietkniętym zbiorem testowym, a maksimum może być
+optymistycznie obciążone. Oba przedziały reprezentują po jednym zakresie rynkowym.
+Wdrożenie produkcyjne powinno poprzedzać ponowne uczenie wybranej receptury na
+pełnych danych oraz monitoring wielu kolejnych rund live.
+
+Badanie nie zawiera kontrolowanego baseline'u jakości ani ablacji komponentów.
+Benchmark pełnoskalowy używa innej wersji danych i celu, a próby HPO różnią się
+jednocześnie rodziną modelu, routingiem cech, preprocessingiem i neutralizacją.
+Wyniki potwierdzają wykonalność systemu i dostarczają opisowego rankingu w zadanym
+budżecie, ale nie pozwalają przypisać różnicy jakości pojedynczemu mechanizmowi.
 \input{chapters/wyniki}
 \input{chapters/dyskusja}
+
+\appendix
+\chapter{Materiały odtworzeniowe}
+
+\section{Identyfikacja protokołu}
+Tabela~\ref{tab:reproducibility-record} zbiera identyfikatory potrzebne do powiązania
+wyników z kodem i danymi. Pełne rekordy prób pozostają w artefaktach repozytorium;
+załącznik nie zastępuje bazy SQLite, lecz wskazuje minimalny zestaw informacji
+potrzebny do audytu.
+
+\begin{table}[htbp]
+\centering
+\caption[Identyfikatory badania]{Identyfikatory końcowej serii eksperymentalnej}
+\label{tab:reproducibility-record}
+\begin{tabularx}{\textwidth}{P{4.2cm}Y}
+\toprule
+Element & Wartość \\
+\midrule
+Wersja danych & Numerai v5.3 \\
+Cel & \texttt{target\_ender\_60} \\
+Ziarno i udział danych & 20260824; 10\% zbioru uczącego \\
+Podział czasowy & 506 er uczenia; 16 er purge; 52 ery holdoutu; 88 er późniejszego przedziału \\
+Wersja implementacji & commit \texttt{1a86893} \\
+Identyfikator protokołu & \texttt{corrected-hpo-2026-08-v5} \\
+Artefakty & \texttt{protocol.json}, \texttt{trials.db}, \texttt{optuna.db}, W\&B \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Receptury kandydatów}
+Tabela~\ref{tab:candidate-recipes} przedstawia kluczowe parametry dwóch profili
+wybranych na froncie Pareto. Są to receptury do ponownego treningu i monitoringu,
+a nie modele o potwierdzonej jakości produkcyjnej.
+
+\begin{table}[H]
+\centering
+\small
+\caption[Receptury prób 22 i 4]{Kluczowe elementy konfiguracji kandydatów}
+\label{tab:candidate-recipes}
+\begin{tabularx}{\textwidth}{P{3.6cm}YY}
+\toprule
+Element & Próba 22 & Próba 4 \\
+\midrule
+Rodzina modelu & LightGBM & CatBoost \\
+Skalowanie & RobustScaler & StandardScaler \\
+Cechy & 989; \texttt{medium+agility+midnight} & 970; sześć grup \\
+Liczba iteracji & 200 rund & zgodna z rekordem próby \\
+Kluczowa złożoność & 31 liści & głębokość 5 \\
+Tempo uczenia & 0,0200 & 0,0314 \\
+Neutralizacja cech & 0,2373 & 0,4947 \\
+Profil wyboru & najwyższy CORR na późniejszym przedziale & najwyższy MMC na późniejszym przedziale \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\Needspace{7\baselineskip}
+\section{Granice odtworzenia wyniku}
+Ponowne wykonanie poleceń z rozdziału~5 odtwarza procedurę i przestrzeń poszukiwania,
+ale nie gwarantuje identycznej kolejności prób na innym sprzęcie ani w innym zestawie
+wersji bibliotek. Do ścisłego audytu pojedynczego wyniku należy użyć zapisanej
+konfiguracji próby, skrótów danych i wersji kodu. Ponieważ kandydaci zostali wybrani
+na późniejszym przedziale, ich przyszłą jakość należy oceniać dopiero na kolejnych
+rundach, bez dalszego dostrajania konfiguracji.
 
 \clearpage
 \phantomsection
@@ -1214,6 +1317,59 @@ vol. 5, no. 2, pp. 241-259, 1992.
 \bibitem{tabpfn}
 N. Hollmann et al., ``Accurate Predictions on Small Data with a Tabular
 Foundation Model'', \textit{Nature}, vol. 637, pp. 319-326, 2025.
+
+\bibitem{tabicl}
+J. Qu, D. Holzmüller, G. Varoquaux and M. Le Morvan,
+``TabICL: A Tabular Foundation Model for In-Context Learning on Large Data'',
+\textit{Proceedings of ICML}, 2025, arXiv:2502.05564.
+
+\bibitem{grinsztajn}
+L. Grinsztajn, E. Oyallon and G. Varoquaux,
+``Why Do Tree-Based Models Still Outperform Deep Learning on Typical Tabular Data?'',
+\textit{Advances in Neural Information Processing Systems}, vol. 35, 2022.
+
+\bibitem{autosklearn}
+M. Feurer et al., ``Efficient and Robust Automated Machine Learning'',
+\textit{Advances in Neural Information Processing Systems}, vol. 28, 2015.
+
+\bibitem{autoweka}
+L. Kotthoff, C. Thornton, H. H. Hoos, F. Hutter and K. Leyton-Brown,
+``Auto-WEKA 2.0: Automatic Model Selection and Hyperparameter Optimization in WEKA'',
+\textit{Journal of Machine Learning Research}, vol. 18, no. 25, pp. 1-5, 2017.
+
+\bibitem{bergstra-random}
+J. Bergstra and Y. Bengio, ``Random Search for Hyper-Parameter Optimization'',
+\textit{Journal of Machine Learning Research}, vol. 13, pp. 281-305, 2012.
+
+\bibitem{pineau-reproducibility}
+J. Pineau et al., ``Improving Reproducibility in Machine Learning Research'',
+\textit{Journal of Machine Learning Research}, vol. 22, no. 164, pp. 1-20, 2021.
+
+\bibitem{bergmeir-cv}
+C. Bergmeir, R. J. Hyndman and B. Koo,
+``A Note on the Validity of Cross-Validation for Evaluating Autoregressive Time
+Series Prediction'', \textit{Computational Statistics and Data Analysis},
+vol. 120, pp. 70-83, 2018.
+
+\bibitem{varma-simon}
+S. Varma and R. Simon, ``Bias in Error Estimation When Using Cross-Validation
+for Model Selection'', \textit{BMC Bioinformatics}, vol. 7, article 91, 2006.
+
+\bibitem{cawley-talbot}
+G. C. Cawley and N. L. C. Talbot,
+``On Over-Fitting in Model Selection and Subsequent Selection Bias in Performance
+Evaluation'', \textit{Journal of Machine Learning Research}, vol. 11,
+pp. 2079-2107, 2010.
+
+\bibitem{bailey-backtest}
+D. H. Bailey, J. M. Borwein, M. López de Prado and Q. J. Zhu,
+``The Probability of Backtest Overfitting'',
+\textit{Journal of Computational Finance}, vol. 20, no. 4, pp. 39-69, 2017.
+
+\bibitem{sugiyama-shift}
+M. Sugiyama, M. Krauledat and K.-R. Müller,
+``Covariate Shift Adaptation by Importance Weighted Cross Validation'',
+\textit{Journal of Machine Learning Research}, vol. 8, pp. 985-1005, 2007.
 
 \end{thebibliography}
 \end{document}

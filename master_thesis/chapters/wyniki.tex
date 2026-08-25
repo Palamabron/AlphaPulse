@@ -59,7 +59,7 @@ bez jednorazowego pobrania danych i przygotowania środowiska.
 \section{Rozkład oficjalnych metryk}
 Tabela~\ref{tab:metric-summary} syntetyzuje wszystkie kompletne konfiguracje.
 Na holdoucie dodatni CORR Sharpe uzyskało 25 z 27 prób. Na późniejszym przedziale
-validation dodatni CORR Sharpe osiągnęły 24 próby, natomiast dodatni MMC Sharpe
+selekcyjnym dodatni CORR Sharpe osiągnęły 24 próby, natomiast dodatni MMC Sharpe
 13 prób. Różnica pokazuje, że sama korelacja z celem nie gwarantuje unikalności
 sygnału względem Meta Modelu.
 
@@ -72,8 +72,8 @@ sygnału względem Meta Modelu.
 Metryka & Średnia & Mediana & Wynik dodatni \\
 \midrule
 CORR Sharpe, holdout (52 ery) & 0,479 & 0,553 & 25/27 \\
-CORR Sharpe, validation (88 er) & 0,128 & 0,128 & 24/27 \\
-MMC Sharpe, validation (88 er) & 0,0247 & $-0,0098$ & 13/27 \\
+CORR Sharpe, późniejszy (88 er) & 0,128 & 0,128 & 24/27 \\
+MMC Sharpe, późniejszy (88 er) & 0,0247 & $-0,0098$ & 13/27 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -93,7 +93,7 @@ rodziny modelu. Punkty oznaczają kompletne próby, a liczności podano nad grup
 \end{figure}
 
 \FloatBarrier
-Na validation mediana LightGBM wyniosła 0,280, CatBoost 0,133, XGBoost 0,036,
+Na późniejszym przedziale mediana LightGBM wyniosła 0,280, CatBoost 0,133, XGBoost 0,036,
 TabPFN 0,108, a TabICL 0,088. Wynik jest opisem badanego budżetu, nie rankingiem
 architektur w ogólności: TPE przydzielił rodzinom różne liczby prób, a modele
 fundamentowe korzystały z limitów liczby przykładów i redukcji wymiaru.
@@ -101,7 +101,7 @@ fundamentowe korzystały z limitów liczby przykładów i redukcji wymiaru.
 \section{Przebieg optymalizacji}
 Pierwsze 20 konfiguracji stanowiło fazę inicjalną TPE. Lider holdoutu pojawił się
 już w próbie 11. Po przejściu do fazy adaptacyjnej poprawił się natomiast najlepszy
-wynik na niezależnym validation: próba 22 podniosła maksimum CORR Sharpe z 0,402
+wynik na późniejszym przedziale: próba 22 podniosła maksimum CORR Sharpe z 0,402
 do 0,425. W kolejnych próbach maksimum nie uległo zmianie
 (rysunek~\ref{fig:hpo-progression-final}).
 
@@ -109,49 +109,51 @@ do 0,425. W kolejnych próbach maksimum nie uległo zmianie
 \centering
 \includegraphics[width=\textwidth]{official_hpo_progression}
 \caption[Przebieg końcowej serii HPO]{Wyniki prób i maksimum narastające dla
-holdoutu oraz validation. Linia przerywana oddziela fazę inicjalną od adaptacji TPE.}
+holdoutu oraz późniejszego przedziału. Linia przerywana oddziela fazę inicjalną
+od adaptacji TPE.}
 \label{fig:hpo-progression-final}
 \end{figure}
 
 \FloatBarrier
-Wynik wskazuje, że adaptacja była użyteczna dla kryterium transferu, mimo że sampler
-optymalizował holdout. Jednocześnie brak dalszej poprawy po próbie 22 uzasadnia
-traktowanie odnalezionych konfiguracji jako stabilnego krótkiego rankingu
-kandydackiego w ramach dostępnego budżetu.
+W fazie adaptacyjnej pojawił się kandydat o najlepszym wyniku na późniejszym
+przedziale, mimo że sampler optymalizował holdout. Obserwacja ta opisuje przebieg
+serii, ale nie dowodzi przewagi TPE nad losowym próbkowaniem, ponieważ nie wykonano
+równoległego eksperymentu kontrolnego o tym samym budżecie.
 
 \section{Transfer między przedziałami czasowymi}
-Korelacja Pearsona między CORR Sharpe na holdoucie i validation wyniosła
+Korelacja Pearsona między CORR Sharpe na holdoucie i późniejszym przedziale wyniosła
 $r=0{,}360$, a korelacja rang Spearmana $\rho=0{,}377$. Związek jest dodatni,
-lecz umiarkowany: wysoka pozycja na 52-erowym holdoucie zwiększa szansę dobrego
-wyniku później, ale nie zachowuje rankingu konfiguracji
+lecz umiarkowany: wysoka pozycja na 52-erowym holdoucie tylko częściowo współwystępuje
+z dobrym wynikiem później i nie zachowuje rankingu konfiguracji
 (rysunek~\ref{fig:holdout-validation-final}).
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.92\textwidth]{holdout_validation_scatter}
-\caption[Holdout a validation]{Zgodność CORR Sharpe między holdoutem i niezależnym
-validation dla 27 kompletnych konfiguracji.}
+\caption[Holdout a późniejszy przedział]{Zgodność CORR Sharpe między holdoutem
+i późniejszym przedziałem dla 27 kompletnych konfiguracji.}
 \label{fig:holdout-validation-final}
 \end{figure}
 
 \FloatBarrier
-Próba 11 maksymalizuje holdout, lecz na validation ustępuje próbom 22, 4 i 10.
+Próba 11 maksymalizuje holdout, lecz na późniejszym przedziale ustępuje próbom 22, 4 i 10.
 To najważniejszy argument za dwustopniową selekcją: holdout steruje HPO, natomiast
 późniejszy przedział rozstrzyga o przenoszeniu sygnału w czasie.
 
 \section{Kandydaci końcowi}
 Tabela~\ref{tab:final-candidates} zestawia pięć reprezentatywnych konfiguracji.
-Próba 11 jest liderem holdoutu, próba 22 liderem CORR na validation, a próba 4
+Próba 11 jest liderem holdoutu, próba 22 liderem CORR na późniejszym przedziale, a próba 4
 liderem MMC. Próby 10 i 8 pokazują mocne alternatywy z rodzin LightGBM i XGBoost.
 
 \begin{table}[htbp]
 \centering
 \small
-\caption[Końcowi kandydaci]{Oficjalne metryki końcowych kandydatów; HO - holdout, VAL - validation}
+\caption[Końcowi kandydaci]{Oficjalne metryki końcowych kandydatów; HO - holdout,
+PP - późniejszy przedział}
 \label{tab:final-candidates}
 \begin{tabular}{rlrrrrrr}
 \toprule
-Próba & Model & \multicolumn{2}{c}{HO CORR} & \multicolumn{2}{c}{VAL CORR} & \multicolumn{2}{c}{VAL MMC} \\
+Próba & Model & \multicolumn{2}{c}{HO CORR} & \multicolumn{2}{c}{PP CORR} & \multicolumn{2}{c}{PP MMC} \\
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
 & & średnia & Sharpe & średnia & Sharpe & średnia & Sharpe \\
 \midrule
@@ -164,7 +166,7 @@ Próba & Model & \multicolumn{2}{c}{HO CORR} & \multicolumn{2}{c}{VAL CORR} & \m
 \end{tabular}
 \end{table}
 
-W przestrzeni validation CORR-MMC tylko próby 22 i 4 nie są zdominowane
+W przestrzeni CORR-MMC późniejszego przedziału tylko próby 22 i 4 nie są zdominowane
 (rysunek~\ref{fig:validation-pareto-final}). Próba 22 maksymalizuje jakość sygnału,
 a próba 4 jego unikalność. Nie istnieje więc jeden zwycięzca niezależny od celu
 wdrożeniowego.
@@ -172,7 +174,7 @@ wdrożeniowego.
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.80\textwidth]{validation_pareto}
-\caption[Front Pareto CORR-MMC]{Front Pareto na niezależnym validation. Okręgi
+\caption[Front Pareto CORR-MMC]{Front Pareto na późniejszym przedziale. Okręgi
 wyróżniają próby niezdominowane względem CORR Sharpe i MMC Sharpe.}
 \label{fig:validation-pareto-final}
 \end{figure}
@@ -182,12 +184,12 @@ Do treningu nastawionego na stabilny CORR wybrano próbę 22. Jest to LightGBM
 z RobustScalerem, selekcją wariancji, 989 cechami z grup
 \texttt{medium+agility+midnight}, 200 rundami, tempem uczenia 0,0200,
 31 liśćmi i neutralizacją cech 0,2373. Jej CORR Sharpe wynosi 0,7149 na
-holdoucie i 0,4247 na validation, przy dodatnim MMC Sharpe 0,2467.
+holdoucie i 0,4247 na późniejszym przedziale, przy dodatnim MMC Sharpe 0,2467.
 
 Próba 4 jest alternatywą nastawioną na MMC. Wykorzystuje CatBoost,
 StandardScaler, 970 cech z sześciu grup, głębokość 5, tempo uczenia 0,0314
 i neutralizację 0,4947. Osiąga CORR Sharpe 0,4024 oraz MMC Sharpe 0,3063
-na validation. Próba 11 pozostaje górną granicą jakości na holdoucie:
+na późniejszym przedziale. Próba 11 pozostaje górną granicą jakości na holdoucie:
 CORR Sharpe \FinalBestCorrSharpe{}, średni CORR \FinalBestMeanCorr{}, maksymalne
 obsunięcie \FinalBestDrawdown{} i \FinalBestPositiveEras\% dodatnich er.
 
@@ -195,6 +197,8 @@ obsunięcie \FinalBestDrawdown{} i \FinalBestPositiveEras\% dodatnich er.
 Badanie dostarczyło trzech rozstrzygnięć. Po pierwsze, pełny potok działa na milionach
 wierszy i zapisuje odtwarzalne artefakty w czasie poniżej 32 minut dla badanego
 benchmarku. Po drugie, w ograniczonym budżecie najwyższe mediany holdoutu osiągnęły
-LightGBM i CatBoost. Po trzecie, niezależny przedział zmienił ranking i wyłonił
+LightGBM i CatBoost. Po trzecie, późniejszy przedział zmienił ranking i wyłonił
 dwa praktyczne profile: próbę 22 dla CORR oraz próbę 4 dla MMC. Są to bezpośrednie
-pomiary, bez numerycznej ekstrapolacji na pełny trening.
+pomiary w badanej serii, bez numerycznej ekstrapolacji na pełny trening. Ponieważ
+ten przedział uczestniczył w wyborze kandydatów, wartości nie są traktowane jako
+nieobciążona prognoza wyniku przyszłego.
