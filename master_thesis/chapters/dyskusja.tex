@@ -1,47 +1,40 @@
 \chapter{Dyskusja i zakończenie}
 
 \section{Realizacja celu pracy}
-Główny cel pracy - stworzenie konfigurowalnego środowiska AutoML dla finansowych
-potoków Numerai - został zrealizowany na poziomie architektury, implementacji
-i badania empirycznego. AlphaPulse łączy pobieranie danych, walidowany schemat YAML,
-routing cech, modele, HPO, ocenę czasową, zapis proweniencji i eksport funkcji
-predykcyjnej. Benchmark pełnoskalowy potwierdził wykonalność kompletnego przepływu,
-a seria v5.3 pokazała, że framework potrafi porównywać heterogeniczne konfiguracje
-według jednego, domenowo poprawnego protokołu.
+Cel - konfigurowalne AutoML pod potoki Numerai - domknęliśmy na trzech poziomach:
+architektura, kod i seria empiryczna. AlphaPulse spina pobieranie danych, walidowany
+YAML, routing cech, modele, HPO, ocenę czasową, proweniencję i eksport funkcji
+predykcyjnej. Pełnoskalowy benchmark pokazał, że przepływ w ogóle przechodzi na
+milionach wierszy; seria v5.3 - że da się porównywać różne konfiguracje jednym,
+domenowo poprawnym protokołem.
 
-Wartość rozwiązania nie sprowadza się do pojedynczego estymatora. Kluczowym produktem
-jest kontrolowane środowisko eksperymentalne: konfiguracja opisuje zamiar badacza,
-warstwa wykonawcza realizuje ten sam podział i scoring, a baza prób wiąże wynik z kodem,
-danymi i ziarnem. Takie rozdzielenie odpowiada założeniom współczesnego AutoML,
-jednocześnie dodając wymagania specyficzne dla danych finansowych
+Sam estymator to za mało. Liczy się kontrolowane laboratorium: YAML mówi, co badacz
+chce zrobić, runtime trzyma ten sam split i scoring, a baza prób spina wynik z kodem,
+danymi i ziarnem. To klasyczny AutoML plus twarde wymagania finansowe
 \cite{automl-survey,optuna,ray}.
 
 \section{Interpretacja wyników modelowych}
-LightGBM i CatBoost osiągnęły najwyższe mediany CORR Sharpe na holdoucie. Jest to
-spójne z pozycją gradient boostingu jako silnej klasy modeli dla danych tabelarycznych
-\cite{lightgbm,catboost,grinsztajn}. Nie oznacza jednak uniwersalnej przewagi tych algorytmów.
-Przestrzeń była próbkowana adaptacyjnie, a modele fundamentowe działały z ostrzejszymi
-limitami pamięciowymi. Poprawna interpretacja brzmi zatem: w przyjętym budżecie i dla
-celu \texttt{target\_ender\_60} najlepsze konfiguracje pochodziły z dwóch rodzin
-boostingowych.
+LightGBM i CatBoost miały najwyższe mediany CORR Sharpe na holdoucie. Pasuje to do
+tego, co wiemy o boostingu na tabelach
+\cite{lightgbm,catboost,grinsztajn}. Nie znaczy jednak, że zawsze wygrywają:
+sampler był adaptacyjny, a modele fundamentowe dostały ostrzejsze limity pamięci.
+W naszym budżecie i dla \texttt{target\_ender\_60} najlepsze konfiguracje wyszły
+z dwóch rodzin boostingowych - i na tym kończymy interpretację.
 
-Umiarkowana korelacja rankingów między holdoutem i późniejszym przedziałem pokazuje
-znaczenie separacji czasowej. W danych o niskim stosunku sygnału do szumu wybór
-najlepszego punktu na
-jednym przedziale łatwo przejmuje jego lokalną specyfikę. Purging ogranicza przeciek
-wynikający z nakładania się horyzontu celu, ale nie eliminuje niestacjonarności rynku
-\cite{lopez,bergmeir-cv}. Późniejszy przedział 88 er pełni dlatego inną rolę niż
-holdout HPO: nie steruje samplerem i pozwala porównać transfer receptur. Ponieważ
-jednak służy również do wyboru prób 22 i 4, nie jest końcowym zbiorem testowym
+Umiarkowana korelacja rankingów holdout ↔ późniejszy przedział podkreśla rolę
+separacji czasowej. Przy słabym sygnale łatwo „przykleić się” do lokalnej specyfiki
+jednego okna. Purging tnie przeciek z horyzontu celu, ale nie kasuje niestacjonarności
+\cite{lopez,bergmeir-cv}. Dlatego 88 er służy do czego innego niż holdout HPO: nie
+kręci samplerem, tylko sprawdza transfer receptur. Skoro jednak wybieraliśmy na nich
+próby 22 i 4, to nie jest czysty test końcowy
 \cite{cawley-talbot,varma-simon}.
 
-Najbardziej praktycznym wynikiem jest front Pareto. Próba 22 maksymalizuje CORR na
-późniejszym przedziale przy dodatnim MMC, natomiast próba 4 maksymalizuje MMC przy
-nieco słabszym CORR. Są to dwa uzasadnione profile kandydackie. Pierwszy preferuje stabilną
-zgodność z celem, drugi większy wkład niezależny od Meta Modelu
-\cite{numerai-corr,numerai-mmc}. Zachowanie obu kandydatów jest bardziej informacyjne
-niż arbitralne połączenie metryk w jeden wskaźnik, lecz ich wartości pozostają
-warunkowe względem przeprowadzonej selekcji.
+Najbardziej użyteczny wynik to front Pareto. Próba 22 ciągnie CORR na późniejszym
+oknie przy dodatnim MMC; próba 4 odwrotnie - mocniejsze MMC przy nieco słabszym CORR.
+Dwa sensowne profile: stabilna zgodność z celem versus większy wkład niezależny od
+Meta Modelu \cite{numerai-corr,numerai-mmc}. Lepiej trzymać obu kandydatów niż
+sklejać metryki w jeden wskaźnik. Pamiętamy też, że liczby są warunkowe względem
+tej selekcji.
 
 \section{Odpowiedzi na pytania eksperymentalne}
 \begin{enumerate}
@@ -60,74 +53,62 @@ warunkowe względem przeprowadzonej selekcji.
     kompletne rekordy możliwe do bezpośredniego porównania
 \end{enumerate}
 
-Odpowiedzi te odnoszą się bezpośrednio do pomiarów dostępnych w artefaktach. Nie
-przypisują systemowi redukcji czasu pracy człowieka ani przewagi AutoResearch,
-ponieważ takie twierdzenia wymagałyby osobnego eksperymentu porównawczego.
+Te odpowiedzi siedzą w artefaktach. Nie twierdzimy, że system skraca pracę człowieka
+ani że AutoResearch wygrywa z TPE - na to trzeba osobnego eksperymentu.
 
 \section{Znaczenie inżynierskie}
-Projekt pokazuje, że wymagania domenowe można zamknąć w kontraktach oprogramowania.
-Kolumna ery nie jest zwykłą cechą, lecz steruje podziałem; horyzont celu wyznacza
-separację; oficjalne metryki są częścią ewaluatora; a format submisji jest sprawdzany
-w czystym podprocesie. Dzięki temu ryzyka metodologiczne są ograniczane przez
-architekturę, a nie tylko przez dyscyplinę osoby prowadzącej eksperyment.
+Wymagania domenowe da się zamknąć w kontraktach kodu. Era steruje podziałem, nie jest
+zwykłą cechą; horyzont celu wyznacza separację; oficjalne metryki siedzą w ewaluatorze;
+format submisji sprawdzamy w czystym podprocesie. Ryzyka metodologiczne łapie więc
+architektura, a nie tylko dyscyplina prowadzącego.
 
-Istotna jest również warstwa artefaktów. \texttt{protocol.json} dokumentuje wejście
-i reguły badania, \texttt{trials.db} przechowuje stan każdej próby, a W\&B umożliwia
-porównanie krzywych oraz diagnostyk. Razem tworzą ślad audytowy potrzebny zarówno
-w pracy naukowej, jak i w iteracyjnym utrzymaniu modelu. Z kolei eksport
-\texttt{predict.pkl} zamyka lukę między eksperymentem i inferencją live.
+Warstwa artefaktów robi resztę. \texttt{protocol.json} trzyma wejście i reguły,
+\texttt{trials.db} - stan prób, W\&B - krzywe i diagnostykę. Razem zostaje ślad audytowy
+pod pracę naukową i pod utrzymanie modelu. Eksport \texttt{predict.pkl} zamyka lukę
+między labem a inferencją live.
 
 \section{Ograniczenia}
-Najważniejszym ograniczeniem jest budżet końcowej serii: jedno ziarno, 27 kompletnych
-konfiguracji i dziesięcioprocentowa próba danych uczących. Nie pozwala to oszacować
-wariancji między seedami ani przedstawić przedziałów ufności dla rankingu. Adaptacyjne
-próbkowanie TPE utrudnia także przyczynową interpretację różnic między rodzinami.
+Budżet końcowej serii jest wąski: jedno ziarno, 27 kompletnych konfiguracji,
+dziesięcioprocentowa próba train. Nie policzymy wariancji między seedami ani
+przedziałów ufności dla rankingu. TPE dodatkowo utrudnia przyczynowe porównanie
+rodzin.
 
-Drugie ograniczenie dotyczy selekcji czasowej. Holdout uczestniczy w funkcji celu,
-więc jego maksimum jest obciążone wielokrotnym porównaniem. Późniejszy przedział
-nie steruje HPO, ale posłużył do porównania 27 prób i wyłonienia kandydatów. Ogranicza
-zatem zależność od holdoutu, lecz nie zapewnia bezstronnej oceny końcowej
-\cite{cawley-talbot,bailey-backtest}. Ponadto 88 er odpowiada jednemu okresowi
-rynkowemu. Wyniki nie są prognozą rezultatu live ani podstawą do automatycznego
-stakingu.
+Holdout wchodzi do funkcji celu, więc jego maksimum jest obciążone wielokrotnym
+porównaniem. Późniejsze 88 er nie kręci HPO, ale służyło do rankingu 27 prób i wyboru
+kandydatów - odcina zależność od holdoutu, ale nie daje bezstronnego testu końcowego
+\cite{cawley-talbot,bailey-backtest}. To też jeden okres rynkowy. Wyniki nie są
+prognozą live ani zielonym światłem do stakingu.
 
-Benchmark pełnoskalowy używa innej wersji danych i celu niż końcowe HPO. Dostarcza
-dowodu skalowalności, ale nie stanowi baseline jakości. W pracy celowo nie
-ekstrapolowano wartości CORR lub MMC z próbki 10\% na pełny zbiór: zależność jakości
-od liczby wierszy nie musi być liniowa.
+Benchmark pełnoskalowy jedzie na innej wersji danych i celu niż HPO. Pokazuje skalę,
+nie baseline jakości. Świadomie nie ekstrapolujemy CORR/MMC z 10\% na pełny zbiór:
+więcej wierszy nie musi dawać liniowo lepszego wyniku.
 
-Trzecie ograniczenie stanowi brak kontrolowanego baseline'u i ablacji. Konfiguracje
-HPO różnią się wieloma elementami jednocześnie, dlatego obserwowanych różnic nie można
-przypisać wyłącznie rodzinie modelu, selekcji cech ani neutralizacji. Porównanie rodzin
-ma charakter opisowy, podobnie jak wskazanie przewagi kandydatów w ramach badanego
-budżetu. Nie oceniano także oszczędności czasu człowieka ani jakości decyzji
-AutoResearch względem TPE.
+Brakuje też kontrolowanego baseline'u i ablacji. Konfiguracje HPO różnią się wieloma
+elementami naraz, więc różnic nie przypiszemy samej rodzinie, selekcji cech ani
+neutralizacji. Porównanie rodzin jest opisowe. Nie mierzyliśmy też czasu człowieka
+ani AutoResearch vs TPE.
 
 \section{Rekomendacja wdrożeniowa i dalszy rozwój}
-Pierwszym kandydatem do ponownego treningu na pełnych danych v5.3 jest próba 22,
-ponieważ łączy najwyższy CORR na późniejszym przedziale z dodatnim MMC. Próba 4
-powinna zostać zachowana jako alternatywa nastawiona na unikalność sygnału. Po
-treningu pełnoskalowym oba modele należy oceniać w kolejnych rundach bez zmiany
-konfiguracji; dopiero taki monitoring pozwoli oszacować stabilność live.
+Na pełny trening v5.3 bralibyśmy najpierw próbę 22: najlepszy CORR na późniejszym
+oknie i dodatnie MMC. Próbę 4 trzymamy jako wariant pod unikalność sygnału. Po
+treningu na pełnych danych obie receptury warto puścić przez kolejne rundy bez
+zmian konfiguracji - dopiero wtedy widać, co się trzyma live.
 
-Dalszy rozwój powinien objąć powtórzenia dla wielu ziaren, kroczące okna obejmujące
-więcej reżimów rynkowych oraz kontrolowane ablacje routingu cech, selekcji wariancji
-i neutralizacji. AutoResearch jest gotowym rozszerzeniem warstwy automatyzacji, ale
-jego wartość należy mierzyć przy identycznym budżecie i tej samej przestrzeni co TPE.
-Naturalnym krokiem produkcyjnym jest także automatyczny harmonogram retreningu,
-walidacji artefaktu i monitorowania dryfu metryk per-era.
+Dalej sens mają: wiele ziaren, kroczące okna przez więcej reżimów oraz ablacje
+routingu cech, selekcji wariancji i neutralizacji. AutoResearch jest gotowy jako
+warstwa automatyzacji, ale trzeba go mierzyć przy tym samym budżecie i przestrzeni
+co TPE. Po stronie produkcji naturalne jest też: harmonogram retreningu, walidacja
+artefaktu i monitoring dryfu per-era.
 
 \section{Wnioski końcowe}
-AlphaPulse realizuje pełny, reprodukowalny cykl eksperymentu dla Numerai: od danych
-i deklaratywnej konfiguracji, przez czasowo poprawną walidację i HPO, po diagnostykę
-i eksport. Empirycznie system obsłużył trening pełnoskalowy oraz wyłonił na danych
-v5.3 dwa niezdominowane profile modelu. Próba 22 osiągnęła w badanej serii
-CORR Sharpe 0,4247 i MMC Sharpe 0,2467 na późniejszym przedziale, a próba 4
-osiągnęła MMC Sharpe 0,3063. Wartości te uzasadniają dalszą obserwację kandydatów,
-ale nie są nieobciążoną prognozą wyników live.
+AlphaPulse przeprowadza eksperyment Numerai od danych i YAML-a, przez poprawną
+walidację czasową i HPO, po diagnostykę i eksport. W tej pracy system ogarnął
+trening pełnoskalowy i na v5.3 zostawił dwa niezdominowane profile: próba 22
+(CORR Sharpe 0,4247, MMC Sharpe 0,2467 na późniejszym oknie) oraz próba 4
+(MMC Sharpe 0,3063). To uzasadnia dalszą obserwację kandydatów, nie nieobciążoną
+prognozę live.
 
-Najważniejszym wkładem pracy jest połączenie poprawnej metodyki finansowej z
-inżynierią eksperymentów. Wynik nie jest pojedynczą liczbą, lecz systemem, który
-umożliwia odtwarzanie decyzji, uczciwe porównywanie konfiguracji i przejście od
-hipotezy do gotowego artefaktu predykcyjnego. W tym sensie AlphaPulse spełnia cel
-konfigurowalnego środowiska AutoML dla finansowych potoków Numerai.
+Najbardziej liczy się tu połączenie metodyki finansowej z inżynierią eksperymentów.
+Wynik to nie jedna liczba, tylko system, w którym da się odtworzyć decyzję,
+uczciwie porównać konfiguracje i dojść od hipotezy do \texttt{predict.pkl}.
+Na tym poziomie AlphaPulse spełnia cel konfigurowalnego AutoML pod Numerai.

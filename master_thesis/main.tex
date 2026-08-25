@@ -144,25 +144,21 @@
 \hypersetup{pageanchor=true}
 \selectlanguage{polish}
 \chapter*{Abstrakt}
-Praca przedstawia projekt i implementację AlphaPulse - konfigurowalnego środowiska
-AutoML do budowy, strojenia, walidacji i eksportu finansowych potoków predykcyjnych
-dla turnieju Numerai. System łączy deklaratywne konfiguracje YAML, routing cech,
-modularny preprocessing, modele tabelaryczne, optymalizację hiperparametrów z użyciem
-Optuna lub Ray Tune, walidację uwzględniającą strukturę er, rejestr artefaktów,
-diagnostykę Weights \& Biases oraz eksport przenośnej funkcji predykcyjnej.
+AlphaPulse to konfigurowalne środowisko AutoML, które zbudowaliśmy pod turniej
+Numerai: od deklaratywnego YAML-a, przez routing cech i preprocessing, modele
+tabelaryczne i HPO (Optuna albo Ray Tune), po walidację z erami, rejestr artefaktów,
+diagnostykę Weights \& Biases i eksport przenośnej funkcji predykcyjnej.
 
-Ewaluacja obejmuje pełnoskalowy benchmark przetwarzania 2,75 mln wierszy uczących
-oraz końcową serię HPO na danych Numerai \datasetver{} dla celu
-\texttt{target\_ender\_60}. W serii końcowej oceniono 27 kompletnych konfiguracji na
-deterministycznej próbie \FinalSampleRows{} wierszy. Protokół wykorzystuje 16 er
-separacji, 52 ery holdoutu oraz późniejszy przedział selekcyjny 88 er z predykcją Meta Modelu.
-Najlepszy wynik holdoutowy uzyskała próba \FinalBestTrial{} z modelem
-\FinalBestModel{}: oficjalny CORR Sharpe równy \FinalBestCorrSharpe{} przy średnim
-CORR \FinalBestMeanCorr{}. Na późniejszym przedziale próba 22 osiągnęła najwyższy
-CORR Sharpe 0,425, natomiast próba 4 najwyższy MMC Sharpe 0,306; obie konfiguracje
-tworzą front Pareto jakości sygnału i jego unikalności. Rezultaty potwierdzają, że
-AlphaPulse realizuje reprodukowalny cykl od danych do porównywalnych artefaktów
-eksperymentalnych i dostarcza kandydatów do końcowego treningu produkcyjnego.
+Sprawdziliśmy system na dwóch torach. Najpierw pełnoskalowy przebieg na 2,75~mln
+wierszy uczących. Potem końcową serię HPO na danych Numerai \datasetver{} dla celu
+\texttt{target\_ender\_60}: 27 kompletnych konfiguracji na stałej próbie
+\FinalSampleRows{} wierszy, z 16 erami separacji, 52 erami holdoutu i późniejszym
+oknem 88 er z Meta Modelem. Na holdoucie wygrała próba \FinalBestTrial{}
+(\FinalBestModel{}): CORR Sharpe \FinalBestCorrSharpe{}, średni CORR
+\FinalBestMeanCorr{}. Na późniejszym oknie próba 22 miała najwyższy CORR Sharpe
+(0,425), a próba 4 najwyższy MMC Sharpe (0,306). To nie jeden zwycięzca, tylko mały
+front Pareto. W praktyce AlphaPulse domyka cykl od surowych danych do porównywalnych
+artefaktów i zostawia sensownych kandydatów pod pełny trening produkcyjny.
 
 \par\medskip
 \noindent\textbf{Słowa kluczowe:} uczenie maszynowe, AutoML, Numerai,
@@ -170,26 +166,20 @@ walidacja czasowa, optymalizacja hiperparametrów
 
 \selectlanguage{english}
 \chapter*{Abstract}
-This thesis presents the design and implementation of AlphaPulse, a configurable
-AutoML environment for building, tuning, validating and exporting financial
-prediction pipelines for the Numerai tournament. The system combines declarative
-YAML configurations, feature routing, modular preprocessing, tabular models,
-hyperparameter optimisation with Optuna or Ray Tune, era-aware validation,
-artefact tracking, Weights \& Biases diagnostics and export of a portable prediction
-function.
+AlphaPulse is a configurable AutoML stack we built for Numerai. You declare an
+experiment in YAML. The runtime then wires feature routing, preprocessing, tabular
+models, Optuna or Ray Tune search, era-aware splits, artefact logging,
+Weights \& Biases diagnostics and a portable prediction export.
 
-The evaluation comprises a full-scale processing benchmark with 2.75 million training
-rows and a final HPO study on Numerai \datasetver{} data for the
-\texttt{target\_ender\_60} target. The final study evaluates 27 complete configurations
-on a deterministic sample of \FinalSampleRows{} rows. Its protocol uses a 16-era gap,
-a 52-era holdout and a later 88-era selection interval with aligned Meta Model
-predictions. Trial \FinalBestTrial{} with \FinalBestModel{} achieved the best holdout
-result: an official CORR Sharpe of \FinalBestCorrSharpe{} and mean CORR of
-\FinalBestMeanCorr{}. On the later interval, trial 22 obtained the highest CORR
-Sharpe of 0.425, while trial 4 obtained the highest MMC Sharpe of 0.306; together they
-form the Pareto frontier between signal quality and uniqueness. The results show that
-AlphaPulse provides a reproducible workflow from data to comparable experimental
-artefacts and identifies candidates for final production training.
+We checked it twice. First came a full-scale run on 2.75 million training rows.
+Then a final HPO study on Numerai \datasetver{} for \texttt{target\_ender\_60}:
+27 complete configurations on a fixed sample of \FinalSampleRows{} rows, a 16-era
+gap, a 52-era holdout and a later 88-era window aligned with Meta Model predictions.
+On holdout, trial \FinalBestTrial{} (\FinalBestModel{}) won with CORR Sharpe
+\FinalBestCorrSharpe{} and mean CORR \FinalBestMeanCorr{}. Later, trial 22 led on
+CORR Sharpe (0.425) while trial 4 led on MMC Sharpe (0.306). Not one winner, but a
+small Pareto set. In practice the pipeline takes a run from raw data to comparable
+artefacts and leaves candidates worth a full production retrain.
 
 \par\medskip
 \noindent\textbf{Keywords:} machine learning, AutoML, Numerai, temporal validation,
@@ -205,41 +195,31 @@ hyperparameter optimisation
 \chapter{Wstęp}
 
 \section{Kontekst i motywacja}
-Prognozowanie rynków finansowych należy do najtrudniejszych problemów uczenia
-maszynowego. Dane finansowe wyróżniają się niskim stosunkiem sygnału do szumu,
-niestacjonarnością, silną zależnością czasową między obserwacjami oraz strukturą grupową
-(ery - tygodniowe przekroje rynku), która ogranicza zasadność losowych technik
-podziału danych. Późniejsza ocena na kolejnych okresach rynkowych zmniejsza zależność
-wniosków od jednego historycznego podziału, ale nie eliminuje ryzyka przeuczenia procesu
-selekcji ani niestacjonarności rynku \cite{bailey-backtest,cawley-talbot}.
+Prognozowanie rynków finansowych jest trudne nawet jak na standardy uczenia
+maszynowego. Sygnał jest słaby względem szumu, szeregi są niestacjonarne, obserwacje
+silnie zależą od czasu, a dane układają się w ery (tygodniowe przekroje rynku). Przy
+takiej strukturze losowy split train/test szybko wprowadza w błąd. Ocena na kolejnych
+okresach pomaga, ale nie kasuje ryzyka, że przeuczymy się na samym procesie selekcji
+albo że rynek po prostu się zmieni \cite{bailey-backtest,cawley-talbot}.
 
-Turniej Numerai, uruchomiony w 2015 roku przez firmę Numerai Inc., stanowi unikalną
-platformę badawczą w obszarze finansowego uczenia maszynowego. Numerai dostarcza
-uczestnikom zaszyfrowane, zanonimizowane dane tabelaryczne opisujące spółki giełdowe i
-ich atrybuty fundamentalne, techniczne oraz rynkowe. Zadaniem uczestników jest
-wytrenowanie modeli predykujących przyszłe stopy zwrotu neutralne względem rynku
-(alpha) dla jednego z udostępnionych celów i horyzontów. Badanie końcowe wykorzystuje
-cel \texttt{target\_ender\_60}. Prognozy wszystkich uczestników są agregowane
-przez fundusz hedgingowy Numerai do jednego Meta Modelu, który steruje rzeczywistymi
-decyzjami inwestycyjnymi. Uczestnicy mogą stakować tokeny NMR na
-swoje modele, zdobywając nagrody za pozytywne wyniki lub tracąc środki w przypadku
-słabych predykcji \cite{numerai-staking}.
+Numerai, start z 2015 roku (Numerai Inc.), to dość nietypowa platforma pod finansowe
+ML. Uczestnicy dostają zaszyfrowane, zanonimizowane tabele ze spółkami i ich
+atrybutami. Trzeba zbudować model pod jeden z celów (u nas
+\texttt{target\_ender\_60}) i oddać prognozy alpha. Fundusz zbiera wszystkie submisje
+w Meta Model, którym realnie handluje. Dodatkowo można stakować NMR: dobre modele
+zarabiają, słabe tracą \cite{numerai-staking}.
 
-Ta architektura tworzy naturalny problem badawczy: jak systematycznie eksperymentować z
-konfiguracjami modeli ML, aby maksymalizować jakość predykcji mierzoną metrykami takimi
-jak korelacja per-era i współczynnik Sharpe'a, przy jednoczesnym spełnieniu
-rygorystycznych wymagań dotyczących formatu submisji i unikania wycieku informacji
-czasowej?
+Stąd praktyczne pytanie: jak systematycznie kręcić konfiguracjami ML, żeby poprawiać
+korelację per-era i Sharpe'a, nie psując formatu submisji i nie wpuszczając wycieku
+czasowego?
 
-Ogólne platformy AutoML automatyzują dobór modeli i hiperparametrów, lecz nie rozwiązują
-automatycznie wymagań specyficznych dla Numerai: podziałów według er, separacji
-czasowej zależnej od horyzontu celu, oficjalnych metryk konkursowych oraz eksportu
-przenośnej funkcji predykcyjnej \cite{automl-survey}. AlphaPulse integruje te elementy
-w jednym przepływie pracy - od pobrania danych, przez definicję i ocenę eksperymentu,
-po walidację artefaktu końcowego.
+Zwykły AutoML dobiera modele i hiperparametry, ale nie ogarnia sam z siebie er,
+purgingu zależnego od horyzontu, oficjalnych metryk Numerai ani eksportu
+\texttt{predict.pkl} \cite{automl-survey}. AlphaPulse spina te elementy w jeden
+przepływ: dane, YAML, trening, ocena, artefakt.
 
 \section{Problem badawczy}
-Niniejsza praca podejmuje następujący problem badawczy:
+Praca odpowiada na następujące pytanie badawcze:
 
 \begin{quote}
 Jak zaprojektować, zaimplementować i zweryfikować środowisko, które umożliwia
@@ -260,22 +240,21 @@ ranking z holdoutu przenosi się na późniejszy przedział czasowy?
 \end{enumerate}
 
 \section{Cele pracy}
-Głównym celem pracy jest zaprojektowanie i zaimplementowanie frameworku AlphaPulse,
-który:
+Chcemy zbudować AlphaPulse tak, żeby:
 \begin{itemize}
-\item Ujednolica pełny przepływ pracy konkursu Numerai - od pobierania danych po eksport submisji
-\item Umożliwia deklaratywne definiowanie eksperymentów w formacie YAML, bez
+\item ujednolicał pełny przepływ pracy konkursu Numerai - od pobierania danych po eksport submisji
+\item umożliwiał deklaratywne definiowanie eksperymentów w formacie YAML, bez
 konieczności modyfikowania kodu źródłowego
-\item Zapewnia poprawną walidację z uwzględnieniem struktury er, purging i embargo
-\item Automatyzuje poszukiwanie optymalnych hiperparametrów i konfiguracji pipeline'u za
+\item zapewniał poprawną walidację z uwzględnieniem struktury er, purging i embargo
+\item automatyzował poszukiwanie optymalnych hiperparametrów i konfiguracji pipeline'u za
 pomocą Optuna (tryb \texttt{--local}) lub Ray Tune (tryb rozproszony), z obsługą
 \texttt{--resume} i bazą TrialDB
-\item Udostępnia rozszerzenie AutoResearch, w którym model językowy proponuje
+\item udostępniał rozszerzenie AutoResearch, w którym model językowy proponuje
 modyfikacje konfiguracji, bez przypisywania temu mechanizmowi przewagi empirycznej
 w badaniu końcowym
-\item Raportuje oficjalnie zdefiniowane CORR i MMC oraz ich agregaty per-era
-\item Eksportuje wyniki w postaci pliku \texttt{predict.pkl} zgodnego z wymaganiami API Numerai
-oraz wspiera tygodniowy cykl produkcyjny: inferencja na \texttt{live.parquet} i
+\item raportował oficjalnie zdefiniowane CORR i MMC oraz ich agregaty per-era
+\item eksportował wyniki w postaci pliku \texttt{predict.pkl} zgodnego z wymaganiami API Numerai
+oraz wspierał tygodniowy cykl produkcyjny: inferencja na \texttt{live.parquet} i
 automatyczna submisja predykcji
 \end{itemize}
 
@@ -337,33 +316,32 @@ Praca uznaje się za spełnioną, jeśli:
 
 \chapter{Podstawy problemu i kontekst systemu AlphaPulse}
 
-Celem niniejszego rozdziału jest przedstawienie kontekstu domenowego i technicznego,
-w którym powstał framework \textit{AlphaPulse}. Rozdział porządkuje pojęcia wymagane do
-zrozumienia dalszych części pracy: specyfikę turnieju Numerai, charakter danych,
-kryteria oceny modeli, ograniczenia metodologiczne oraz wymagania, jakie musi spełniać
-nowoczesny system AutoML dla finansowych potoków predykcyjnych.
+W tym rozdziale zbieramy kontekst domenowy i techniczny, w którym powstał
+\textit{AlphaPulse}: turniej Numerai, charakter danych, kryteria oceny modeli,
+ograniczenia metodologiczne oraz wymagania wobec AutoML dla finansowych
+potoków predykcyjnych.
 
 \section{Specyfika turnieju Numerai}
 Numerai jest konkursem data science, w którym uczestnicy budują modele predykcyjne
 na zanonimizowanych danych tabelarycznych i dostarczają predykcje do wspólnego
-meta-modelu funduszu. W przeciwieństwie do klasycznych konkursów ML, nacisk jest
-położony nie tylko na jakość predykcji, ale również na stabilność sygnału i odporność
-na zmianę warunków rynkowych \cite{numerai-scoring}.
+meta-modelu funduszu. W przeciwieństwie do klasycznych konkursów ML liczy się
+jakość predykcji, ale też stabilność sygnału i odporność na zmianę warunków
+rynkových \cite{numerai-scoring}.
 
-W praktyce oznacza to, że:
+Przekłada się to na kilka konsekwencji:
 \begin{itemize}
     \item dane mają strukturę czasową i grupową (ery)
-    \item błędna walidacja może prowadzić do sztucznie zawyżonych wyników
-    \item wysokie znaczenie ma reprodukowalność eksperymentów
-    \item końcowym artefaktem jest plik predykcji zgodny z wymaganym formatem submisji
+    \item błędna walidacja może sztucznie zawyżać wyniki
+    \item reprodukowalność eksperymentów ma realne znaczenie
+    \item końcowym artefaktem jest plik predykcji w wymaganym formacie submisji
 \end{itemize}
 
 Takie środowisko premiuje podejście systemowe: powtarzalne pipeline'y, kontrolę konfiguracji,
 jasne logowanie eksperymentów i automatyzację przeszukiwania przestrzeni modeli.
 
 \section{Charakterystyka danych finansowych}
-Dane używane w zadaniach Numerai należą do kategorii danych tabelarycznych o silnym
-komponencie czasowym. Z perspektywy modelowania najważniejsze cechy tych danych to:
+Dane używane w zadaniach Numerai to dane tabelaryczne z wyraźnym komponentem czasowym.
+Z perspektywy modelowania najważniejsze są:
 \begin{itemize}
     \item niski stosunek sygnału do szumu
     \item niestacjonarność rozkładów cech i celu
@@ -371,9 +349,9 @@ komponencie czasowym. Z perspektywy modelowania najważniejsze cechy tych danych
     \item podatność na przeciek informacji przy niepoprawnym podziale danych
 \end{itemize}
 
-Konsekwencją jest konieczność ostrożnego projektowania zarówno preprocessingu,
-jak i procedury walidacyjnej. W praktyce szczególnie istotne stają się metody walidacji
-uwzględniające strukturę er oraz separację czasową między zbiorem uczącym i walidacyjnym.
+Dlatego i preprocessing, i procedura walidacyjna muszą być projektowane ostrożnie.
+Szczególnie ważne są metody uwzględniające strukturę er oraz separację czasową
+między zbiorem uczącym a walidacyjnym.
 Zmiana rozkładu między okresem uczenia i przyszłą oceną dodatkowo ogranicza możliwość
 przenoszenia wyników bez kontroli stabilności w czasie \cite{sugiyama-shift}.
 
@@ -388,8 +366,8 @@ S_{\mathrm{CORR}}=\frac{\overline{c}}{s_c},
 \qquad c=(c_1,\ldots,c_E),
 \label{eq:corr-sharpe}
 \end{equation}
-gdzie $c_e$ oznacza oficjalny CORR w erze, $\overline{c}$ jego średnią, a $s_c$
-odchylenie standardowe między erami. AlphaPulse raportuje ponadto:
+gdzie $c_e$ oznacza oficjalny CORR dla danej ery, $\overline{c}$ jego średnią, a $s_c$
+odchylenie standardowe między erami. AlphaPulse raportuje także:
 \begin{itemize}
     \item średni CORR i odchylenie standardowe między erami
     \item udział er z dodatnim CORR oraz maksymalne obsunięcie skumulowanego CORR
@@ -407,9 +385,9 @@ kandydatów, raportowane na nim wartości nie są bezstronnym oszacowaniem przys
 wyniku produkcyjnego \cite{cawley-talbot,varma-simon}.
 
 \section{Ryzyko wycieku informacji i poprawna walidacja}
-Jednym z najważniejszych problemów metodologicznych w modelach finansowych jest
-\textit{look-ahead bias}, czyli niejawne wykorzystanie informacji, która w momencie
-predykcji nie byłaby dostępna. Zjawisko to może wystąpić na wielu etapach:
+W modelach finansowych jednym z najpoważniejszych problemów jest
+\textit{look-ahead bias}: niejawne użycie informacji, której w momencie predykcji
+jeszcze by nie było. Może pojawić się na wielu etapach:
 \begin{itemize}
     \item podczas przygotowania cech
     \item przy podziale danych na train/validation
@@ -518,21 +496,21 @@ Wymóg submisji & błąd formatu & dedykowany eksport \texttt{predict.pkl} \\
 
 \Needspace{7\baselineskip}
 \section{Wnioski}
-Przedstawiony kontekst pokazuje, że skuteczne modelowanie w Numerai wymaga połączenia
-trzech perspektyw: poprawności metodologicznej, automatyzacji eksperymentów oraz
-inżynierii oprogramowania zapewniającej reprodukowalność. Z tego powodu w dalszej
-części pracy \textit{AlphaPulse} jest traktowany nie jako pojedynczy model, lecz jako
-system badawczo-produkcyjny wspierający iteracyjne budowanie i ocenę pipeline'ów ML.
+Z tego kontekstu wynika, że w Numerai trzeba łączyć trzy rzeczy naraz:
+poprawną metodologię, automatyzację eksperymentów i inżynierię zapewniającą
+reprodukowalność. Dlatego dalej traktujemy \textit{AlphaPulse} nie jako pojedynczy
+model, tylko jako system badawczo-produkcyjny do iteracyjnego budowania
+i oceny pipeline'ów ML.
 
 \chapter{Architektura systemu AlphaPulse}
 
-Celem rozdziału jest przedstawienie architektury frameworku \textit{AlphaPulse} jako
-konfigurowalnego systemu AutoML dla danych finansowych Numerai. Opis obejmuje
-podział na warstwy, przepływ danych, główne komponenty wykonawcze oraz sposób,
-w jaki architektura wspiera reprodukowalność i iteracyjny rozwój eksperymentów.
+W tym rozdziale opisujemy architekturę \textit{AlphaPulse} jako konfigurowalny
+system AutoML dla danych finansowych Numerai: warstwy, przepływ danych,
+komponenty wykonawcze oraz to, jak układ wspiera reprodukowalność i iteracyjny
+rozwój eksperymentów.
 
 \section{Założenia architektoniczne}
-Projekt \textit{AlphaPulse} został oparty na kilku kluczowych założeniach:
+\textit{AlphaPulse} opiera się na kilku założeniach:
 \begin{itemize}
     \item \textbf{Konfigurowalność}: eksperymenty są definiowane deklaratywnie, bez
     każdorazowej modyfikacji kodu źródłowego
@@ -656,7 +634,7 @@ Architektura dzieli odpowiedzialności pomiędzy komponenty:
 Takie rozdzielenie upraszcza testowanie i ułatwia rozwój systemu.
 
 \section{Wzorce zapewniające jakość inżynierską}
-W \textit{AlphaPulse} zastosowano praktyki zwiększające niezawodność:
+W \textit{AlphaPulse} przyjęliśmy praktyki zwiększające niezawodność:
 \begin{itemize}
     \item \textbf{Separation of concerns} między konfiguracją, logiką uczenia i eksportem
     \item \textbf{CLI-first workflow} dla łatwej automatyzacji uruchomień
@@ -723,17 +701,15 @@ YAML obejmują \texttt{data}, \texttt{features}, \texttt{preprocessing}, \texttt
 zapisuje konfigurację, metryki, logi prób oraz, zależnie od trybu pracy, artefakty takie jak
 \texttt{best\_config.json} i \texttt{predict.pkl}.
 
-Architektura \textit{AlphaPulse} realizuje podejście \textit{configuration-driven} i integruje
-pełny cykl pracy konkursowej: od danych, przez eksperymenty i automatyzację, po eksport
-predykcji. Kluczową wartością systemu jest połączenie modularności technicznej z
-reprodukowalnością badawczą, co stanowi fundament dalszych rozdziałów implementacyjnych
-i eksperymentalnych.
+Architektura \textit{AlphaPulse} jest sterowana konfiguracją i obejmuje cykl
+konkursowy: dane, eksperymenty, automatyzację i eksport predykcji. Modularność
+ma tu sens dopiero razem z reprodukowalnością; stąd kolejne rozdziały o
+implementacji i eksperymentach.
 
 \chapter{Implementacja systemu AlphaPulse}
 
-Celem rozdziału jest szczegółowe przedstawienie implementacji frameworku
-\textit{AlphaPulse}: sposobu organizacji kodu, mechanizmów konfiguracji eksperymentów,
-interfejsów uruchomieniowych oraz realizacji kluczowych etapów pipeline'u od danych do
+Tu przechodzimy do implementacji \textit{AlphaPulse}: organizacji kodu,
+konfiguracji eksperymentów, CLI oraz przebiegu pipeline'u od danych do
 artefaktu submisyjnego.
 
 \section{Organizacja repozytorium}
@@ -946,7 +922,7 @@ Skrypty wymagają kluczy \path{NUMERAI_PUBLIC_API_KEY} i
 (lokalny plik \texttt{.env} lub zmienne środowiskowe).
 
 \section{Zapewnienie jakości kodu}
-W implementacji zastosowano standardowe mechanizmy jakości:
+W implementacji używamy standardowych mechanizmów jakości:
 \begin{itemize}
     \item linting i formatowanie (\texttt{ruff}, \texttt{make fmt}, \texttt{make lint})
     \item statyczne sprawdzanie typów (\texttt{mypy}, \texttt{make types})
@@ -993,7 +969,7 @@ czasowym. Szczegółowy budżet opisano w rozdziale~5.
 \chapter{Metodyka badań}
 
 Rozdział opisuje faktycznie wykonane serie, reguły włączenia obserwacji do analizy
-oraz sposób wyboru kandydatów. Celem jest rozdzielenie dwóch rodzajów dowodów:
+oraz sposób wyboru kandydatów. Chodzi o rozdzielenie dwóch rodzajów dowodów:
 weryfikacji skalowalności całego systemu i porównania jakości konfiguracji w
 jednolitym protokole Numerai \datasetver{}.
 
@@ -1094,7 +1070,7 @@ Wersja kodu & commit \texttt{1a86893}, protokół \texttt{corrected-hpo-2026-08-
 \end{table}
 
 Do analizy włączono wyłącznie rekordy ze statusem \texttt{completed}, kompletną
-konfiguracją i skończonym wektorem trzech kluczowych miar: CORR Sharpe na holdoucie,
+konfiguracją i skończonym wektorem trzech miar: CORR Sharpe na holdoucie,
 CORR Sharpe na późniejszym przedziale oraz MMC Sharpe na tym przedziale. Wcześniejsze uruchomienia
 kontrolne z identycznym ziarnem i konfiguracją nie są liczone ponownie.
 
@@ -1178,8 +1154,8 @@ pełnych danych oraz monitoring wielu kolejnych rund live.
 Badanie nie zawiera kontrolowanego baseline'u jakości ani ablacji komponentów.
 Benchmark pełnoskalowy używa innej wersji danych i celu, a próby HPO różnią się
 jednocześnie rodziną modelu, routingiem cech, preprocessingiem i neutralizacją.
-Wyniki potwierdzają wykonalność systemu i dostarczają opisowego rankingu w zadanym
-budżecie, ale nie pozwalają przypisać różnicy jakości pojedynczemu mechanizmowi.
+W tej serii widać, że system działa i dostajemy opisowy ranking w zadanym
+budżecie; różnicy jakości nie da się jednak przypisać pojedynczemu mechanizmowi.
 \input{chapters/wyniki}
 \input{chapters/dyskusja}
 
@@ -1212,14 +1188,14 @@ Artefakty & \texttt{protocol.json}, \texttt{trials.db}, \texttt{optuna.db}, W\&B
 \end{table}
 
 \section{Receptury kandydatów}
-Tabela~\ref{tab:candidate-recipes} przedstawia kluczowe parametry dwóch profili
+Tabela~\ref{tab:candidate-recipes} przedstawia parametry dwóch profili
 wybranych na froncie Pareto. Są to receptury do ponownego treningu i monitoringu,
 a nie modele o potwierdzonej jakości produkcyjnej.
 
 \begin{table}[H]
 \centering
 \small
-\caption[Receptury prób 22 i 4]{Kluczowe elementy konfiguracji kandydatów}
+\caption[Receptury prób 22 i 4]{Elementy konfiguracji kandydatów}
 \label{tab:candidate-recipes}
 \begin{tabularx}{\textwidth}{P{3.6cm}YY}
 \toprule
@@ -1229,7 +1205,7 @@ Rodzina modelu & LightGBM & CatBoost \\
 Skalowanie & RobustScaler & StandardScaler \\
 Cechy & 989; \texttt{medium+agility+midnight} & 970; sześć grup \\
 Liczba iteracji & 200 rund & zgodna z rekordem próby \\
-Kluczowa złożoność & 31 liści & głębokość 5 \\
+Złożoność modelu & 31 liści & głębokość 5 \\
 Tempo uczenia & 0,0200 & 0,0314 \\
 Neutralizacja cech & 0,2373 & 0,4947 \\
 Profil wyboru & najwyższy CORR na późniejszym przedziale & najwyższy MMC na późniejszym przedziale \\

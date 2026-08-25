@@ -1,8 +1,8 @@
 \chapter{Wyniki eksperymentów}
 
-Rozdział przedstawia wynik benchmarku pełnoskalowego oraz analizę końcowej serii
-HPO. Wszystkie rankingi jakości pochodzą z jednego protokołu v5.3 i oficjalnych
-metryk Numerai. Starsze uruchomienia kontrolne nie są łączone z tą populacją.
+Poniżej wyniki benchmarku pełnoskalowego i końcowej serii HPO. Rankingi jakości
+biorą się z jednego protokołu v5.3 i oficjalnych metryk Numerai; starszych
+uruchomień kontrolnych tu nie mieszamy.
 
 \section{Weryfikacja pełnej skali}
 Benchmark pełnoskalowy objął 2\,746\,268 wierszy uczących, 780 cech i 574 ery.
@@ -194,11 +194,10 @@ CORR Sharpe \FinalBestCorrSharpe{}, średni CORR \FinalBestMeanCorr{}, maksymaln
 obsunięcie \FinalBestDrawdown{} i \FinalBestPositiveEras\% dodatnich er.
 
 \section{Synteza wyników}
-Badanie dostarczyło trzech rozstrzygnięć. Po pierwsze, pełny potok działa na milionach
-wierszy i zapisuje odtwarzalne artefakty w czasie poniżej 32 minut dla badanego
-benchmarku. Po drugie, w ograniczonym budżecie najwyższe mediany holdoutu osiągnęły
-LightGBM i CatBoost. Po trzecie, późniejszy przedział zmienił ranking i wyłonił
-dwa praktyczne profile: próbę 22 dla CORR oraz próbę 4 dla MMC. Są to bezpośrednie
-pomiary w badanej serii, bez numerycznej ekstrapolacji na pełny trening. Ponieważ
-ten przedział uczestniczył w wyborze kandydatów, wartości nie są traktowane jako
-nieobciążona prognoza wyniku przyszłego.
+Z tej serii wynosimy trzy konkretne rzeczy. Pełny potok ogarnia miliony wierszy
+i zostawia odtwarzalne artefakty (poniżej 32~min w badanym benchmarku). Przy naszym
+budżecie najwyższe mediany holdoutu miały LightGBM i CatBoost. Późniejsze okno
+przestawiło ranking i zostawiło dwa praktyczne profile: próbę 22 pod CORR oraz
+próbę 4 pod MMC. To pomiary z tej serii, bez ekstrapolacji na pełny trening. Skoro
+okno brało udział w wyborze kandydatów, liczb nie traktujemy jako czystej prognozy
+przyszłego wyniku.
