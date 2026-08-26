@@ -41,6 +41,7 @@
 \usepackage{float}
 \usepackage{placeins}
 \usepackage{needspace}
+\usepackage{etoolbox}
 \usepackage{indentfirst}
 \usepackage{listings}
 \usepackage{xcolor}
@@ -50,7 +51,7 @@
 \usetikzlibrary{shapes,arrows,positioning}
 \hypersetup{
   pdftitle={Konfigurowalne środowisko AutoML dla finansowych potoków predykcyjnych w turnieju Numerai},
-  pdfauthor={Kamil Czyżewski; Kuba Szulc},
+  pdfauthor={Kamil Czyżewski; Jakub Szulc},
   pdfsubject={Praca magisterska - AlphaPulse},
   pdfkeywords={AutoML, Numerai, uczenie maszynowe, walidacja czasowa, HPO}
 }
@@ -63,9 +64,14 @@
 \setlength{\parindent}{0.75cm}
 \setlength{\parskip}{0pt}
 \setlength{\emergencystretch}{2em}
+\raggedbottom
 \widowpenalty=10000
 \clubpenalty=10000
 \displaywidowpenalty=10000
+\setlist[itemize]{itemsep=0.12\baselineskip,topsep=0.35\baselineskip,parsep=0pt,partopsep=0pt}
+\setlist[enumerate]{itemsep=0.12\baselineskip,topsep=0.35\baselineskip,parsep=0pt,partopsep=0pt}
+\pretocmd{\section}{\Needspace{8\baselineskip}}{}{}
+\pretocmd{\subsection}{\Needspace{6\baselineskip}}{}{}
 \urlstyle{same}
 \titleformat{\chapter}[display]
   {\normalfont\huge\bfseries\raggedright}
@@ -103,7 +109,7 @@
 \vspace{1.2cm}
 
 {\large Kamil Czyżewski s22370\par}
-{\large Kuba Szulc s23640\par}
+{\large Jakub Szulc s23640\par}
 \vspace{1cm}
 
 {\LARGE Konfigurowalne środowisko AutoML dla finansowych potoków predykcyjnych w turnieju Numerai\par}
@@ -126,7 +132,7 @@
 \vspace{1.2cm}
 
 {\large Kamil Czyżewski s22370\par}
-{\large Kuba Szulc s23640\par}
+{\large Jakub Szulc s23640\par}
 \vspace{1cm}
 
 {\LARGE A Configurable AutoML Framework for Financial Prediction Pipelines in the Numerai Tournament\par}
@@ -289,7 +295,7 @@ a także integracji z turniejem Numerai Signals.
 \section{Wkład autorów}
 Praca powstała wspólnie, przy następującym głównym podziale odpowiedzialności:
 \begin{itemize}
-    \item Kuba Szulc odpowiadał przede wszystkim za architekturę i implementację rdzenia
+    \item Jakub Szulc odpowiadał przede wszystkim za architekturę i implementację rdzenia
     \repo{}, potoki modelowe, warstwę HPO, reprodukowalność uruchomień, eksperymenty
     końcowe oraz integrację eksportu i inferencji
     \item Kamil Czyżewski odpowiadał przede wszystkim za panel analizy eksploracyjnej,
@@ -358,26 +364,57 @@ przenoszenia wyników bez kontroli stabilności w czasie \cite{sugiyama-shift}.
 \section{Metryki jakości i kryteria oceny}
 W odróżnieniu od wielu zadań regresyjnych, ocena modeli finansowych nie powinna
 opierać się wyłącznie na błędzie punktowym. Dla każdej ery $e$ oficjalny CORR
-porównuje uporządkowane predykcje $\hat{y}_e$ z celem $y_e$ po transformacjach
-określonych w dokumentacji Numerai \cite{numerai-corr}. Stabilność sygnału agreguje
-współczynnik Sharpe'a:
+porównuje predykcje $\hat{y}_e$ z celem $y_e$ po transformacjach określonych w
+dokumentacji Numerai \cite{numerai-corr}. Niech $n_e$ oznacza liczbę obserwacji
+w erze, $R_e(v_i)$ rangę elementu $v_i$ z zachowaniem remisów, a $\Phi^{-1}$
+kwantyl standardowego rozkładu normalnego. Transformację predykcji można zapisać jako
+\begin{equation}
+z_e(v_i)=\Phi^{-1}\!\left(\frac{R_e(v_i)-\tfrac{1}{2}}{n_e}\right),
+\qquad g(x)=\operatorname{sgn}(x)|x|^{3/2}.
+\label{eq:numerai-transform}
+\end{equation}
+Oficjalny wynik CORR dla ery jest następnie korelacją Pearsona przekształconych
+wektorów:
+\begin{equation}
+c_e=\rho_{\mathrm{P}}\!\left(
+g(y_e-\overline{y}_e),\,g(z_e(\hat{y}_e))
+\right).
+\label{eq:numerai-corr-era}
+\end{equation}
+
+MMC mierzy część sygnału predykcji, której nie wyjaśnia Meta Model. Dla
+$p_e=z_e(\hat{y}_e)$ oraz znormalizowanej predykcji Meta Modelu
+$b_e=z_e(b_e^{\mathrm{raw}})$ neutralizacja jest rzutem na dopełnienie ortogonalne
+wektora $b_e$:
+\begin{equation}
+p_e^{\perp}=p_e-b_e\frac{p_e^{\mathsf T}b_e}{b_e^{\mathsf T}b_e}.
+\label{eq:mmc-neutralization}
+\end{equation}
+Dla celu Numerai zapisanego w przedziale $[0,1]$ wynik wkładu w erze ma postać
+\begin{equation}
+m_e=\frac{1}{n_e}\left(4y_e-\overline{4y_e}\right)^{\mathsf T}p_e^{\perp}.
+\label{eq:mmc-era}
+\end{equation}
+Definicja odpowiada funkcji \texttt{correlation\_contribution} z zamrożonej wersji
+\path{numerai-tools} 0.6.0 \cite{numerai-mmc,numerai-tools}.
+
+Stabilność obu miar agreguje współczynnik Sharpe'a liczony po erach:
 \begin{equation}
 S_{\mathrm{CORR}}=\frac{\overline{c}}{s_c},
-\qquad c=(c_1,\ldots,c_E),
+\qquad
+S_{\mathrm{MMC}}=\frac{\overline{m}}{s_m},
 \label{eq:corr-sharpe}
 \end{equation}
-gdzie $c_e$ oznacza oficjalny CORR dla danej ery, $\overline{c}$ jego średnią, a $s_c$
-odchylenie standardowe między erami. AlphaPulse raportuje także:
+gdzie $c=(c_1,\ldots,c_E)$ i $m=(m_1,\ldots,m_E)$, a $s_c$ i $s_m$ są
+odchyleniami standardowymi między erami. AlphaPulse raportuje także:
 \begin{itemize}
     \item średni CORR i odchylenie standardowe między erami
     \item udział er z dodatnim CORR oraz maksymalne obsunięcie skumulowanego CORR
-    \item oficjalny MMC, który mierzy przyrost informacji po ortogonalizacji predykcji
-    względem Meta Modelu, wraz z jego średnią i współczynnikiem Sharpe'a
-    \cite{numerai-mmc}
+    \item średni MMC, jego odchylenie standardowe i $S_{\mathrm{MMC}}$
 \end{itemize}
 
-Implementacje zweryfikowano względem zamrożonej wersji \path{numerai-tools} 0.6.0
-\cite{numerai-tools}. W badaniu głównym kryterium optymalizacji stanowi
+Implementacje zweryfikowano względem tej samej zamrożonej wersji biblioteki. W badaniu
+głównym kryterium optymalizacji stanowi
 $S_{\mathrm{CORR}}$ na holdoucie oddzielonym strefą purge. CORR i MMC na późniejszym
 przedziale selekcyjnym służą do analizy transferu w czasie oraz wyboru kompromisu
 między siłą i unikalnością sygnału. Ponieważ ten drugi przedział uczestniczy w wyborze
@@ -450,6 +487,7 @@ uruchomić w trybie pojedynczym, HPO, diagnostycznym i eksportowym. Utrwalenie k
 danych, zależności i parametrów odpowiada praktykom reprodukowalnego raportowania
 badań ML \cite{pineau-reproducibility}.
 
+\clearpage
 \section{Zakres funkcjonalny AlphaPulse jako punkt odniesienia dalszych rozdziałów}
 Na poziomie operacyjnym framework obejmuje pełny przepływ pracy konkursowej:
 \begin{enumerate}
@@ -476,8 +514,11 @@ W projekcie uwzględniono również:
 Ten zakres stanowi podstawę układu kolejnych rozdziałów: najpierw architektura,
 następnie implementacja i konfiguracja eksperymentów, a dalej ewaluacja wyników.
 
+\clearpage
 \section{Mapowanie wyzwań domenowych na decyzje projektowe}
-\begin{table}[htbp]
+Zależność między problemami domenowymi i mechanizmami systemu podsumowuje
+tabela~\ref{tab:challenge-mapping}.
+\begin{table}[H]
 \centering
 \caption[Mapowanie wyzwań na decyzje projektowe]{Wyzwanie finansowe $\rightarrow$ decyzja w \repo{}}
 \label{tab:challenge-mapping}
@@ -678,7 +719,7 @@ warstw systemu. Dzięki temu pipeline może być rozwijany modularnie: nowy load
 preprocessor, model lub strategia ensemble musi spełnić ten sam interfejs logiczny, bez
 konieczności zmiany pozostałych części frameworku.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption[Kontrakty komponentów]{Podstawowe kontrakty komponentów systemu \repo{}}
 \label{tab:component-contracts}
@@ -966,6 +1007,7 @@ LightGBM, CatBoost, TabPFN i TabICL. Po 20 próbach inicjalnych sampler TPE korz
 z dotychczasowej historii, a każda konfiguracja była oceniana w tym samym protokole
 czasowym. Szczegółowy budżet opisano w rozdziale~5.
 
+\addtocontents{toc}{\protect\newpage}
 \chapter{Metodyka badań}
 
 Rozdział opisuje faktycznie wykonane serie, reguły włączenia obserwacji do analizy
@@ -1137,19 +1179,17 @@ uv run python scripts/hpo_pipeline.py --data-dir data/v5.3 --target-col target_e
 
 \section{Zagrożenia dla trafności}
 Badanie końcowe obejmuje jedno ziarno i 27 kompletnych konfiguracji. Adaptacyjny
-sampler generuje nierówne liczebności rodzin, więc agregaty nie stanowią testu
-istotności ani kontrolowanej ablacji. HPO korzysta z 10\% danych uczących; wyniki
-nie są ekstrapolowane numerycznie na pełny trening. Benchmark v5.2 dowodzi
-skalowalności, lecz z powodu innego celu i wersji danych nie stanowi porównania
-jakościowego.
+dobór prób powoduje nierówne liczebności rodzin, dlatego agregaty mają charakter
+opisowy, a nie testowy. HPO korzysta z 10\% danych uczących; wyników nie
+ekstrapoluje się na pełny trening. Benchmark v5.2 potwierdza skalowalność, lecz
+inny cel i wersja danych wykluczają porównanie jakości.
 
-Holdout był wielokrotnie wykorzystywany przez funkcję celu, dlatego rozstrzygnięcie
-praktyczne opiera się również na późniejszym przedziale 88 er. Przedział ten nie
-sterował samplerem, ale został użyty do porównania wszystkich kompletnych prób i
-wyboru kandydatów. Nie jest zatem nietkniętym zbiorem testowym, a maksimum może być
-optymistycznie obciążone. Oba przedziały reprezentują po jednym zakresie rynkowym.
-Wdrożenie produkcyjne powinno poprzedzać ponowne uczenie wybranej receptury na
-pełnych danych oraz monitoring wielu kolejnych rund live.
+Holdout był wielokrotnie wykorzystywany przez funkcję celu. Późniejszy przedział
+88 er nie sterował samplerem, ale służył do porównania prób i wyboru kandydatów.
+Nie jest więc nietkniętym zbiorem testowym, a maksimum może być optymistycznie
+obciążone. Oba przedziały reprezentują po jednym zakresie rynkowym. Wdrożenie
+produkcyjne powinno poprzedzać ponowne uczenie wybranej receptury na pełnych
+danych oraz monitoring wielu kolejnych rund live.
 
 Badanie nie zawiera kontrolowanego baseline'u jakości ani ablacji komponentów.
 Benchmark pełnoskalowy używa innej wersji danych i celu, a próby HPO różnią się
