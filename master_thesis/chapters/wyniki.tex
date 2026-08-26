@@ -1,16 +1,17 @@
 \chapter{Wyniki eksperymentów}
 
-Poniżej wyniki benchmarku pełnoskalowego i końcowej serii HPO. Rankingi jakości
-biorą się z jednego protokołu v5.3 i oficjalnych metryk Numerai; starszych
-uruchomień kontrolnych tu nie mieszamy.
+Rozdział przedstawia wyniki benchmarku pełnoskalowego oraz analizę końcowej serii
+HPO. Wszystkie rankingi jakości pochodzą z jednego protokołu v5.3 i zostały
+wyznaczone za pomocą oficjalnych metryk Numerai. Starszych uruchomień kontrolnych
+nie włączono do tej populacji.
 
 \section{Weryfikacja pełnej skali}
 Benchmark pełnoskalowy objął 2\,746\,268 wierszy uczących, 780 cech i 574 ery.
 Potok z dziesięcioma partycjami XGBoost wykonał trening, predykcję dla
 3\,895\,460 wierszy walidacyjnych, ocenę i zapis diagnostyki w 1888,6~s
 (31,5~min). Utworzone zostały konfiguracja rozwiązana, hash konfiguracji i pełny
-zapis przebiegu. Rezultat potwierdza, że ta sama architektura obsługuje nie tylko
-próby HPO, lecz także trening na całym dostępnym zbiorze.
+zapis przebiegu. Rezultat dokumentuje, że ta sama architektura wykonała zarówno
+próby HPO, jak i trening na całym dostępnym zbiorze w badanej konfiguracji.
 
 \begin{table}[htbp]
 \centering
@@ -95,8 +96,8 @@ rodziny modelu. Punkty oznaczają kompletne próby, a liczności podano nad grup
 \FloatBarrier
 Na późniejszym przedziale mediana LightGBM wyniosła 0,280, CatBoost 0,133, XGBoost 0,036,
 TabPFN 0,108, a TabICL 0,088. Wynik jest opisem badanego budżetu, nie rankingiem
-architektur w ogólności: TPE przydzielił rodzinom różne liczby prób, a modele
-fundamentowe korzystały z limitów liczby przykładów i redukcji wymiaru.
+architektur w ogólności: TPE przydzielił rodzinom różne liczby prób, a modele typu
+foundation korzystały z limitów liczby przykładów i redukcji wymiaru.
 
 \section{Przebieg optymalizacji}
 Pierwsze 20 konfiguracji stanowiło fazę inicjalną TPE. Lider holdoutu pojawił się
@@ -136,9 +137,11 @@ i późniejszym przedziałem dla 27 kompletnych konfiguracji.}
 \end{figure}
 
 \FloatBarrier
-Próba 11 maksymalizuje holdout, lecz na późniejszym przedziale ustępuje próbom 22, 4 i 10.
-To najważniejszy argument za dwustopniową selekcją: holdout steruje HPO, natomiast
-późniejszy przedział rozstrzyga o przenoszeniu sygnału w czasie.
+Próba 11 maksymalizuje wynik na holdoucie, lecz na późniejszym przedziale ustępuje
+próbom 22, 4 i 10. Uzasadnia to zastosowanie dwustopniowej selekcji w tym badaniu:
+holdout steruje HPO, natomiast późniejszy przedział dostarcza dodatkowej informacji
+o zachowaniu konfiguracji w kolejnym okresie. Ponieważ wykorzystano go do wyboru
+kandydatów, nie pełni on funkcji niezależnego zbioru testowego.
 
 \section{Kandydaci końcowi}
 Tabela~\ref{tab:final-candidates} zestawia pięć reprezentatywnych konfiguracji.
@@ -189,15 +192,17 @@ holdoucie i 0,4247 na późniejszym przedziale, przy dodatnim MMC Sharpe 0,2467.
 Próba 4 jest alternatywą nastawioną na MMC. Wykorzystuje CatBoost,
 StandardScaler, 970 cech z sześciu grup, głębokość 5, tempo uczenia 0,0314
 i neutralizację 0,4947. Osiąga CORR Sharpe 0,4024 oraz MMC Sharpe 0,3063
-na późniejszym przedziale. Próba 11 pozostaje górną granicą jakości na holdoucie:
+na późniejszym przedziale. Próba 11 uzyskała najwyższy wynik na holdoucie:
 CORR Sharpe \FinalBestCorrSharpe{}, średni CORR \FinalBestMeanCorr{}, maksymalne
 obsunięcie \FinalBestDrawdown{} i \FinalBestPositiveEras\% dodatnich er.
 
 \section{Synteza wyników}
-Z tej serii wynosimy trzy konkretne rzeczy. Pełny potok ogarnia miliony wierszy
-i zostawia odtwarzalne artefakty (poniżej 32~min w badanym benchmarku). Przy naszym
-budżecie najwyższe mediany holdoutu miały LightGBM i CatBoost. Późniejsze okno
-przestawiło ranking i zostawiło dwa praktyczne profile: próbę 22 pod CORR oraz
-próbę 4 pod MMC. To pomiary z tej serii, bez ekstrapolacji na pełny trening. Skoro
-okno brało udział w wyborze kandydatów, liczb nie traktujemy jako czystej prognozy
-przyszłego wyniku.
+Badanie dostarczyło trzech głównych wyników. Po pierwsze, pełny potok przetworzył
+miliony wierszy i zapisał artefakty umożliwiające odtworzenie przebiegu w czasie
+poniżej 32~min dla badanego benchmarku. Po drugie, w ograniczonym budżecie najwyższe
+mediany na holdoucie uzyskały LightGBM i CatBoost. Po trzecie, późniejszy przedział
+zmienił kolejność konfiguracji i pozwolił wskazać dwa profile: próbę 22 ukierunkowaną
+na CORR oraz próbę 4 ukierunkowaną na MMC. Są to bezpośrednie pomiary z badanej
+serii, bez numerycznej ekstrapolacji na trening pełnoskalowy. Ponieważ późniejszy
+przedział uczestniczył w wyborze kandydatów, uzyskanych na nim wartości nie należy
+traktować jako nieobciążonej prognozy przyszłego wyniku.
