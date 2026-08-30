@@ -2,15 +2,14 @@
 
 Rozdział przedstawia wyniki benchmarku pełnoskalowego oraz analizę końcowej serii
 HPO. Wszystkie rankingi jakości pochodzą z jednego protokołu v5.3 i zostały
-wyznaczone za pomocą oficjalnych metryk Numerai. Starszych uruchomień kontrolnych
-nie włączono do tej populacji.
+wyznaczone za pomocą oficjalnych metryk Numerai.
 
 \section{Weryfikacja pełnej skali}
 Benchmark pełnoskalowy objął 2\,746\,268 wierszy uczących, 780 cech i 574 ery.
 Potok z dziesięcioma partycjami XGBoost wykonał trening, predykcję dla
 3\,895\,460 wierszy walidacyjnych, ocenę i zapis diagnostyki w 1888,6~s
-(31,5~min). Utworzone zostały konfiguracja rozwiązana, hash konfiguracji i zapis
-przebiegu. Rezultat dokumentuje działanie tego samego frameworku na pełnym zbiorze,
+(31,5~min). Zapisano rozwiniętą konfigurację, jej skrót oraz dane diagnostyczne
+przebiegu. Rezultat dokumentuje działanie tego samego systemu na pełnym zbiorze,
 nie jest porównaniem jakości ani identycznej konfiguracji z końcową serią HPO.
 
 \begin{table}[htbp]
@@ -31,8 +30,8 @@ Czas całkowity & 1888,6 s (31,5 min) \\
 \end{table}
 
 \section{Kompletność końcowej serii HPO}
-Proces przerwano po około 1~h 43~min, po uruchomieniu \FinalTrialsLaunched{} prób,
-a więc przed planowanym limitem 200 prób lub 11,5~h. Kompletny wynik uzyskano dla
+Zrealizowana seria trwała około 1~h 43~min i objęła \FinalTrialsLaunched{} prób
+w ramach maksymalnego budżetu 200 prób lub 11,5~h. Kompletny wynik uzyskano dla
 \FinalTrialsCompleted{} konfiguracji (\FinalCompletionRate\% całej puli) i tylko
 one weszły do dalszej analizy. Ich łączny czas modelowy wyniósł
 \FinalCompletedComputeHours{}~h, a mediana czasu próby \FinalMedianRuntime{}~s.
@@ -116,7 +115,7 @@ próbkowaniem o tym samym budżecie.
 
 \section{Scenariuszowa ekstrapolacja dłuższego HPO}
 W celu oceny możliwego efektu dłuższego uruchomienia wykonano symulację
-scenariuszową wyłącznie dla maksimum CORR Sharpe na historycznym holdoucie.
+scenariuszową wyłącznie dla maksimum CORR Sharpe na holdoucie wykorzystanym w badaniu.
 Nie jest to prognoza jakości rynkowej. Wariant empiryczny losuje z siedmiu
 zaobserwowanych wyników adaptacyjnego TPE i nie tworzy niewidzianego ogona.
 Wariant ostrożny estymuje średnią i odchylenie przez bootstrap tych samych siedmiu
@@ -130,7 +129,7 @@ większą z wartości obecnego lidera 1,0443 i maksimum przyszłych losowań.
 \centering
 \caption[Ekstrapolacja budżetu HPO]{Scenariuszowa ekstrapolacja najlepszego CORR
 Sharpe na holdoucie i odsetka replikacji poprawiających obecnego lidera. Pasma oznaczają
-kwantyle 5-95\% między replikacjami, a nie przedziały ufności jakości live.}
+kwantyle 5-95\% między replikacjami, a nie przedziały ufności jakości w rundach bieżących.}
 \label{fig:hpo-budget-extrapolation}
 \includegraphics[width=\textwidth]{hpo_budget_extrapolation}
 \sourceown
