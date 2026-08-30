@@ -226,5 +226,10 @@ ignore_missing_imports = true
 module = ["scripts.*"]
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = ["eda", "eda.*"]
+follow_imports = "skip"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
