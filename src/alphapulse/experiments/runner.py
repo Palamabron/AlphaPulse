@@ -191,11 +191,16 @@ def run_experiment(
 
     stacking_needs_val = needs_internal_val_for_experiment(exp)
     era_train = X_train["era"] if "era" in X_train.columns else None
+    internal_purge_eras = effective_purge_eras(
+        exp.evaluation.walk_forward_n_purge,
+        [exp.data.target_col, *(exp.data.auxiliary_targets or [])],
+    )
     X_train_fit, y_train_fit, X_val_internal, y_val_internal = internal_val_split(
         X_train,
         y_train,
         era_train=era_train,
         force_internal=stacking_needs_val,
+        purge_eras=internal_purge_eras,
     )
     targets_train_fit = None
     targets_val_internal = None
@@ -405,7 +410,11 @@ def run_experiment(
                 )
                 era_col = X_tr["era"] if "era" in X_tr.columns else None
                 X_fit, _, X_val_inner, _ = internal_val_split(
-                    X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
+                    X_tr,
+                    y_tr,
+                    era_train=era_col,
+                    force_internal=stacking_needs_val,
+                    purge_eras=internal_purge_eras,
                 )
                 targets_split = targets_wf.loc[X_tr.index]
                 targets_train = targets_split.loc[X_fit.index]
@@ -440,7 +449,11 @@ def run_experiment(
             )
             era_col = X_tr["era"] if "era" in X_tr.columns else None
             X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-                X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
+                X_tr,
+                y_tr,
+                era_train=era_col,
+                force_internal=stacking_needs_val,
+                purge_eras=internal_purge_eras,
             )
             era_val_wf = (
                 era_col.loc[X_val_inner.index]
@@ -460,10 +473,7 @@ def run_experiment(
         wf_metrics = EraSplitEvaluator(
             feature_columns=feature_cols,
             min_train_eras=ev.walk_forward_min_train_eras,
-            n_purge=effective_purge_eras(
-                ev.walk_forward_n_purge,
-                [exp.data.target_col, *(exp.data.auxiliary_targets or [])],
-            ),
+            n_purge=internal_purge_eras,
             n_embargo=ev.walk_forward_n_embargo,
             n_splits=ev.walk_forward_n_splits,
         ).evaluate_walk_forward(X_wf, y_wf, era_wf, train_fn)

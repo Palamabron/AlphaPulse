@@ -1,16 +1,16 @@
 \chapter{Wyniki eksperymentów}
 
-Poniżej wyniki benchmarku pełnoskalowego i końcowej serii HPO. Rankingi jakości
-biorą się z jednego protokołu v5.3 i oficjalnych metryk Numerai; starszych
-uruchomień kontrolnych tu nie mieszamy.
+Rozdział przedstawia wyniki benchmarku pełnoskalowego oraz analizę końcowej serii
+HPO. Wszystkie rankingi jakości pochodzą z jednego protokołu v5.3 i zostały
+wyznaczone za pomocą oficjalnych metryk Numerai.
 
 \section{Weryfikacja pełnej skali}
 Benchmark pełnoskalowy objął 2\,746\,268 wierszy uczących, 780 cech i 574 ery.
 Potok z dziesięcioma partycjami XGBoost wykonał trening, predykcję dla
 3\,895\,460 wierszy walidacyjnych, ocenę i zapis diagnostyki w 1888,6~s
-(31,5~min). Utworzone zostały konfiguracja rozwiązana, hash konfiguracji i pełny
-zapis przebiegu. Rezultat potwierdza, że ta sama architektura obsługuje nie tylko
-próby HPO, lecz także trening na całym dostępnym zbiorze.
+(31,5~min). Zapisano rozwiniętą konfigurację, jej skrót oraz dane diagnostyczne
+przebiegu. Rezultat dokumentuje działanie tego samego systemu na pełnym zbiorze,
+nie jest porównaniem jakości ani identycznej konfiguracji z końcową serią HPO.
 
 \begin{table}[htbp]
 \centering
@@ -26,35 +26,16 @@ Modele składowe & 10 $\times$ XGBoost \\
 Czas całkowity & 1888,6 s (31,5 min) \\
 \bottomrule
 \end{tabular}
+\sourceown
 \end{table}
 
-\Needspace{7\baselineskip}
 \section{Kompletność końcowej serii HPO}
-Seria została zamknięta po zapisaniu \FinalTrialsLaunched{} prób. Kryteria
-kompletności spełniło \FinalTrialsCompleted{} konfiguracji
-(\FinalCompletionRate\% całej puli); cztery rekordy nie zawierały wyniku, a jeden
-pozostał niedokończony. Analiza ilościowa obejmuje wyłącznie 27 kompletnych rekordów.
-
-\begin{table}[htbp]
-\centering
-\caption[Kompletność końcowej serii]{Kompletność końcowej serii HPO}
-\label{tab:final-hpo-completeness}
-\begin{tabular}{lrr}
-\toprule
-Status & Liczba & Udział \\
-\midrule
-Kompletna próba & 27 & 84,4\% \\
-Bez kompletnego wyniku & 4 & 12,5\% \\
-Niedokończona & 1 & 3,1\% \\
-\midrule
-Razem & 32 & 100,0\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Łączny czas ukończonych prób wyniósł \FinalCompletedComputeHours{}~h, a mediana
-czasu pojedynczej konfiguracji \FinalMedianRuntime{}~s. Są to czasy prób modelowych,
-bez jednorazowego pobrania danych i przygotowania środowiska.
+Zrealizowana seria trwała około 1~h 43~min i objęła \FinalTrialsLaunched{} prób
+w ramach maksymalnego budżetu 200 prób lub 11,5~h. Kompletny wynik uzyskano dla
+\FinalTrialsCompleted{} konfiguracji (\FinalCompletionRate\% całej puli) i tylko
+one weszły do dalszej analizy. Ich łączny czas modelowy wyniósł
+\FinalCompletedComputeHours{}~h, a mediana czasu próby \FinalMedianRuntime{}~s.
+Nierówne liczebności rodzin ograniczają porównanie do charakteru opisowego.
 
 \section{Rozkład oficjalnych metryk}
 Tabela~\ref{tab:metric-summary} syntetyzuje wszystkie kompletne konfiguracje.
@@ -76,49 +57,112 @@ CORR Sharpe, późniejszy (88 er) & 0,128 & 0,128 & 24/27 \\
 MMC Sharpe, późniejszy (88 er) & 0,0247 & $-0,0098$ & 13/27 \\
 \bottomrule
 \end{tabular}
+\sourceown
 \end{table}
 
 \section{Rodziny modeli w ustalonym budżecie}
-Najwyższe mediany CORR Sharpe na holdoucie uzyskały CatBoost (0,659; $n=10$)
-i LightGBM (0,655; $n=6$). Mediana XGBoost wyniosła 0,273 ($n=8$), TabICL
+Nazwa rodziny oznacza bazowy estymator użyty wewnątrz
+\path{EraEnsembleModel}, a nie pojedynczy model. Wśród kompletnych prób
+CatBoost wystąpił 10 razy (dziewięć zespołów po 5 modeli bazowych i jeden po 3),
+LightGBM 6 razy (cztery zespoły po 5 i dwa po 3), a XGBoost 8 razy (trzy zespoły
+po 5 i pięć po 3). Każdy taki zespół zawierał ponadto meta-model Ridge.
+TabPFN wystąpił dwukrotnie, a TabICL raz.
+
+Najwyższe mediany CORR Sharpe na holdoucie uzyskały CatBoost (0,659, $n=10$)
+i LightGBM (0,655, $n=6$). Mediana XGBoost wyniosła 0,273 ($n=8$), TabICL
 0,300 ($n=1$), a TabPFN 0,015 ($n=2$). Wszystkie obserwacje i rozrzut przedstawia
 rysunek~\ref{fig:model-family-comparison}.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{model_family_comparison}
 \caption[Wyniki według rodziny modelu]{Oficjalny CORR Sharpe na holdoucie według
 rodziny modelu. Punkty oznaczają kompletne próby, a liczności podano nad grupami.}
 \label{fig:model-family-comparison}
+\includegraphics[width=\textwidth]{model_family_comparison}
+\sourceown
 \end{figure}
 
 \FloatBarrier
 Na późniejszym przedziale mediana LightGBM wyniosła 0,280, CatBoost 0,133, XGBoost 0,036,
 TabPFN 0,108, a TabICL 0,088. Wynik jest opisem badanego budżetu, nie rankingiem
-architektur w ogólności: TPE przydzielił rodzinom różne liczby prób, a modele
-fundamentowe korzystały z limitów liczby przykładów i redukcji wymiaru.
+architektur w ogólności: TPE przydzielił rodzinom różne liczby prób, a modele typu
+foundation korzystały z limitów liczby przykładów i redukcji wymiaru.
 
 \section{Przebieg optymalizacji}
-Pierwsze 20 konfiguracji stanowiło fazę inicjalną TPE. Lider holdoutu pojawił się
-już w próbie 11. Po przejściu do fazy adaptacyjnej poprawił się natomiast najlepszy
-wynik na późniejszym przedziale: próba 22 podniosła maksimum CORR Sharpe z 0,402
-do 0,425. W kolejnych próbach maksimum nie uległo zmianie
+Faza inicjalna trwała do uzyskania 20 kompletnych konfiguracji. Ostatnią
+propozycją startową była próba 22, a pierwszą adaptacyjną propozycją TPE próba 23.
+Lider holdoutu pojawił się w próbie 11.
+Jeszcze w fazie startowej próba 22 podniosła maksimum CORR Sharpe na późniejszym
+przedziale z 0,402 do 0,425. Siedem kompletnych prób adaptacyjnych
+(23-27, 29 i 30) nie poprawiło żadnego z tych maksimów
 (rysunek~\ref{fig:hpo-progression-final}).
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{official_hpo_progression}
 \caption[Przebieg końcowej serii HPO]{Wyniki prób i maksimum narastające dla
 holdoutu oraz późniejszego przedziału. Linia przerywana oddziela fazę inicjalną
 od adaptacji TPE.}
 \label{fig:hpo-progression-final}
+\includegraphics[width=\textwidth]{official_hpo_progression}
+\sourceown
 \end{figure}
 
 \FloatBarrier
-W fazie adaptacyjnej pojawił się kandydat o najlepszym wyniku na późniejszym
-przedziale, mimo że sampler optymalizował holdout. Obserwacja ta opisuje przebieg
-serii, ale nie dowodzi przewagi TPE nad losowym próbkowaniem, ponieważ nie wykonano
-równoległego eksperymentu kontrolnego o tym samym budżecie.
+W zrealizowanym fragmencie fazy adaptacyjnej nie pojawił się nowy lider.
+Obserwacja ta nie dowodzi nieskuteczności TPE: faza obejmowała tylko siedem
+kompletnych prób, a nie wykonano równoległego eksperymentu kontrolnego z losowym
+próbkowaniem o tym samym budżecie.
+
+\section{Scenariuszowa ekstrapolacja dłuższego HPO}
+W celu oceny możliwego efektu dłuższego uruchomienia wykonano symulację
+scenariuszową wyłącznie dla maksimum CORR Sharpe na holdoucie wykorzystanym w badaniu.
+Nie jest to prognoza jakości rynkowej. Wariant empiryczny losuje z siedmiu
+zaobserwowanych wyników adaptacyjnego TPE i nie tworzy niewidzianego ogona.
+Wariant ostrożny estymuje średnią i odchylenie przez bootstrap tych samych siedmiu
+wyników, a następnie wygładza rozkład rozkładem normalnym. Wariant optymistyczny
+stosuje tę samą procedurę do 16 obserwacji LightGBM i CatBoost, czyli rodzin, które
+w zrealizowanej serii miały najwyższe mediany. Dla każdego budżetu wykonano
+200\,000 replikacji z ziarnem 20260830. W każdej replikacji wynik końcowy jest
+większą z wartości obecnego lidera 1,0443 i maksimum przyszłych losowań.
+
+\begin{figure}[htbp]
+\centering
+\caption[Ekstrapolacja budżetu HPO]{Scenariuszowa ekstrapolacja najlepszego CORR
+Sharpe na holdoucie i odsetka replikacji poprawiających obecnego lidera. Pasma oznaczają
+kwantyle 5-95\% między replikacjami, a nie przedziały ufności jakości w rundach bieżących.}
+\label{fig:hpo-budget-extrapolation}
+\includegraphics[width=\textwidth]{hpo_budget_extrapolation}
+\sourceown
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption[Wyniki ekstrapolacji HPO]{Scenariusze maksimum CORR Sharpe na holdoucie
+po zwiększeniu łącznej liczby kompletnych prób}
+\label{tab:hpo-budget-extrapolation}
+\begin{tabular}{llrrrr}
+\toprule
+Scenariusz & Budżet & Średnia & Mediana & Kwantyle 5-95\% & Replikacje z poprawą \\
+\midrule
+Ostrożny TPE & 50 & 1,0481 & 1,0443 & 1,0443-1,0676 & 8,0\% \\
+Ostrożny TPE & 100 & 1,0542 & 1,0443 & 1,0443-1,1151 & 19,9\% \\
+Ostrożny TPE & 200 & 1,0635 & 1,0443 & 1,0443-1,1488 & 33,5\% \\
+Optymistyczny - drzewa & 50 & 1,0634 & 1,0443 & 1,0443-1,1700 & 24,1\% \\
+Optymistyczny - drzewa & 100 & 1,0886 & 1,0443 & 1,0443-1,2398 & 47,0\% \\
+Optymistyczny - drzewa & 200 & 1,1156 & 1,0837 & 1,0443-1,2889 & 63,5\% \\
+\bottomrule
+\end{tabular}
+\sourceown
+\end{table}
+
+Empiryczne przelosowanie siedmiu wyników TPE daje dla każdego budżetu maksimum
+1,0443 i zerowy odsetek replikacji z poprawą, ponieważ najlepszy zaobserwowany wynik tej fazy
+jest niższy od dotychczasowego lidera. Dopiero założenie o ciągłym, niewidzianym
+ogonie rozkładu dopuszcza poprawę. Duża różnica między scenariuszami oraz szerokie
+górne granice pokazują, że wynik jest bardzo wrażliwy na założenia przy zaledwie
+siedmiu próbach adaptacyjnych. Nie ekstrapolowano późniejszego CORR ani MMC,
+ponieważ nie były funkcją celu HPO i służyły już do selekcji kandydatów.
 
 \section{Transfer między przedziałami czasowymi}
 Korelacja Pearsona między CORR Sharpe na holdoucie i późniejszym przedziale wyniosła
@@ -129,16 +173,19 @@ z dobrym wynikiem później i nie zachowuje rankingu konfiguracji
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{holdout_validation_scatter}
 \caption[Holdout a późniejszy przedział]{Zgodność CORR Sharpe między holdoutem
 i późniejszym przedziałem dla 27 kompletnych konfiguracji.}
 \label{fig:holdout-validation-final}
+\includegraphics[width=0.92\textwidth]{holdout_validation_scatter}
+\sourceown
 \end{figure}
 
 \FloatBarrier
-Próba 11 maksymalizuje holdout, lecz na późniejszym przedziale ustępuje próbom 22, 4 i 10.
-To najważniejszy argument za dwustopniową selekcją: holdout steruje HPO, natomiast
-późniejszy przedział rozstrzyga o przenoszeniu sygnału w czasie.
+Próba 11 maksymalizuje wynik na holdoucie, lecz na późniejszym przedziale ustępuje
+próbom 22, 4 i 10. Uzasadnia to zastosowanie dwustopniowej selekcji w tym badaniu:
+holdout steruje HPO, natomiast późniejszy przedział dostarcza dodatkowej informacji
+o zachowaniu konfiguracji w kolejnym okresie. Ponieważ wykorzystano go do wyboru
+kandydatów, nie pełni on funkcji niezależnego zbioru testowego.
 
 \section{Kandydaci końcowi}
 Tabela~\ref{tab:final-candidates} zestawia pięć reprezentatywnych konfiguracji.
@@ -148,7 +195,7 @@ liderem MMC. Próby 10 i 8 pokazują mocne alternatywy z rodzin LightGBM i XGBoo
 \begin{table}[htbp]
 \centering
 \small
-\caption[Końcowi kandydaci]{Oficjalne metryki końcowych kandydatów; HO - holdout,
+\caption[Końcowi kandydaci]{Oficjalne metryki końcowych kandydatów. HO - holdout,
 PP - późniejszy przedział}
 \label{tab:final-candidates}
 \begin{tabular}{rlrrrrrr}
@@ -164,6 +211,7 @@ Próba & Model & \multicolumn{2}{c}{HO CORR} & \multicolumn{2}{c}{PP CORR} & \mu
 8 & XGBoost & 0,02047 & 0,5072 & 0,00705 & 0,1971 & 0,00142 & 0,0450 \\
 \bottomrule
 \end{tabular}
+\sourceown
 \end{table}
 
 W przestrzeni CORR-MMC późniejszego przedziału tylko próby 22 i 4 nie są zdominowane
@@ -173,31 +221,29 @@ wdrożeniowego.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.80\textwidth]{validation_pareto}
 \caption[Front Pareto CORR-MMC]{Front Pareto na późniejszym przedziale. Okręgi
 wyróżniają próby niezdominowane względem CORR Sharpe i MMC Sharpe.}
 \label{fig:validation-pareto-final}
+\includegraphics[width=0.80\textwidth]{validation_pareto}
+\sourceown
 \end{figure}
 
 \FloatBarrier
-Do treningu nastawionego na stabilny CORR wybrano próbę 22. Jest to LightGBM
-z RobustScalerem, selekcją wariancji, 989 cechami z grup
-\texttt{medium+agility+midnight}, 200 rundami, tempem uczenia 0,0200,
-31 liśćmi i neutralizacją cech 0,2373. Jej CORR Sharpe wynosi 0,7149 na
+Do treningu nastawionego na stabilny CORR wybrano próbę 22. Jest to zespół pięciu
+modeli bazowych LightGBM i meta-modelu Ridge,
+z RobustScalerem i grupową selekcją wariancji. Router wskazuje 989 unikalnych
+cech z grup
+\texttt{medium+agility+midnight}, a po selekcji do LightGBM trafia 876 kolumn.
+Model wykorzystuje 200 rund, tempo uczenia 0,0200, 31 liści i neutralizację cech
+0,2373. Jej CORR Sharpe wynosi 0,7149 na
 holdoucie i 0,4247 na późniejszym przedziale, przy dodatnim MMC Sharpe 0,2467.
 
-Próba 4 jest alternatywą nastawioną na MMC. Wykorzystuje CatBoost,
-StandardScaler, 970 cech z sześciu grup, głębokość 5, tempo uczenia 0,0314
+Próba 4 jest alternatywą nastawioną na MMC. Wykorzystuje pięć modeli bazowych
+CatBoost i meta-model Ridge, StandardScaler, 970 cech z grup
+\texttt{small}, \texttt{agility}, \texttt{constitution}, \texttt{dexterity},
+\texttt{faith} oraz \texttt{intelligence}, 2000 rund,
+głębokość 5, tempo uczenia 0,0314
 i neutralizację 0,4947. Osiąga CORR Sharpe 0,4024 oraz MMC Sharpe 0,3063
-na późniejszym przedziale. Próba 11 pozostaje górną granicą jakości na holdoucie:
+na późniejszym przedziale. Próba 11 uzyskała najwyższy wynik na holdoucie:
 CORR Sharpe \FinalBestCorrSharpe{}, średni CORR \FinalBestMeanCorr{}, maksymalne
 obsunięcie \FinalBestDrawdown{} i \FinalBestPositiveEras\% dodatnich er.
-
-\section{Synteza wyników}
-Z tej serii wynosimy trzy konkretne rzeczy. Pełny potok ogarnia miliony wierszy
-i zostawia odtwarzalne artefakty (poniżej 32~min w badanym benchmarku). Przy naszym
-budżecie najwyższe mediany holdoutu miały LightGBM i CatBoost. Późniejsze okno
-przestawiło ranking i zostawiło dwa praktyczne profile: próbę 22 pod CORR oraz
-próbę 4 pod MMC. To pomiary z tej serii, bez ekstrapolacji na pełny trening. Skoro
-okno brało udział w wyborze kandydatów, liczb nie traktujemy jako czystej prognozy
-przyszłego wyniku.

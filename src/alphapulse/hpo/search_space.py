@@ -331,12 +331,10 @@ def sample_random_config(
             "xgb_max_depth": rng.choice([3, 5]),
             "xgb_learning_rate": _loguniform(3e-3, 0.05, rng),
             "xgb_n_rounds": rng.choice([200, 300, 400]),
-            "xgb_early_stopping": rng.choice([20, 30, 50]),
             "lgbm_num_leaves": rng.choice([16, 31, 63]),
             "lgbm_learning_rate": _loguniform(5e-3, 0.05, rng),
             "lgbm_n_rounds": rng.choice([300, 500, 800]),
             "lgbm_min_child_samples": rng.choice([100, 200]),
-            "lgbm_early_stopping": rng.choice([50, 100]),
             "lgbm_reg_alpha": rng.uniform(0.1, 2.0),
             "lgbm_reg_lambda": rng.uniform(1.0, 10.0),
             "lgbm_colsample_bytree": rng.uniform(0.2, 0.5),
@@ -345,7 +343,11 @@ def sample_random_config(
             "catboost_learning_rate": _loguniform(0.01, 0.05, rng),
             "catboost_l2_leaf_reg": rng.uniform(3.0, 15.0),
             "catboost_min_data_in_leaf": rng.choice([100, 200, 500]),
-            "catboost_colsample_bylevel": rng.uniform(0.2, 0.4),
+            **(
+                {"catboost_colsample_bylevel": rng.uniform(0.2, 0.4)}
+                if not use_gpu
+                else {}
+            ),
             "packboost_model_n_worst_eras": 3,
             "packboost_model_boost_weight": rng.uniform(0.2, 0.3),
             "packboost_model_n_rounds_base": 300,
@@ -388,12 +390,10 @@ def sample_random_config(
         "xgb_max_depth": rng.choice([3, 5, 7]),
         "xgb_learning_rate": _loguniform(1e-3, 0.1, rng),
         "xgb_n_rounds": rng.choice([300, 500, 800]),
-        "xgb_early_stopping": rng.choice([30, 50, 100]),
         "lgbm_num_leaves": rng.choice([16, 31, 63]),
         "lgbm_learning_rate": _loguniform(5e-3, 0.05, rng),
         "lgbm_n_rounds": rng.choice([300, 500, 800, 1500]),
         "lgbm_min_child_samples": rng.choice([100, 200, 500]),
-        "lgbm_early_stopping": rng.choice([50, 100]),
         "lgbm_reg_alpha": rng.uniform(0.1, 2.0),
         "lgbm_reg_lambda": rng.uniform(1.0, 10.0),
         "lgbm_colsample_bytree": rng.uniform(0.2, 0.5),
@@ -402,7 +402,9 @@ def sample_random_config(
         "catboost_learning_rate": _loguniform(0.01, 0.05, rng),
         "catboost_l2_leaf_reg": rng.uniform(3.0, 15.0),
         "catboost_min_data_in_leaf": rng.choice([100, 200, 500]),
-        "catboost_colsample_bylevel": rng.uniform(0.2, 0.4),
+        **(
+            {"catboost_colsample_bylevel": rng.uniform(0.2, 0.4)} if not use_gpu else {}
+        ),
         "packboost_model_n_worst_eras": rng.choice([3, 5, 7]),
         "packboost_model_boost_weight": rng.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": rng.choice([300, 500]),
@@ -423,9 +425,7 @@ def sample_random_config(
         cfg["num_models"] = rng.choice([1, 2])
         cfg["n_subs"] = rng.choice([3, 5])
         cfg["xgb_n_rounds"] = rng.choice([150, 250, 400])
-        cfg["xgb_early_stopping"] = rng.choice([20, 30, 50])
         cfg["lgbm_n_rounds"] = rng.choice([200, 400, 600])
-        cfg["lgbm_early_stopping"] = rng.choice([30, 50])
         cfg["packboost_n_rounds_base"] = rng.choice([150, 250, 350])
         cfg["packboost_model_n_rounds_base"] = rng.choice([200, 300])
         cfg["foundation_max_train_rows"] = rng.choice([2_000, 3_000, 5_000])
@@ -480,14 +480,12 @@ def get_full_param_space(
         "xgb_max_depth": tune.choice([3, 5, 7]),
         "xgb_learning_rate": tune.loguniform(1e-3, 0.1),
         "xgb_n_rounds": tune.choice([150, 250, 400] if fast else [300, 500, 800]),
-        "xgb_early_stopping": tune.choice([20, 30, 50] if fast else [30, 50, 100]),
         "lgbm_num_leaves": tune.choice([16, 31, 63, 127]),
         "lgbm_learning_rate": tune.loguniform(5e-3, 0.05),
         "lgbm_n_rounds": tune.choice(
             [200, 400, 600] if fast else [300, 500, 800, 1500]
         ),
         "lgbm_min_child_samples": tune.choice([100, 200, 500]),
-        "lgbm_early_stopping": tune.choice([30, 50] if fast else [50, 100]),
         "packboost_model_n_worst_eras": tune.choice([3, 5, 7]),
         "packboost_model_boost_weight": tune.uniform(0.2, 0.5),
         "packboost_model_n_rounds_base": tune.choice([300, 500]),

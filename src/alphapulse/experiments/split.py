@@ -16,7 +16,10 @@ def internal_val_split(
     era_train: pd.Series | None = None,
     *,
     force_internal: bool = False,
+    purge_eras: int = 0,
 ) -> tuple[Any, Any, Any, Any]:
+    if purge_eras < 0:
+        raise ValueError("purge_eras must be >= 0")
     if not y_train.index.equals(X_train.index):
         X_train = X_train.reset_index(drop=True)
         y_train = y_train.reset_index(drop=True)
@@ -32,12 +35,22 @@ def internal_val_split(
         if len(unique_eras) >= MIN_ERAS_FOR_INTERNAL_SPLIT:
             n_val_eras = max(1, int(len(unique_eras) * INTERNAL_VAL_ERA_FRACTION))
             val_eras = set(unique_eras[-n_val_eras:])
-            mask = era_train.isin(val_eras)
+            val_start = len(unique_eras) - n_val_eras
+            train_end = max(0, val_start - purge_eras)
+            if train_end == 0:
+                raise ValueError(
+                    "Internal validation split leaves no training eras after purge: "
+                    f"eras={len(unique_eras)}, val_eras={n_val_eras}, "
+                    f"purge_eras={purge_eras}"
+                )
+            train_eras = set(unique_eras[:train_end])
+            train_mask = era_train.isin(train_eras)
+            val_mask = era_train.isin(val_eras)
             return (
-                X_train[~mask],
-                y_train[~mask],
-                X_train[mask],
-                y_train[mask],
+                X_train[train_mask],
+                y_train[train_mask],
+                X_train[val_mask],
+                y_train[val_mask],
             )
         return X_train, y_train, None, None
 

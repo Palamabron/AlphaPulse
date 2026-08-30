@@ -220,10 +220,11 @@ def test_ray_search_space_disables_meta_neutralization(
             return "loguniform", low, high
 
     monkeypatch.setattr(search_space, "tune", FakeTune())
-    param_space = search_space.get_full_param_space()
+    param_space = search_space.get_full_param_space(use_gpu=True)
 
     assert param_space["use_meta_neutralization"] is False
     assert "meta_neutralization_proportion" not in param_space
+    assert "catboost_colsample_bylevel" not in param_space
 
 
 def test_best_criteria_auto_and_explicit_objective_are_distinct() -> None:
@@ -469,6 +470,32 @@ def test_sample_random_config_fast_tighter_bounds() -> None:
         config.get("model_2_type"),
         config.get("model_3_type"),
     )
+
+
+@pytest.mark.parametrize("phase", ["phase_a", "phase_b"])
+def test_random_gpu_sampling_omits_dead_catboost_colsample(phase: str) -> None:
+    gpu_config = sample_random_config(seed=42, phase=phase, use_gpu=True)
+    cpu_config = sample_random_config(seed=42, phase=phase, use_gpu=False)
+
+    assert "catboost_colsample_bylevel" not in gpu_config
+    assert "catboost_colsample_bylevel" in cpu_config
+
+
+def test_old_gpu_catboost_config_remains_readable() -> None:
+    from alphapulse.hpo.search_space import resolve_flat_config
+
+    resolved = resolve_flat_config(
+        {
+            "num_models": 1,
+            "model_1_type": "CatBoost",
+            "use_gpu": True,
+            "catboost_colsample_bylevel": 0.237,
+        }
+    )
+
+    params = resolved["models"][0]["params"]["params"]
+    assert params["task_type"] == "GPU"
+    assert "colsample_bylevel" not in params
 
 
 @pytest.mark.parametrize("phase", ["phase_a", "phase_b"])

@@ -100,6 +100,27 @@ def test_instantiate_catboost_gpu_strips_colsample_bylevel() -> None:
     assert "colsample_bylevel" not in base.params
 
 
+def test_model_factory_gpu_catboost_does_not_suggest_colsample() -> None:
+    from unittest.mock import MagicMock
+
+    from alphapulse.models.era_ensemble_model import EraEnsembleModel
+
+    trial = MagicMock()
+    trial.suggest_categorical.return_value = "catboost"
+    trial.suggest_int.return_value = 5
+    trial.suggest_float.return_value = 0.1
+
+    model = ModelFactory(use_gpu=True).suggest(trial)
+
+    assert isinstance(model, EraEnsembleModel)
+    base = model.base_model_factory()
+    assert isinstance(base, CatBoostModel)
+    assert base.params["task_type"] == "GPU"
+    assert "colsample_bylevel" not in base.params
+    suggested_floats = [call.args[0] for call in trial.suggest_float.call_args_list]
+    assert "model_cb_colsample" not in suggested_floats
+
+
 def test_ensemble_optimizer_fit_predict() -> None:
     rng = np.random.RandomState(0)
     n = 200
@@ -156,3 +177,64 @@ def test_xgboost_ray_callbacks_return_training_callback_instances(
     callbacks = xgboost_model._make_ray_callbacks()
     assert len(callbacks) == 1
     assert isinstance(callbacks[0], xgb.callback.TrainingCallback)
+
+
+def test_xgboost_predict_uses_best_iteration(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    from alphapulse.models import xgboost_model
+
+    class FakeBooster:
+        best_iteration = 4
+
+        def __init__(self) -> None:
+            self.predict_kwargs: dict[str, Any] | None = None
+
+        def predict(self, _data: object, **kwargs: Any) -> np.ndarray:
+            self.predict_kwargs = kwargs
+            return np.array([0.25, 0.75])
+
+    fake_xgb = types.SimpleNamespace(
+        DMatrix=lambda data: data,
+        core=types.SimpleNamespace(XGBoostError=RuntimeError),
+    )
+    monkeypatch.setattr(xgboost_model, "_require_xgboost", lambda: fake_xgb)
+    booster = FakeBooster()
+    model = xgboost_model.XGBoostModel()
+    model.model = booster
+    model.is_trained = True
+
+    predictions = model.predict(pd.DataFrame({"feature": [1.0, 2.0]}))
+
+    np.testing.assert_allclose(predictions, [0.25, 0.75])
+    assert booster.predict_kwargs == {"iteration_range": (0, 5)}
+
+
+def test_xgboost_predict_without_early_stopping_uses_all_trees(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    from alphapulse.models import xgboost_model
+
+    class FakeBooster:
+        def __init__(self) -> None:
+            self.predict_kwargs: dict[str, Any] | None = None
+
+        def predict(self, _data: object, **kwargs: Any) -> np.ndarray:
+            self.predict_kwargs = kwargs
+            return np.array([0.5])
+
+    fake_xgb = types.SimpleNamespace(
+        DMatrix=lambda data: data,
+        core=types.SimpleNamespace(XGBoostError=RuntimeError),
+    )
+    monkeypatch.setattr(xgboost_model, "_require_xgboost", lambda: fake_xgb)
+    booster = FakeBooster()
+    model = xgboost_model.XGBoostModel()
+    model.model = booster
+    model.is_trained = True
+
+    model.predict(pd.DataFrame({"feature": [1.0]}))
+
+    assert booster.predict_kwargs == {}

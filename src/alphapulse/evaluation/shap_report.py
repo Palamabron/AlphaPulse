@@ -66,7 +66,14 @@ def _collect_sklearn_tree_models(pipeline: PipelineLike) -> _ModelList:
 def _xgb_contribs(model: XGBoostModel, X: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
     feat = _numeric(X)
     dmat = xgb.DMatrix(feat)
-    contribs = model.model.predict(dmat, pred_contribs=True)
+    predict_kwargs: dict[str, object] = {"pred_contribs": True}
+    try:
+        best_iteration = model.model.best_iteration
+    except (AttributeError, xgb.core.XGBoostError):
+        best_iteration = None
+    if best_iteration is not None:
+        predict_kwargs["iteration_range"] = (0, int(best_iteration) + 1)
+    contribs = model.model.predict(dmat, **predict_kwargs)
     cols = list(feat.columns)
     return np.asarray(contribs, dtype=np.float64), cols
 

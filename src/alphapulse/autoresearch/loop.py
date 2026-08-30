@@ -56,6 +56,7 @@ def _run_one_trial(
     random.seed(seed)
 
     t0 = time.perf_counter()
+    internal_purge_eras = effective_purge_eras(WF_N_PURGE, [target_col])
 
     def train_fn(X_tr: pd.DataFrame, y_tr: pd.Series) -> Any:
         pipeline = build_pipeline_or_multi(config, feature_columns=feature_cols)
@@ -65,7 +66,11 @@ def _run_one_trial(
             and len(config.get("models", [])) > 1
         )
         X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-            X_tr, y_tr, era_train=era_col, force_internal=stacking_needs_val
+            X_tr,
+            y_tr,
+            era_train=era_col,
+            force_internal=stacking_needs_val,
+            purge_eras=internal_purge_eras,
         )
         pipeline.fit(X_fit, y_fit, X_val=X_val_inner, y_val=y_val_inner)
         return pipeline
@@ -73,7 +78,7 @@ def _run_one_trial(
     metrics = EraSplitEvaluator(
         feature_columns=feature_cols,
         n_splits=WF_N_SPLITS,
-        n_purge=effective_purge_eras(WF_N_PURGE, [target_col]),
+        n_purge=internal_purge_eras,
         min_train_eras=WF_MIN_TRAIN_ERAS,
     ).evaluate_walk_forward(
         X_train, y_train, era_train, train_fn, meta_model=meta_model

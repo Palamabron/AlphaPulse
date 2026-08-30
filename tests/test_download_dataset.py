@@ -40,6 +40,40 @@ class _NumerAPI:
         pd.DataFrame({"value": [1.0]}).to_parquet(destination)
 
 
+def test_download_config_does_not_materialize_credentials_in_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NUMERAI_PUBLIC_API_KEY", "public-value-that-must-stay-hidden")
+    monkeypatch.setenv("NUMERAI_PRIVATE_API_KEY", "secret-value-that-must-stay-hidden")
+
+    config = DownloadConfig(files=["train.parquet"])
+
+    assert config.public_id is None
+    assert config.secret_key is None
+
+
+def test_download_dataset_resolves_environment_credentials_at_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+    monkeypatch.setenv("NUMERAI_PUBLIC_API_KEY", "public-runtime-value")
+    monkeypatch.setenv("NUMERAI_PRIVATE_API_KEY", "secret-runtime-value")
+
+    def factory(**kwargs: Any) -> _NumerAPI:
+        captured.update(kwargs)
+        return _NumerAPI(list_error=OSError("offline"))
+
+    monkeypatch.setattr(download_dataset.numerapi, "NumerAPI", factory)
+
+    with pytest.raises(RuntimeError, match="Failed to list datasets"):
+        download_dataset.main(
+            DownloadConfig(output_dir=tmp_path, files=["train.parquet"])
+        )
+
+    assert captured["public_id"] == "public-runtime-value"
+    assert captured["secret_key"] == "secret-runtime-value"  # noqa: S105
+
+
 def test_download_dataset_fails_when_listing_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

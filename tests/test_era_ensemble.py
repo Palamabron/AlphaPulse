@@ -98,6 +98,51 @@ def test_era_ensemble_meta_model_uses_separate_validation_rows(
     assert isinstance(model._meta_model, Ridge)
 
 
+def test_era_ensemble_reserves_validation_for_meta_learner() -> None:
+    calls: list[dict[str, object]] = []
+
+    class RecordingModel(XGBoostModel):
+        def train(  # type: ignore[override]
+            self,
+            X_train: pd.DataFrame,
+            y_train: pd.Series,
+            X_val: pd.DataFrame | None = None,
+            y_val: pd.Series | None = None,
+            **kwargs: object,
+        ) -> dict[str, float]:
+            calls.append(
+                {
+                    "X_val": X_val,
+                    "y_val": y_val,
+                    "early_stopping_rounds": kwargs.get("early_stopping_rounds"),
+                }
+            )
+            self.is_trained = True
+            return {}
+
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            return np.zeros(len(X), dtype=np.float64)
+
+    X = pd.DataFrame(
+        {"feature": np.arange(12, dtype=float), "era": np.repeat(["1", "2", "3"], 4)}
+    )
+    y = pd.Series(np.arange(12, dtype=float))
+    model = EraEnsembleModel(lambda: RecordingModel(), n_subs=2)
+
+    model.train(
+        X.iloc[:8],
+        y.iloc[:8],
+        X_val=X.iloc[8:],
+        y_val=y.iloc[8:],
+        early_stopping_rounds=3,
+    )
+
+    assert calls
+    assert all(call["X_val"] is None for call in calls)
+    assert all(call["y_val"] is None for call in calls)
+    assert all(call["early_stopping_rounds"] is None for call in calls)
+
+
 def test_era_ensemble_fallback_no_era(xgb_factory: Callable[[], XGBoostModel]) -> None:
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("ABCD"))

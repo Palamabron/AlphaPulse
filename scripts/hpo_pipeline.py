@@ -75,6 +75,7 @@ from alphapulse.utils.gpu_cleanup import (
     release_cuda_memory,
     snapshot_process_tree,
 )
+from alphapulse.validation.purge import effective_purge_eras
 
 _MP_CTX = multiprocessing.get_context("spawn")
 _WANDB_GROUP_FILE = "wandb_group.txt"
@@ -832,6 +833,25 @@ def _load_diagnostics_train_data(
     return X_train, y_train, targets_df, feature_cols, routing.feature_groups
 
 
+def _diagnostic_era_sets(
+    era_train: pd.Series,
+    purge_eras: int,
+) -> tuple[set[Any], set[Any]]:
+    if purge_eras < 0:
+        raise ValueError("purge_eras must be >= 0")
+    eras_sorted = sorted(era_train.unique(), key=str)
+    n_holdout = max(5, len(eras_sorted) // 5)
+    holdout_start = len(eras_sorted) - n_holdout
+    train_end = holdout_start - purge_eras
+    if train_end <= 0:
+        raise ValueError(
+            "Diagnostic split leaves no training eras after purge: "
+            f"eras={len(eras_sorted)}, holdout_eras={n_holdout}, "
+            f"purge_eras={purge_eras}"
+        )
+    return set(eras_sorted[:train_end]), set(eras_sorted[holdout_start:])
+
+
 def _run_best_trial_diagnostics(
     *,
     best_config: dict,
@@ -887,12 +907,19 @@ def _run_best_trial_diagnostics(
             )
         )
         era_train = X_train["era"]
-        primary_target = strategy_from_flat(best_config).primary_target
+        target_strategy = strategy_from_flat(best_config)
+        primary_target = target_strategy.primary_target
 
-        eras_sorted = sorted(era_train.unique(), key=str)
-        n_holdout = max(5, len(eras_sorted) // 5)
-        holdout_set = set(eras_sorted[-n_holdout:])
-        train_mask = ~era_train.isin(holdout_set)
+        configured_purge = max(
+            int(best_config.get("purge_eras", 8)),
+            int(best_config.get("effective_purge_eras", 0)),
+        )
+        diagnostic_purge = effective_purge_eras(
+            configured_purge,
+            [target_strategy.primary_target, *target_strategy.auxiliary_targets],
+        )
+        train_set, holdout_set = _diagnostic_era_sets(era_train, diagnostic_purge)
+        train_mask = era_train.isin(train_set)
 
         pipeline_cfg = resolve_flat_config(best_config)
         if best_config.get("use_gpu"):

@@ -29,6 +29,7 @@ def _write_toy_dataset(data_dir: Path, *, n: int = 400) -> list[str]:
         {
             "era": eras,
             "target": rng.standard_normal(n),
+            "target_ender_60": rng.standard_normal(n),
             "target_alpha_20": rng.standard_normal(n),
             "f_a": rng.standard_normal(n),
             "f_b": rng.standard_normal(n),
@@ -42,7 +43,7 @@ def _write_toy_dataset(data_dir: Path, *, n: int = 400) -> list[str]:
             "medium": ["f_a", "f_b", "f_c"],
             "strength": ["f_a", "f_c"],
         },
-        "targets": ["target", "target_alpha_20"],
+        "targets": ["target", "target_ender_60", "target_alpha_20"],
     }
     (data_dir / "features.json").write_text(json.dumps(features), encoding="utf-8")
     return ["f_a", "f_b", "f_c"]
@@ -163,6 +164,37 @@ def test_export_reuses_persisted_data_and_model_seeds(
     )
 
     assert observed == {"data_seed": 17, "model_seed": 71}
+
+
+def test_export_derives_target_safe_internal_purge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import alphapulse.hpo.export as export_module
+
+    data_dir = tmp_path / "data"
+    _write_toy_dataset(data_dir)
+    observed: dict[str, int] = {}
+
+    def recording_fit(context: Any, *args: Any, **kwargs: Any) -> object:
+        observed["effective_purge_eras"] = int(context.flat["effective_purge_eras"])
+        return object()
+
+    monkeypatch.setattr(export_module, "fit_hpo_pipeline", recording_fit)
+
+    result = build_hpo_pipeline_from_flat(
+        {
+            **_minimal_flat(),
+            "primary_target": "target_ender_60",
+            "purge_eras": 0,
+        },
+        data_dir,
+        train_subsample=1.0,
+        seed=42,
+    )
+
+    assert observed["effective_purge_eras"] == 16
+    assert result.flat["effective_purge_eras"] == 16
 
 
 def test_export_multi_blend_config(tmp_path: Path) -> None:
