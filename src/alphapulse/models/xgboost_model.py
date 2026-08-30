@@ -175,7 +175,16 @@ class XGBoostModel(BaseModel):
         self._require_trained()
         feat = _numeric(X)
         dtest = xgb.DMatrix(feat)
-        return np.asarray(self.model.predict(dtest), dtype=np.float64)
+        predict_kwargs: dict[str, Any] = {}
+        try:
+            best_iteration = self.model.best_iteration
+        except (AttributeError, xgb.core.XGBoostError):
+            best_iteration = None
+        if best_iteration is not None:
+            # Native Booster.predict otherwise evaluates every stored tree,
+            # including rounds after the early-stopping optimum.
+            predict_kwargs["iteration_range"] = (0, int(best_iteration) + 1)
+        return np.asarray(self.model.predict(dtest, **predict_kwargs), dtype=np.float64)
 
     def save(self, path: Path) -> None:
         self._require_trained()

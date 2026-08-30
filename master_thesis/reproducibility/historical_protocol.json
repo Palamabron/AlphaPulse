@@ -1,0 +1,42 @@
+{
+  "audit_notes": [
+    "The source tree hash does not identify a reconstructible Git snapshot.",
+    "The current code adds an inner target-aware purge that was absent historically."
+  ],
+  "historical_record": {
+    "data_dir": "H:\\Studia\\magisterskie\\magisterka\\AlphaPulse\\data\\v5.3",
+    "data_seed": 20260824,
+    "evaluation_mode": "purged_holdout",
+    "excluded_logical_cpu": 17,
+    "feature_columns_sha256": "3156e658b4c7a6e4d6d5475253d8b3574ef6e9b2959f3633abf40cc4ca97f7aa",
+    "features_json_sha256": "27de6b598b0d479415dba8062d050fc190469776f9c905feea9ee3f2bdda3631",
+    "git_commit": "1a86893afc8b760048bbecf7b8a137386ba0d3b2",
+    "gpu": true,
+    "logical_cpu_count": 16,
+    "max_models": 1,
+    "meta_model_parquet_sha256": "c9b14fa4ce50b0cda971dfa3977b41701deed58c274efb76fdc92de2856652b1",
+    "multi_target": false,
+    "n_startup_trials": 20,
+    "objective": "numerai_corr_sharpe",
+    "official_metric_reference": "numerai-tools==0.6.0",
+    "protocol_version": "corrected-hpo-2026-08-v5",
+    "purge_eras": 16,
+    "python_version": "3.12.12 (main, Feb 12 2026, 00:40:26) [MSC v.1944 64 bit (AMD64)]",
+    "resolved_model_pool": [
+      "XGBoost",
+      "LightGBM",
+      "CatBoost",
+      "TabPFN",
+      "TabICL"
+    ],
+    "sample_index_sha256": "5bcdcc31e6a2b97dd2778f5c1c740a2421614bbf1d98f13b3609a7e0bfd31266",
+    "sampled_rows": 274627,
+    "sampler": "tpe",
+    "source_tree_sha256": "1646a5c2327d863a8930f69ce1a4b2b67374a5c466936ef1192abc2193ef17f9",
+    "target_col": "target_ender_60",
+    "train_parquet_sha256": "bae773ddd7eea6ed07c55d87b882cc061901abbb724972b2a630381417c328f8",
+    "train_subsample": 0.1,
+    "validation_parquet_sha256": "676e14f8847ccc52e85f17d89567ced84beca3d92b0e1a8ba531fee2390dd4fd"
+  },
+  "source_artifact": "artifacts/hpo_v53_12h_stable_cores_20260824/protocol.json"
+}

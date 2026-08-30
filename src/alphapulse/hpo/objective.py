@@ -176,6 +176,7 @@ def _fit_pipeline(
 
     era_col = X_fit_src["era"] if "era" in X_fit_src.columns else None
     force_internal = needs_internal_val_for_ensemble(pipeline_cfg)
+    internal_purge_eras = int((flat_config or {}).get("effective_purge_eras", 0))
 
     if _is_multi_target(flat_config):
         assert flat_config is not None
@@ -190,6 +191,7 @@ def _fit_pipeline(
             y_fit_src,
             era_train=era_col,
             force_internal=force_internal,
+            purge_eras=internal_purge_eras,
         )
         targets_split = (
             targets_fit.loc[X_fit_src.index] if targets_fit is not None else None
@@ -228,7 +230,11 @@ def _fit_pipeline(
     )
     logger.info("Trial pipeline built; preparing internal split")
     X_fit, y_fit, X_val_inner, y_val_inner = internal_val_split(
-        X_fit_src, y_fit_src, era_train=era_col, force_internal=force_internal
+        X_fit_src,
+        y_fit_src,
+        era_train=era_col,
+        force_internal=force_internal,
+        purge_eras=internal_purge_eras,
     )
     logger.info("Internal split ready; fitting trial pipeline")
     era_val_fit = (

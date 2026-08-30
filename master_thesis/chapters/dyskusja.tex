@@ -1,0 +1,144 @@
+\chapter{Dyskusja i zakończenie}
+
+\section{Realizacja celu pracy}
+Głównym celem pracy było stworzenie konfigurowalnego środowiska AutoML dla
+finansowych potoków predykcyjnych w turnieju Numerai. Cel zrealizowano na trzech
+poziomach: projektu architektury, implementacji oraz weryfikacji empirycznej.
+AlphaPulse łączy pobieranie danych, walidowany schemat YAML, kierowanie cech do
+modeli, optymalizację hiperparametrów, ocenę z zachowaniem porządku czasowego,
+zapis proweniencji i eksport funkcji predykcyjnej. Benchmark pełnoskalowy wykazał,
+że kompletny przepływ może zostać wykonany na całym badanym zbiorze. Seria HPO
+na danych v5.3 pokazała natomiast, że system umożliwia porównywanie różnych
+konfiguracji według jednego protokołu uwzględniającego wymagania domenowe.
+
+Wartość rozwiązania nie sprowadza się do pojedynczego estymatora. Głównym
+rezultatem inżynierskim jest kontrolowane środowisko eksperymentalne:
+konfiguracja opisuje zamierzony przebieg eksperymentu, warstwa wykonawcza stosuje
+ustalony podział i sposób obliczania metryk, a baza prób wiąże wyniki z wersją
+kodu, danymi i ziarnem losowym. Takie rozdzielenie odpowiada założeniom
+współczesnego AutoML i uzupełnia je o wymagania właściwe dla danych finansowych
+\sourcecite{automl-survey,optuna,ray}.
+
+\section{Interpretacja wyników modelowych}
+Najwyższe mediany CORR Sharpe na holdoucie uzyskały konfiguracje z bazowymi
+estymatorami LightGBM i CatBoost. W każdej próbie z modelem drzewiastym
+estymator był jednak opakowany w \path{EraEnsembleModel}: trzy lub pięć modeli
+bazowych trenowano na rozłącznych partycjach er, a ich predykcje łączył model
+Ridge uczony na wewnętrznym przedziale walidacyjnym. Wynik dotyczy zatem rodzin
+bazowych w tej konkretnej konstrukcji zespołowej, a nie pojedynczych
+estymatorów. Jest on zgodny z badaniami wskazującymi gradient boosting jako
+silną klasę metod dla danych tabelarycznych
+\sourcecite{lightgbm,catboost,grinsztajn}. Nie dowodzi jednak uniwersalnej przewagi
+tych algorytmów: poszczególne rodziny miały różne liczby prób, a modele typu
+foundation działały z bardziej restrykcyjnymi limitami pamięci.
+
+Dodatnia, ale umiarkowana korelacja wyników między holdoutem a późniejszym
+przedziałem wskazuje, że jakość konfiguracji nie przenosi się w czasie w sposób
+jednoznaczny. Separacja typu purge ogranicza przeciek wynikający z nakładania
+się horyzontu celu, lecz nie usuwa niestacjonarności rynku
+\sourcecite{lopez,bergmeir-cv}. Późniejszy przedział obejmujący 88 er nie wpływał na
+decyzje samplera, ale posłużył do oceny transferu i wyboru prób 22 i 4. Nie jest
+więc niezależnym zbiorem testowym \sourcecite{cawley-talbot,varma-simon}.
+
+Próby 22 i 4 tworzą front Pareto na późniejszym przedziale. Próba 22 uzyskała
+najwyższy CORR Sharpe przy dodatnim MMC Sharpe, natomiast próba 4 osiągnęła
+najwyższy MMC Sharpe przy nieco niższym CORR Sharpe. Reprezentują dwa profile:
+pierwszy akcentuje zgodność predykcji z celem, a drugi ich wkład niezależny od
+Meta Modelu \sourcecite{numerai-corr,numerai-mmc}. Obie próby należały jeszcze do
+losowej fazy startowej TPE. Pierwszą próbą adaptacyjną była próba 23. Wyników
+prób 22 i 4 nie można zatem przypisywać adaptacyjnemu działaniu samplera.
+
+\section{Odpowiedzi na pytania eksperymentalne}
+\begin{enumerate}
+    \item \textbf{Wykonalność na pełnym zbiorze i zapis przebiegu} Potok przetworzył
+    2,75 mln wierszy uczących i 3,90 mln wierszy walidacyjnych w 31,5 min.
+    Uruchomienie zapisało konfigurację, jej skrót, metryki i artefakty. Końcowa
+    seria HPO utrwalała dodatkowo skróty danych i drzewa źródeł
+    \item \textbf{Rodziny modeli} W zrealizowanym budżecie najwyższe mediany
+    na holdoucie uzyskały zespoły erowe z bazowymi modelami CatBoost i LightGBM.
+    Porównanie ma charakter opisowy, ponieważ liczba prób dla rodzin była różna,
+    a konfiguracje nie tworzyły kontrolowanej ablacji
+    \item \textbf{Transfer i kompromis CORR-MMC} Zgodność wyników na dwóch
+    przedziałach była dodatnia, ale umiarkowana. Próby 22 i 4 utworzyły front
+    Pareto i reprezentują odpowiednio profil CORR oraz MMC
+    \item \textbf{Koszt i kompletność procesu} Uruchomiono 32 próby, z których
+    27 zakończyło się kompletnym wynikiem. Mediana czasu kompletnej próby
+    wyniosła 127,2 s. Wykonanie przerwano przed osiągnięciem górnego limitu
+    200 prób lub 11,5 godziny, dlatego wyniki opisują faktycznie zrealizowany,
+    mniejszy budżet
+    \item \textbf{Wrażliwość na hipotetyczny budżet} W scenariuszu ostrożnym
+    33,5\% replikacji dla 200 kompletnych prób poprawiało obecnego lidera, a
+    w wariancie optymistycznym 63,5\%. Rozpiętość potwierdza dominujący wpływ
+    założeń przy zaledwie siedmiu obserwacjach adaptacyjnych. Wartości nie są
+    estymowanymi prawdopodobieństwami ani prognozą jakości live
+\end{enumerate}
+
+Odpowiedzi wynikają z pomiarów oraz analiz scenariuszowych opartych na zapisanych
+artefaktach. Nie można na ich podstawie wnioskować o skróceniu czasu pracy
+człowieka, o przewadze AutoResearch nad TPE ani o przewadze TPE nad próbkowaniem
+losowym.
+
+\section{Znaczenie inżynierskie}
+Projekt pokazuje, że wymagania domenowe można odwzorować w kontraktach
+oprogramowania. Kolumna ery nie jest traktowana jak zwykła cecha, lecz steruje
+podziałem danych. Horyzont celu wyznacza wymaganą separację czasową, oficjalne
+metryki są częścią ewaluatora, a referencyjna funkcja \path{predict.pkl} dla
+Model Upload jest sprawdzana lokalnie w odizolowanym podprocesie. Test syntetyczny
+nie zastępuje weryfikacji kandydatów 22 i 4 w oficjalnym środowisku Numerai.
+Ryzyko metodologiczne jest dzięki temu ograniczane przez architekturę systemu,
+a nie wyłącznie przez dyscyplinę osoby prowadzącej eksperyment.
+
+Istotną rolę pełni warstwa artefaktów. Plik \path{protocol.json} dokumentuje
+dane wejściowe i reguły badania, \path{trials.db} przechowuje stan prób, a W\&B
+umożliwia porównywanie przebiegów i diagnostyk. Eksport \path{predict.pkl}
+łączy etap eksperymentalny z inferencją na danych live.
+
+\section{Ograniczenia}
+Seria obejmuje 10\% danych, jedno ziarno próbkowania i 27 kompletnych konfiguracji
+bez powtórzeń wieloziarnowych. Nierówne liczebności rodzin oraz krótka faza
+adaptacyjna oznaczają, że porównania są opisowe i nie pozwalają wyznaczyć
+niepewności rankingu.
+
+Holdout był funkcją celu, a późniejszy przedział służył także do wyboru
+kandydatów, więc żaden z nich nie stanowi niezależnego testu końcowego. Wyniki
+historyczne odnoszą się ponadto do wariantu zespołu, w którym meta-model Ridge
+dopasowano na 50 erach bez dodatkowej wewnętrznej strefy purge. Z tego względu
+kandydaci wymagają ponownej oceny na nowych okresach.
+
+Ekstrapolacja budżetu jest analizą scenariuszową opartą na małej liczbie prób i
+nie uwzględnia pełnego treningu ani jakości live. Benchmark pełnoskalowy korzysta
+z innej wersji danych i celu niż HPO, a brak kontrolowanego baseline'u i ablacji
+nie pozwala przypisać różnic jakości pojedynczym elementom konfiguracji. Wyników
+nie należy interpretować jako prognozy stopy zwrotu ani argumentu za stakingiem.
+
+\section{Rekomendacja wdrożeniowa i dalszy rozwój}
+Próby 22 i 4 są kandydatami do ponownego, kontrolowanego treningu. Oba profile
+wymagają oceny dla wielu ziaren i na kroczących oknach. Dopiero wyniki kolejnych,
+niewykorzystanych do selekcji rund mogą uzasadnić wdrożenie lub staking.
+
+Dalsze badania powinny objąć kontrolowany baseline, ablacje kierowania cech,
+selekcji wariancji, liczby partycji EraEnsemble i neutralizacji oraz pełne
+wykorzystanie z góry ustalonego budżetu. AutoResearch należy porównać z TPE
+przy tej samej przestrzeni i liczbie ocen. Rozwój produkcyjny może ponadto objąć
+harmonogram ponownego treningu, automatyczną walidację artefaktu i monitorowanie
+zmian metryk dla kolejnych er.
+Jeżeli HPO zostanie wznowione, wyniki należy raportować w ustalonych z góry
+punktach kontrolnych (np. 50, 100 i 200 kompletnych prób) i porównać je z
+przedstawionymi scenariuszami, zamiast traktować symulację jako oczekiwany wynik.
+
+\section{Wnioski końcowe}
+AlphaPulse realizuje kompletny cykl eksperymentalny dla Numerai: od danych
+i deklaratywnej konfiguracji, przez walidację czasową i optymalizację
+hiperparametrów, po diagnostykę i eksport. W historycznej serii system obsłużył
+trening pełnoskalowy oraz pozwolił wyłonić dwa niezdominowane profile. Próba 22
+osiągnęła CORR Sharpe 0,4247 i MMC Sharpe 0,2467 na późniejszym przedziale,
+natomiast próba 4 osiągnęła MMC Sharpe 0,3063. Są to wyniki opisowe, obciążone
+ograniczeniami selekcji. Uzasadniają dalszą walidację, ale nie stanowią
+potwierdzenia jakości produkcyjnej.
+
+Najważniejszym wkładem pracy jest połączenie metodyki dla danych finansowych
+z inżynierią eksperymentów oraz ujawnienie granic tej implementacji. Rezultatem
+nie jest pojedynczy wynik liczbowy, lecz system umożliwiający kontrolowane
+porównywanie konfiguracji i przejście od hipotezy do przenośnego artefaktu
+predykcyjnego. Jego gotowość produkcyjna zależy od ponownej oceny kandydatów na
+nowych okresach i stałego monitorowania jakości.

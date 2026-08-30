@@ -132,15 +132,9 @@ def _suggest_xgb_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         params["xgb_n_rounds"] = trial.suggest_categorical(
             "xgb_n_rounds", [150, 250, 400]
         )
-        params["xgb_early_stopping"] = trial.suggest_categorical(
-            "xgb_early_stopping", [20, 30, 50]
-        )
     else:
         params["xgb_n_rounds"] = trial.suggest_categorical(
             "xgb_n_rounds", [300, 500, 800]
-        )
-        params["xgb_early_stopping"] = trial.suggest_categorical(
-            "xgb_early_stopping", [30, 50, 100]
         )
     return params
 
@@ -165,21 +159,15 @@ def _suggest_lgbm_params(trial: optuna.Trial, *, fast: bool) -> dict[str, Any]:
         params["lgbm_n_rounds"] = trial.suggest_categorical(
             "lgbm_n_rounds", [200, 400, 600]
         )
-        params["lgbm_early_stopping"] = trial.suggest_categorical(
-            "lgbm_early_stopping", [30, 50]
-        )
     else:
         params["lgbm_n_rounds"] = trial.suggest_categorical(
             "lgbm_n_rounds", [300, 500, 800, 1500]
         )
-        params["lgbm_early_stopping"] = trial.suggest_categorical(
-            "lgbm_early_stopping", [50, 100]
-        )
     return params
 
 
-def _suggest_catboost_params(trial: optuna.Trial) -> dict[str, Any]:
-    return {
+def _suggest_catboost_params(trial: optuna.Trial, *, use_gpu: bool) -> dict[str, Any]:
+    params: dict[str, Any] = {
         "catboost_depth": trial.suggest_categorical("catboost_depth", [4, 5, 6]),
         "catboost_learning_rate": trial.suggest_float(
             "catboost_learning_rate", 0.01, 0.05, log=True
@@ -188,10 +176,12 @@ def _suggest_catboost_params(trial: optuna.Trial) -> dict[str, Any]:
         "catboost_min_data_in_leaf": trial.suggest_categorical(
             "catboost_min_data_in_leaf", [100, 200, 500]
         ),
-        "catboost_colsample_bylevel": trial.suggest_float(
-            "catboost_colsample_bylevel", 0.2, 0.4
-        ),
     }
+    if not use_gpu:
+        params["catboost_colsample_bylevel"] = trial.suggest_float(
+            "catboost_colsample_bylevel", 0.2, 0.4
+        )
+    return params
 
 
 def _suggest_packboost_model_params(
@@ -287,6 +277,7 @@ def _suggest_model_hyperparams(
     active_types: set[str],
     *,
     fast: bool,
+    use_gpu: bool = False,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if "XGBoost" in active_types:
@@ -294,7 +285,7 @@ def _suggest_model_hyperparams(
     if "LightGBM" in active_types:
         params.update(_suggest_lgbm_params(trial, fast=fast))
     if "CatBoost" in active_types:
-        params.update(_suggest_catboost_params(trial))
+        params.update(_suggest_catboost_params(trial, use_gpu=use_gpu))
     if "Packboost" in active_types:
         params.update(_suggest_packboost_model_params(trial, fast=fast))
     if active_types.intersection(FOUNDATION_MODELS):
@@ -381,7 +372,14 @@ def _suggest_core_params(
         cfg.update(_suggest_packboost_preprocessor_params(trial, fast=fast))
 
     active_types = _active_model_types(cfg)
-    cfg.update(_suggest_model_hyperparams(trial, active_types, fast=fast))
+    cfg.update(
+        _suggest_model_hyperparams(
+            trial,
+            active_types,
+            fast=fast,
+            use_gpu=use_gpu,
+        )
+    )
 
     tree_models = {"XGBoost", "LightGBM", "CatBoost", "RandomForest", "ExtraTrees"}
     if active_types.intersection(tree_models):

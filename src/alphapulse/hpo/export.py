@@ -9,6 +9,7 @@ from ..experiments.data import load_train_only_frame, load_train_targets_frame
 from ..features.catalog import FeatureCatalog, load_feature_catalog, load_target_catalog
 from ..pipeline.model_access import PipelineLike
 from ..utils import set_global_seed
+from ..validation.purge import effective_purge_eras
 from .builder import TREE_MODEL_NAMES
 from .feature_routing import FeatureRoutingResult, resolve_feature_routing
 from .objective import _fit_pipeline, _resolve_pipeline_cfg
@@ -221,6 +222,17 @@ def build_hpo_pipeline_from_flat(
         data_dir,
         allow_resample=allow_target_resample,
         seed=data_seed,
+    )
+    configured_purge = max(
+        int(validated_flat.get("purge_eras", 0)),
+        int(validated_flat.get("effective_purge_eras", 0)),
+    )
+    validated_flat["effective_purge_eras"] = effective_purge_eras(
+        configured_purge,
+        [
+            str(validated_flat.get("primary_target", target_col_fallback)),
+            *[str(target) for target in validated_flat.get("auxiliary_targets", [])],
+        ],
     )
     context = resolve_hpo_build_context(validated_flat)
     context = HpoBuildContext(

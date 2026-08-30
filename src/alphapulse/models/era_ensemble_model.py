@@ -17,7 +17,10 @@ class EraEnsembleModel(BaseModel):
     Partitions training eras into n_subs groups and trains one sub-model per
     group. Predictions are averaged unless a separate validation set is
     provided, in which case a Ridge meta-learner is fitted only on that
-    out-of-sample set.
+    out-of-sample set. The validation labels are reserved for the meta-learner;
+    base learners therefore use a fixed training budget. Supporting early
+    stopping would require a second, temporally purged validation window (or
+    out-of-fold predictions) to avoid reusing the meta-learner labels.
 
     Falls back to single-model training when era data is unavailable, so
     existing tests that don't pass era columns continue to work.
@@ -67,10 +70,6 @@ class EraEnsembleModel(BaseModel):
             self.is_trained = True
             return metrics
 
-        era_val: pd.Series | None = None
-        if X_val is not None and self.era_column in X_val.columns:
-            era_val = X_val[self.era_column]
-
         unique_eras = np.sort(era_train.unique())
         n_parts = min(self.n_subs, len(unique_eras))
         era_partitions = np.array_split(unique_eras, n_parts)
@@ -98,22 +97,16 @@ class EraEnsembleModel(BaseModel):
                 len(era_group),
             )
 
-            X_sub_val: pd.DataFrame | None = None
-            y_sub_val: pd.Series | None = None
-            if X_val is not None and era_val is not None:
-                val_mask = era_val.isin(era_group)
-                if val_mask.any():
-                    X_sub_val = X_val[val_mask]
-                    y_sub_val = y_val[val_mask] if y_val is not None else None
-
             model = self.base_model_factory()
             model.name = f"{self.name}_sub{i}"
+            base_train_kwargs = dict(kwargs)
+            base_train_kwargs.pop("early_stopping_rounds", None)
             model.train(
                 X_sub,
                 y_sub,
-                X_val=X_sub_val,
-                y_val=y_sub_val,
-                **kwargs,
+                X_val=None,
+                y_val=None,
+                **base_train_kwargs,
             )
             self._sub_models.append(model)
 

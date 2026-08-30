@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numerapi
@@ -48,12 +48,11 @@ class DownloadConfig:
     dataset_version: str = "v5.2"
     output_dir: Path = Path("data")
     files: list[str] | None = None
-    public_id: str | None = field(
-        default_factory=lambda: os.getenv("NUMERAI_PUBLIC_API_KEY")
-    )
-    secret_key: str | None = field(
-        default_factory=lambda: os.getenv("NUMERAI_PRIVATE_API_KEY")
-    )
+    # Keep credentials out of dataclass defaults. Tyro displays defaults in
+    # ``--help``, so resolving environment variables here would leak API keys
+    # into terminal output and logs.
+    public_id: str | None = None
+    secret_key: str | None = None
 
     def __post_init__(self) -> None:
         if not self.files:
@@ -89,8 +88,10 @@ def main(config: DownloadConfig) -> None:
 
     logger.info(f"Initializing NumerAPI for dataset version: {config.dataset_version}")
 
+    public_id = config.public_id or os.getenv("NUMERAI_PUBLIC_API_KEY")
+    secret_key = config.secret_key or os.getenv("NUMERAI_PRIVATE_API_KEY")
     napi = numerapi.NumerAPI(
-        public_id=config.public_id, secret_key=config.secret_key, verbosity="warning"
+        public_id=public_id, secret_key=secret_key, verbosity="warning"
     )
 
     try:

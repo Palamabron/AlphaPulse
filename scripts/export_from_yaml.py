@@ -37,6 +37,10 @@ from alphapulse.hpo.builder import (
     build_multi_target_from_config,
     build_pipeline_or_multi,
 )
+from alphapulse.pipeline.multi_target import MultiTargetPipeline
+from alphapulse.pipeline.multihead import MultiHeadPipeline
+from alphapulse.pipeline.pipeline import Pipeline
+from alphapulse.validation.purge import effective_purge_eras
 
 
 def _needs_era(exp: ExperimentV1) -> bool:
@@ -47,6 +51,13 @@ def _needs_era(exp: ExperimentV1) -> bool:
             if p.type == "Packboost":
                 return True
     return False
+
+
+def _internal_purge_eras(exp: ExperimentV1) -> int:
+    return effective_purge_eras(
+        exp.evaluation.walk_forward_n_purge,
+        [exp.data.target_col, *(exp.data.auxiliary_targets or [])],
+    )
 
 
 def main(
@@ -83,6 +94,7 @@ def main(
     need_era = _needs_era(exp)
     multi_target = is_multi_target_experiment(exp)
     targets = None
+    pipeline: Pipeline | MultiHeadPipeline | MultiTargetPipeline
     if multi_target:
         X_train, y_train, targets, feature_cols = load_train_targets_frame(
             data_dir=data_dir,
@@ -129,11 +141,13 @@ def main(
         )
 
     era_train = X_train["era"] if "era" in X_train.columns else None
+    internal_purge_eras = _internal_purge_eras(exp)
     X_fit, y_fit, X_val_internal, y_val_internal = internal_val_split(
         X_train,
         y_train,
         era_train=era_train,
         force_internal=needs_internal_val_for_experiment(exp),
+        purge_eras=internal_purge_eras,
     )
     targets_fit = targets.loc[X_fit.index] if targets is not None else None
     targets_val = (

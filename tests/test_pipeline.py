@@ -255,6 +255,40 @@ class TestInternalValSplit:
         val_eras = set(era.loc[X_va.index])
         assert val_eras == {"e009"}
 
+    def test_era_aware_split_purges_gap_before_validation(self) -> None:
+        n_eras, rows_per_era = 30, 3
+        eras = [f"e{i:03d}" for i in range(n_eras)]
+        era = pd.Series(np.repeat(eras, rows_per_era))
+        X = pd.DataFrame({"a": np.arange(n_eras * rows_per_era)})
+        y = pd.Series(np.arange(n_eras * rows_per_era, dtype=float))
+
+        X_tr, _, X_va, _ = internal_val_split(
+            X,
+            y,
+            era_train=era,
+            force_internal=True,
+            purge_eras=4,
+        )
+
+        assert X_va is not None
+        assert set(era.loc[X_va.index]) == {"e027", "e028", "e029"}
+        assert set(era.loc[X_tr.index]) == set(eras[:23])
+        assert set(eras[23:27]).isdisjoint(set(era.loc[X_tr.index]))
+
+    def test_internal_val_split_rejects_impossible_purge(self) -> None:
+        X = pd.DataFrame({"a": np.arange(10)})
+        y = pd.Series(np.arange(10, dtype=float))
+        era = pd.Series([f"e{i:02d}" for i in range(10)])
+
+        with pytest.raises(ValueError, match="leaves no training eras"):
+            internal_val_split(
+                X,
+                y,
+                era_train=era,
+                force_internal=True,
+                purge_eras=9,
+            )
+
     def test_stacking_forces_internal_split(self) -> None:
         X = pd.DataFrame({"a": np.arange(100.0)})
         y = pd.Series(np.arange(100.0))

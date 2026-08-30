@@ -11,6 +11,8 @@ as a ranking under current official Numerai scoring.
 
 ![AlphaPulse architecture](docs/assets/architecture.drawio.png)
 
+The architecture diagram source is editable in [draw.io](docs/assets/architecture.drawio).
+
 ## Methodological status
 
 AlphaPulse now exposes two explicitly separated metric families:
@@ -64,8 +66,8 @@ API credentials may be stored in `.env` as `NUMERAI_PUBLIC_API_KEY` and
 
 ```bash
 uv run python scripts/download_dataset.py \
-  --dataset-version v5.3 \
-  --output-dir data
+  --config.dataset-version v5.3 \
+  --config.output-dir data
 ```
 
 Downloads are written to a temporary sibling file, validated, and atomically moved

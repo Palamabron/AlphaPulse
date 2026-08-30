@@ -111,11 +111,63 @@ def test_suggest_model_hyperparams_skips_unused_families() -> None:
     trial = MagicMock()
     params = _suggest_model_hyperparams(trial, {"CatBoost"}, fast=True)
     assert "catboost_depth" in params
+    assert "catboost_colsample_bylevel" in params
     assert "lgbm_num_leaves" not in params
     assert "xgb_max_depth" not in params
     assert "foundation_max_train_rows" not in params
     trial.suggest_categorical.assert_called()
     trial.suggest_float.assert_called()
+
+
+def test_suggest_model_hyperparams_omits_catboost_colsample_on_gpu() -> None:
+    trial = MagicMock()
+
+    params = _suggest_model_hyperparams(
+        trial,
+        {"CatBoost"},
+        fast=True,
+        use_gpu=True,
+    )
+
+    assert "catboost_depth" in params
+    assert "catboost_colsample_bylevel" not in params
+    suggested_floats = [call.args[0] for call in trial.suggest_float.call_args_list]
+    assert "catboost_colsample_bylevel" not in suggested_floats
+
+
+@pytest.mark.parametrize(
+    "sampler",
+    [
+        optuna.samplers.RandomSampler(seed=7),
+        optuna.samplers.TPESampler(seed=7, n_startup_trials=1),
+    ],
+)
+def test_gpu_optuna_samplers_do_not_record_dead_catboost_colsample(
+    sampler: optuna.samplers.BaseSampler,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "alphapulse.hpo.optuna_search.available_boosting_models",
+        lambda: ["CatBoost"],
+    )
+    monkeypatch.setattr(
+        "alphapulse.hpo.optuna_search.available_foundation_models",
+        lambda *, hpo_fast=False: [],
+    )
+    study = optuna.create_study(direction="maximize", sampler=sampler)
+    trial = study.ask()
+
+    cfg = suggest_flat_config(
+        trial,
+        fast=True,
+        max_models=1,
+        use_gpu=True,
+    )
+
+    assert cfg["model_1_type"] == "CatBoost"
+    assert "catboost_colsample_bylevel" not in cfg
+    assert "catboost_colsample_bylevel" not in trial.params
+    tell_trial_result(study, trial, 0.0)
 
 
 def test_suggest_model_hyperparams_includes_foundation_when_active() -> None:
@@ -195,7 +247,37 @@ def test_suggest_flat_config_fast_respects_max_models() -> None:
     assert saw_three
 
 
-def test_gpu_foundation_trials_are_single_model_single_target(tmp_path: Path) -> None:
+def test_era_ensemble_search_does_not_sample_dead_early_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "alphapulse.hpo.optuna_search.available_boosting_models",
+        lambda: ["XGBoost", "LightGBM"],
+    )
+    monkeypatch.setattr(
+        "alphapulse.hpo.optuna_search.available_foundation_models",
+        lambda *, hpo_fast=False: [],
+    )
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.RandomSampler(seed=31),
+    )
+
+    for _ in range(12):
+        trial = study.ask()
+        cfg = suggest_flat_config(trial, fast=True, max_models=1)
+        tell_trial_result(study, trial, 0.0)
+        assert "xgb_early_stopping" not in cfg
+        assert "lgbm_early_stopping" not in cfg
+
+
+def test_gpu_foundation_trials_are_single_model_single_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "alphapulse.hpo.optuna_search.available_foundation_models",
+        lambda *, hpo_fast=False: ["TabPFN", "TabICL"] if hpo_fast else [],
+    )
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     payload = {
