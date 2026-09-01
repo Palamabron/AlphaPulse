@@ -116,11 +116,11 @@ próbkowaniem o tym samym budżecie.
 \section{Scenariuszowa ekstrapolacja dłuższego HPO}
 W celu oceny możliwego efektu dłuższego uruchomienia wykonano symulację
 scenariuszową wyłącznie dla maksimum CORR Sharpe na holdoucie wykorzystanym w badaniu.
-Nie jest to prognoza jakości rynkowej. Wariant empiryczny losuje z siedmiu
-zaobserwowanych wyników adaptacyjnego TPE i nie tworzy niewidzianego ogona.
-Wariant ostrożny estymuje średnią i odchylenie przez bootstrap tych samych siedmiu
-wyników, a następnie wygładza rozkład rozkładem normalnym. Wariant optymistyczny
-stosuje tę samą procedurę do 16 obserwacji LightGBM i CatBoost, czyli rodzin, które
+Nie jest to prognoza jakości rynkowej. Scenariusz empiryczny losuje z siedmiu
+zaobserwowanych wyników fazy adaptacyjnej TPE i nie tworzy niewidzianego ogona.
+Pierwszy scenariusz wygładzony estymuje średnią i odchylenie przez bootstrap tych
+samych siedmiu wyników, a następnie losuje z rozkładu normalnego. Drugi scenariusz
+wygładzony stosuje tę samą procedurę do 16 obserwacji LightGBM i CatBoost, czyli rodzin, które
 w zrealizowanej serii miały najwyższe mediany. Dla każdego budżetu wykonano
 200\,000 replikacji z ziarnem 20260830. W każdej replikacji wynik końcowy jest
 większą z wartości obecnego lidera 1,0443 i maksimum przyszłych losowań.
@@ -145,16 +145,18 @@ po zwiększeniu łącznej liczby kompletnych prób}
 \toprule
 Scenariusz & Budżet & Średnia & Mediana & Kwantyle 5-95\% & Replikacje z poprawą \\
 \midrule
-Ostrożny TPE & 50 & 1,0481 & 1,0443 & 1,0443-1,0676 & 8,0\% \\
-Ostrożny TPE & 100 & 1,0542 & 1,0443 & 1,0443-1,1151 & 19,9\% \\
-Ostrożny TPE & 200 & 1,0635 & 1,0443 & 1,0443-1,1488 & 33,5\% \\
-Optymistyczny - drzewa & 50 & 1,0634 & 1,0443 & 1,0443-1,1700 & 24,1\% \\
-Optymistyczny - drzewa & 100 & 1,0886 & 1,0443 & 1,0443-1,2398 & 47,0\% \\
-Optymistyczny - drzewa & 200 & 1,1156 & 1,0837 & 1,0443-1,2889 & 63,5\% \\
+TPE, 7 prób (wygładzony) & 50 & 1,0481 & 1,0443 & 1,0443-1,0676 & 8,0\% \\
+TPE, 7 prób (wygładzony) & 100 & 1,0542 & 1,0443 & 1,0443-1,1151 & 19,9\% \\
+TPE, 7 prób (wygładzony) & 200 & 1,0635 & 1,0443 & 1,0443-1,1488 & 33,5\% \\
+Drzewa, 16 prób (wygładzony) & 50 & 1,0634 & 1,0443 & 1,0443-1,1700 & 24,1\% \\
+Drzewa, 16 prób (wygładzony) & 100 & 1,0886 & 1,0443 & 1,0443-1,2398 & 47,0\% \\
+Drzewa, 16 prób (wygładzony) & 200 & 1,1156 & 1,0837 & 1,0443-1,2889 & 63,5\% \\
 \bottomrule
 \end{tabular}
 \sourceown
 \end{table}
+
+\FloatBarrier
 
 Empiryczne przelosowanie siedmiu wyników TPE daje dla każdego budżetu maksimum
 1,0443 i zerowy odsetek replikacji z poprawą, ponieważ najlepszy zaobserwowany wynik tej fazy
@@ -231,9 +233,9 @@ wyróżniają próby niezdominowane względem CORR Sharpe i MMC Sharpe.}
 \FloatBarrier
 Do treningu nastawionego na stabilny CORR wybrano próbę 22. Jest to zespół pięciu
 modeli bazowych LightGBM i meta-modelu Ridge,
-z RobustScalerem i grupową selekcją wariancji. Router wskazuje 989 unikalnych
-cech z grup
-\texttt{medium+agility+midnight}, a po selekcji do LightGBM trafia 876 kolumn.
+z RobustScalerem i grupową selekcją wariancji. Konfiguracja próby łączy 989
+unikalnych cech z grup \texttt{medium}, \texttt{agility} i \texttt{midnight},
+a po selekcji do LightGBM trafia 876 kolumn.
 Model wykorzystuje 200 rund, tempo uczenia 0,0200, 31 liści i neutralizację cech
 0,2373. Jej CORR Sharpe wynosi 0,7149 na
 holdoucie i 0,4247 na późniejszym przedziale, przy dodatnim MMC Sharpe 0,2467.

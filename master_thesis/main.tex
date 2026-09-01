@@ -519,38 +519,24 @@ drzew oraz modele typu foundation dla danych tabelarycznych, w tym TabPFN i TabI
 ważna jest wspólna abstrakcja modelu: umożliwia porównanie rodzin w jednym protokole,
 bez wiązania warstwy danych i ewaluacji z konkretną biblioteką.
 
-\section{Luka projektowa i pozycjonowanie AlphaPulse}
-Ogólny system AutoML zazwyczaj kończy działanie na wytrenowanym estymatorze.
-Tracker eksperymentów rejestruje przebieg, lecz nie definiuje podziału czasowego ani
-formatu wdrożenia. AlphaPulse łączy te role z wymaganiami Numerai, co przedstawia
-tabela~\ref{tab:solution-positioning}.
+\section{Luka projektowa i rola AlphaPulse}
+Na potrzeby pracy lukę projektową zdefiniowano jako brak spójnego przepływu, który
+łączy cztery wymagania eksperymentów dla Numerai: deklaratywną konfigurację potoku,
+walidację respektującą kolejność er, ocenę za pomocą oficjalnych metryk oraz
+przygotowanie artefaktu do inferencji. Realizacja tych etapów oddzielnymi skryptami
+utrudnia zachowanie jednego protokołu i powiązanie wyniku z konfiguracją, wersją
+kodu oraz danymi wejściowymi.
 
-\begin{table}[htbp]
-\centering
-\caption[Pozycjonowanie AlphaPulse]{Pozycjonowanie AlphaPulse względem klas narzędzi wspierających eksperymenty ML}
-\label{tab:solution-positioning}
-\begin{tabularx}{\textwidth}{P{3.3cm}YYY}
-\toprule
-Klasa rozwiązania & Automatyzacja konfiguracji & Walidacja erowa & Eksport Numerai \\
-\midrule
-Ogólny AutoML & wysoka & wymaga konfiguracji domenowej & brak \\
-Tracker eksperymentów & nie & nie & brak \\
-Skrypt konkursowy & zależna od implementacji & możliwa & zwykle pojedynczy format \\
-\repo{} & HPO i AutoResearch & purge, holdout i walk-forward & \texttt{predict.pkl} i test dymny \\
-\bottomrule
-\end{tabularx}
-\sourceown
-\end{table}
+AlphaPulse odpowiada na tę lukę przez podejście sterowane konfiguracją. Opis
+eksperymentu jest oddzielony od mechaniki wykonania, dzięki czemu ten sam graf
+potoku może zostać uruchomiony w trybie pojedynczym, HPO, diagnostycznym i
+eksportowym. System utrwala konfigurację, parametry oraz proweniencję uruchomienia,
+co umożliwia spójne porównywanie wyników.
 
-Podejście sterowane konfiguracją rozdziela opis eksperymentu od mechaniki
-wykonania. Dzięki temu konfiguracja jest wersjonowalna, a ten sam graf potoku można
-uruchomić w trybie pojedynczym, HPO, diagnostycznym i eksportowym. Utrwalenie
-konfiguracji, wersji kodu i parametrów ułatwia spójne porównywanie uruchomień.
-
-AlphaPulse łączy wymagania domenowe z pełnym przepływem konkursowym: od danych i
-konfiguracji YAML, przez trening, HPO oraz walidację erową, po eksport funkcji
-\path{predict.pkl} lub pliku CSV. W dalszej części jest więc traktowany jako
-środowisko do budowy i oceny potoków, a nie jako pojedynczy model.
+Zakres przepływu obejmuje dane i konfigurację YAML, trening, HPO, walidację erową
+oraz eksport funkcji \path{predict.pkl} lub pliku CSV. W dalszej części AlphaPulse
+jest zatem traktowany jako środowisko do budowy i oceny potoków, a nie jako
+pojedynczy model.
 
 \chapter{Architektura systemu AlphaPulse}
 
@@ -1037,10 +1023,10 @@ pracy na pełnej skali. Jego miary jakości nie są przenoszone do rankingu v5.3
 \section{Dane i podział czasowy badania końcowego}
 Końcowe HPO korzysta z deterministycznej, dziesięcioprocentowej próby zbioru
 \texttt{train.parquet}: \FinalSampleRows{} wierszy i 574 ery. Plik źródłowy
-zawiera 3555 zanonimizowanych cech. Konfiguracja każdej próby wybierała ich
-grupy, dlatego router wskazywał od 256 do 989 unikalnych cech przed
-przetwarzaniem wstępnym. Transformacje grupowe mogły później zmienić wymiar. Przykładowo
-próba 22 kierowała 989 cech, ale selektor wariancji pozostawiał 876 kolumn
+zawiera 3555 zanonimizowanych cech. Konfiguracja każdej próby wybierała grupy
+cech i łączyła je w zbiór zawierający od 256 do 989 unikalnych cech przed
+przetwarzaniem wstępnym. Transformacje grupowe mogły później zmienić wymiar.
+Przykładowo próba 22 wykorzystywała 989 cech, ale selektor wariancji pozostawiał 876 kolumn
 wyjściowych. Liczba 780 w protokole odpowiada domyślnemu zestawowi
 \texttt{medium}, a nie wspólnemu wymiarowi prób.
 Losowanie wierszy ma stałe ziarno 20260824, a integralność wejścia jest utrwalona
@@ -1161,8 +1147,9 @@ przelosowuje z powtórzeniami siedem ukończonych wyników fazy adaptacyjnej, be
 dopuszczenia wartości spoza ich zakresu. W scenariuszach wygładzonych każda z
 200\,000 replikacji najpierw bootstrapuje obserwacje i estymuje ich średnią oraz
 odchylenie standardowe, a maksimum przyszłych losowań wyznacza z lokalnego rozkładu
-normalnego. Wariant ostrożny używa siedmiu wyników adaptacyjnego TPE, a wariant
-optymistyczny 16 wyników LightGBM i CatBoost. Ziarno symulacji wynosi 20260830.
+normalnego. Pierwszy scenariusz wygładzony wykorzystuje siedem wyników fazy
+adaptacyjnej TPE, a drugi 16 wyników LightGBM i CatBoost. Ziarno symulacji wynosi
+20260830.
 Kolejne propozycje TPE nie są niezależne ani wymienne, dlatego raportowany odsetek
 replikacji z poprawą jest wynikiem warunkowym przy założeniach scenariusza, a nie
 estymatorem prawdopodobieństwa poprawy. Nie symulowano późniejszego CORR ani MMC.

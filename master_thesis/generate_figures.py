@@ -787,7 +787,7 @@ def generate_hpo_budget_extrapolation(trials: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             _extrapolation_row(
                 scenario="empirical_no_unseen_tail",
-                label="empiryczny · bez niewidocznego ogona",
+                label="empiryczny · 7 prób TPE",
                 budget=budget,
                 source=adaptive,
                 incumbent=incumbent,
@@ -799,10 +799,10 @@ def generate_hpo_budget_extrapolation(trials: pd.DataFrame) -> pd.DataFrame:
     # fixed order, reproduces the values reported in the thesis analysis.
     rng = np.random.default_rng(EXTRAPOLATION_SEED)
     for scenario, label, source in (
-        ("cautious_tpe7", "ostrożny · kontynuacja TPE", adaptive),
+        ("smoothed_tpe7", "wygładzony · 7 prób TPE", adaptive),
         (
-            "optimistic_tree16",
-            "optymistyczny · koncentracja na drzewach",
+            "smoothed_tree16",
+            "wygładzony · 16 prób drzewiastych",
             tree_families,
         ),
     ):
@@ -827,8 +827,8 @@ def generate_hpo_budget_extrapolation(trials: pd.DataFrame) -> pd.DataFrame:
     extrapolation = pd.DataFrame(rows)
     scenario_order = {
         "empirical_no_unseen_tail": 0,
-        "cautious_tpe7": 1,
-        "optimistic_tree16": 2,
+        "smoothed_tpe7": 1,
+        "smoothed_tree16": 2,
     }
     extrapolation["_scenario_order"] = extrapolation["scenario"].map(scenario_order)
     extrapolation = extrapolation.sort_values(
@@ -848,9 +848,9 @@ def plot_hpo_budget_extrapolation(extrapolation: pd.DataFrame) -> None:
     figure, axes = plt.subplots(1, 2, figsize=(10.2, 4.6))
     incumbent = float(extrapolation["incumbent_holdout_corr_sharpe"].iloc[0])
     visual = {
-        "empirical_no_unseen_tail": (GRAY, "empiryczny"),
-        "cautious_tpe7": (TEAL, "ostrożny TPE"),
-        "optimistic_tree16": (ORANGE, "optymistyczny - drzewa"),
+        "empirical_no_unseen_tail": (GRAY, "empiryczny (7 prób TPE)"),
+        "smoothed_tpe7": (TEAL, "wygładzony (7 prób TPE)"),
+        "smoothed_tree16": (ORANGE, "wygładzony (16 prób drzewiastych)"),
     }
 
     for scenario, (color, label) in visual.items():
