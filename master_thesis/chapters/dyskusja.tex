@@ -49,29 +49,27 @@ losowej fazy startowej TPE. Pierwszą próbą adaptacyjną była próba 23. Wyni
 prób 22 i 4 nie można zatem przypisywać adaptacyjnemu działaniu samplera.
 
 \section{Odpowiedzi na pytania eksperymentalne}
-\begin{enumerate}
-    \item \textbf{Wykonalność na pełnym zbiorze i zapis przebiegu} Potok przetworzył
+\begin{enumerate}\item \textbf{Wykonalność na pełnym zbiorze i zapis przebiegu} Potok przetworzył
     2,75 mln wierszy uczących i 3,90 mln wierszy walidacyjnych w 31,5 min.
     Uruchomienie zapisało konfigurację, jej skrót, metryki i artefakty. Końcowa
-    seria HPO utrwalała dodatkowo skróty danych i drzewa źródeł
-    \item \textbf{Rodziny modeli} W zrealizowanym budżecie najwyższe mediany
+    seria HPO utrwalała dodatkowo skróty danych i drzewa źródeł.
+\item \textbf{Rodziny modeli} W zrealizowanym budżecie najwyższe mediany
     na holdoucie uzyskały zespoły erowe z bazowymi modelami CatBoost i LightGBM.
     Porównanie ma charakter opisowy, ponieważ liczba prób dla rodzin była różna,
-    a konfiguracje nie tworzyły kontrolowanej ablacji
-    \item \textbf{Transfer i kompromis CORR-MMC} Zgodność wyników na dwóch
+    a konfiguracje nie tworzyły kontrolowanej ablacji.
+\item \textbf{Transfer i kompromis CORR-MMC} Zgodność wyników na dwóch
     przedziałach była dodatnia, ale umiarkowana. Próby 22 i 4 utworzyły front
-    Pareto i reprezentują odpowiednio profil CORR oraz MMC
-    \item \textbf{Koszt i kompletność procesu} Uruchomiono 32 próby, z których
+    Pareto i reprezentują odpowiednio profil CORR oraz MMC.
+\item \textbf{Koszt i kompletność procesu} Uruchomiono 32 próby, z których
     27 zakończyło się kompletnym wynikiem. Mediana czasu kompletnej próby
     wyniosła 127,2 s. Zrealizowany zakres był mniejszy od górnego limitu
-    200 prób lub 11,5 godziny, dlatego wyniki opisują faktycznie wykorzystany budżet
-    \item \textbf{Wrażliwość na hipotetyczny budżet} W scenariuszu wygładzonym
+    200 prób lub 11,5 godziny, dlatego wyniki opisują faktycznie wykorzystany budżet.
+\item \textbf{Wrażliwość na hipotetyczny budżet} W scenariuszu wygładzonym
     opartym na siedmiu próbach TPE 33,5\% replikacji dla 200 kompletnych prób
     poprawiało obecnego lidera, a w scenariuszu opartym na 16 próbach LightGBM
     i CatBoost odsetek ten wyniósł 63,5\%. Rozpiętość potwierdza dominujący wpływ
     założeń przy zaledwie siedmiu obserwacjach adaptacyjnych. Wartości nie są
-    estymowanymi prawdopodobieństwami ani prognozą jakości w rundach bieżących
-\end{enumerate}
+    estymowanymi prawdopodobieństwami ani prognozą jakości w rundach bieżących.\end{enumerate}
 
 Odpowiedzi wynikają z pomiarów oraz analiz scenariuszowych opartych na zapisanych
 artefaktach. Nie można na ich podstawie wnioskować o skróceniu czasu pracy
